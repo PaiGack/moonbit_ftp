@@ -33,7 +33,7 @@ W1 之后有并行机会：W7 的 CLI 骨架可以在 W4 完成后先起一个�
 
 - [ ] `moon.mod` 确认 `preferred_target = "native"`（已改过，复核一次）
 - [ ] `moon add moonbitlang/async`，锁定版本 `0.21.3`（当前最新）
-- [ ] 按 [01-architecture.md](./01-architecture.md) 第 2 节建包骨架，每个包放一个 `moon.pkg` 和一个占位 `.mbt`
+- [ ] 按 [01-architecture.md](./01-architecture.md) 第 2 节建包骨架：各包**直接平铺在仓库根目录**（无 `src/` 中间层），每个包放一个 `moon.pkg` 和一个占位 `.mbt`
 - [ ] 删除模板文件 `ftp.mbt` / `ftp_test.mbt` / `ftp_wbtest.mbt`（内容为 3 行注释）+ 根目录空 `moon.pkg`
 - [ ] `cmd/main` 改名为 `cmd/ftp`，`main.mbt` 换成参数解析骨架（打印 usage 即可）
 - [ ] 每个纯逻辑包加一条架构守卫测试：断言包内不引用 `moonbitlang/async`
