@@ -114,6 +114,8 @@
 
 ### 2.3 包结构设计
 
+所有包直接平铺在仓库根目录，不引入 `src/` 中间层（包引用写 `@client` 而非 `@src.client`）。
+
 ```
 .
 ├── types/        Entry / EntryType / TransferType          纯逻辑
@@ -127,7 +129,7 @@
 ├── client/       ServerConn 等价物：Dial/Login/Retr/Stor/... IO
 ├── walker/       目录树遍历                                   IO
 ├── debug/        调试输出包装（对齐 io.Reader/Writer）          IO
-└── cmd/ftp/      CLI 示例
+└── cmd/          CLI 示例
 ```
 
 分层依赖：`types` ← `scanner`/`parse`/`control` ← `transport` ← `client` ← `walker`。
