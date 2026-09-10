@@ -249,7 +249,6 @@ while w.next() {
 
 | 文档 | 内容 | 对应本文档 |
 | --- | --- | --- |
-| [porting/README.md](./porting/README.md) | 文档地图与速览 | 全文 |
 | [porting/01-architecture.md](./porting/01-architecture.md) | 包结构、依赖方向、错误模型、超时与生命周期、`moon.mod` 配置 | 2.2 / 2.3 |
 | [porting/02-upstream-map.md](./porting/02-upstream-map.md) | 上游文件 → MoonBit 落点逐条映射 | 1.2 |
 | [porting/03-workplan.md](./porting/03-workplan.md) | **W0–W8 工作包拆解**（P0–P7 的细化版） | 2.5 |

@@ -38,12 +38,6 @@ moon fmt            # 格式化
 └── moon.pkg                # 包配置
 ```
 
-## 仓库地址
-
-本项目以 GitHub 作为公开申报仓库：<https://github.com/PaiGack/moonbit_ftp>
-
-CNB（`cnb.cool`）上的仓库为镜像开发环境，仅用于日常协作，不属于申报地址。
-
 ## CI
 
 - **GitHub Actions**（`.github/workflows/ci.yml`）：申报仓库的公开 CI，覆盖 `moon fmt --check`、
@@ -52,11 +46,6 @@ CNB（`cnb.cool`）上的仓库为镜像开发环境，仅用于日常协作，�
   镜像按 `versionBy` 哈希缓存，Dockerfile 未变更时不重复构建。
 
 两者目标不同：GitHub Actions 面向验收与外部可见性，CNB 面向开发效率。代码以 GitHub 仓库为准。
-
-## 文档
-
-- [移植方案（docs/porting.md）](docs/porting.md) —— `jlaffaye/ftp` 源码分析、包结构设计、API 映射与分阶段计划
-- [项目申报书（docs/proposal.md）](docs/proposal.md) —— MoonBit 开源赛事申报材料
 
 ## 致谢与来源
 
