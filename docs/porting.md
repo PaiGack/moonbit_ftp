@@ -114,9 +114,10 @@
 
 ### 2.3 包结构设计
 
+所有包直接平铺在仓库根目录，不引入 `src/` 中间层（包引用写 `@client` 而非 `@src.client`）。
+
 ```
-src/
-├── pkg                        # 门面包：对外 API 聚合与再导出
+.
 ├── types/                     # Entry / EntryType / TransferType / Status 常量
 ├── error/                     # 错误类型：InvalidCommand / UnsupportedListLine / ServerError ...
 ├── control/                   # 控制通道：命令编码、多行响应、状态码解析、状态码表
@@ -125,7 +126,8 @@ src/
 ├── transport/                 # EPSV / PASV / 数据连接 / TLS / PRET / REST 统一入口
 ├── client/                    # ServerConn 等价物：Dial/Login/Retr/Stor/List/...
 ├── walker/                    # 目录树遍历
-└── debug/                     # 调试输出包装（对齐 io.Reader/Writer）
+├── debug/                     # 调试输出包装（对齐 io.Reader/Writer）
+└── cmd/                       # CLI 入口
 ```
 
 分层依赖：`types` ← `scanner`/`parse`/`control` ← `transport` ← `client` ← `walker`。

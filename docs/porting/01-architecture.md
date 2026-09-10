@@ -12,23 +12,28 @@
 
 ## 2. 包结构
 
+所有包**直接平铺在仓库根目录**，不额外套一层 `src/`。MoonBit 的包路径由目录决定，
+多套一层只会让 `@src.client` 这种冗余前缀出现在所有引用处，没有收益。
+
 ```
-src/
+.
 ├── types/        Entry / EntryType / TransferType / ListFormat       纯逻辑
 ├── status/       47 个 RFC 959 状态码常量 + status_text()          纯逻辑
 ├── error/        FtpError 及其子错误（注入/解析不支持/服务器拒绝）      纯逻辑
 ├── scanner/      空白分隔字段扫描器（List 行解析用）                   纯逻辑
 ├── parse/        RFC3659 / UNIX ls / DOS DIR / hostedftp 四种解析器    纯逻辑
-└── pathutil/     远端路径 join（对齐 Go path.Join 语义）              纯逻辑
+├── pathutil/     远端路径 join（对齐 Go path.Join 语义）              纯逻辑
 ├── control/      控制通道：命令编码、多行响应、状态码校验              IO
 ├── transport/    EPSV / PASV / PRET / REST / 数据连接 / TLS 建立       IO
 ├── client/       FTPClient（对齐上游 ServerConn）：公开 API            IO
 ├── walker/       目录树遍历器（建在 client 上）                        IO
-└── debug/        控制/数据通道原始流量日志包装                         IO
-cmd/ftp/          CLI 示例：ls / get / put / walk / mkdir / rm
+├── debug/        控制/数据通道原始流量日志包装                         IO
+├── cmd/ftp/      CLI 示例：ls / get / put / walk / mkdir / rm
+└── moon.mod     模块根（根目录本身也是包的宿主）
 ```
 
 > 包名不用 `ftp`，因为模块名已经是 `PaiGack/ftp`，再套一层 `@ftp` 会重名。
+> 同理，也不引入 `src/` 中间层：包引用写 `@client` / `@parse`，而不是 `@src.client`。
 
 ## 3. 依赖方向（单向，禁止反向）
 

@@ -107,18 +107,18 @@ moon info && git diff --exit-code       # 接口文件无未提交变更
 ## 4. 交付物清单
 
 ```
-代码
-├── src/types/           Entry / EntryType / TransferType
-├── src/status/          ~50 状态码 + status_text
-├── src/error/           FtpError / FtpErrors
-├── src/scanner/         空白字段扫描器
-├── src/parse/           四种 LIST 解析器 + 半年规则
-├── src/pathutil/        远端路径 join
-├── src/control/         命令编码 + 多行响应 + 状态校验
-├── src/transport/       EPSV / PASV / PRET / REST / 数据连接 / TLS
-├── src/client/          FTPClient 公开 API
-├── src/walker/          目录树遍历
-├── src/debug/           流量日志
+代码（各包平铺在仓库根目录，无 src/ 中间层）
+├── types/               Entry / EntryType / TransferType
+├── status/              ~50 状态码 + status_text
+├── error/               FtpError / FtpErrors
+├── scanner/             空白字段扫描器
+├── parse/               四种 LIST 解析器 + 半年规则
+├── pathutil/            远端路径 join
+├── control/             命令编码 + 多行响应 + 状态校验
+├── transport/           EPSV / PASV / PRET / REST / 数据连接 / TLS
+├── client/              FTPClient 公开 API
+├── walker/              目录树遍历
+├── debug/               流量日志
 └── cmd/ftp/             CLI 示例
 
 测试
