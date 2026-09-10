@@ -91,22 +91,18 @@ moon info && git diff --exit-code       # 接口文件无未提交变更
 
 ```
 代码（单一根包，源码全部平铺在仓库根目录，无子目录、无 src/ 中间层）
-├── entry.mbt / consts.mbt        Entry / EntryType / TransferType / 常量
-├── status.mbt                    ~50 状态码 + status_text
+├── entry.mbt                     Entry / EntryType / TransferType
+├── status.mbt                    ~50 状态码 + 常量 + status_text
 ├── error.mbt                     FtpError / FtpErrors
-├── scanner.mbt                   空白字段扫描器
-├── parse*.mbt                    四种 LIST 解析器 + 半年规则
+├── parse.mbt                     四种 LIST 解析器 + 时间解析 + 字段扫描器
 ├── pathutil.mbt                  远端路径 join
-├── control.mbt / command.mbt / response.mbt
-│                                 命令编码 + 多行响应 + 状态校验
-├── state.mbt                     client 与 transport 共享连接状态
-├── transport_*.mbt               EPSV / PASV / PRET / REST / 数据连接 / TLS
-├── client*.mbt / options.mbt / dial.mbt / login.mbt
-├── list.mbt / transfer.mbt / fsops.mbt / lifecycle.mbt
-│                                 FTPClient 公开 API
-├── walker.mbt                    目录树遍历
-├── debug.mbt                     流量日志
-├── architecture.mbt              纯逻辑 / IO 文件清单
+├── control.mbt                   命令编码 + 多行响应 + 状态校验 + 流量日志
+├── transport.mbt                 EPSV / PASV / PRET / REST / 数据连接 / TLS
+├── client.mbt                    FTPClient + Session/Options + DialOptions
+├── dial.mbt                      拨号 + 登录 + FEAT 能力协商
+├── commands.mbt                  CWD / MKD / DELE / RNFR+RNTO / QUIT 等单命令封装
+├── list.mbt / transfer.mbt / walker.mbt
+│                                 列表、传输、目录树遍历
 └── cmd/ftp/                      CLI 示例
 
 测试

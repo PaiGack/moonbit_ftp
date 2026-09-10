@@ -60,8 +60,6 @@ pub async fn get_entry(FTPClient, String) -> Entry
 
 pub async fn get_time(FTPClient, String) -> @time.ZonedDateTime
 
-pub let io_sources : Array[String]
-
 pub fn is_all_digits(String) -> Bool
 
 pub fn is_bogus_data_ip(String, String) -> Bool
@@ -147,8 +145,6 @@ pub fn parse_rfc3659_line(String) -> Entry? raise FtpError
 pub fn parse_uint(String, Int) -> UInt64 raise FtpError
 
 pub async fn pasv(Session) -> (String, Int)
-
-pub let pure_logic_packages : Array[String]
 
 pub async fn quit(FTPClient) -> Unit
 

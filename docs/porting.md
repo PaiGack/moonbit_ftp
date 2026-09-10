@@ -119,31 +119,29 @@
 
 ```
 .
-├── entry.mbt / consts.mbt    Entry / EntryType / TransferType / 常量     纯逻辑
-├── status.mbt                RFC 959 状态码常量与文本                     纯逻辑
+├── entry.mbt                 Entry / EntryType / TransferType            纯逻辑
+├── status.mbt                RFC 959 状态码常量、常量与文本                纯逻辑
 ├── error.mbt                 FtpError 及其子错误                         纯逻辑
-├── scanner.mbt               空白字段扫描器（List line 解析用）             纯逻辑
-├── parse*.mbt                RFC3659 / ls / DIR / hostedftp 列表解析      纯逻辑
+├── parse.mbt                 RFC3659 / ls / DIR / hostedftp 列表解析      纯逻辑
+│                             时间字段解析 + 空白字段扫描器
 ├── pathutil.mbt              远端路径 join                               纯逻辑
-├── control.mbt / command.mbt / response.mbt
-│                             控制通道：命令编码、多行响应、状态码校验        IO
-├── state.mbt                 client 与 transport 共享连接状态              IO
-├── transport_*.mbt           EPSV / PASV / PRET / REST / 数据连接 / TLS   IO
-├── client*.mbt / options.mbt / dial.mbt / login.mbt
-├── list.mbt / transfer.mbt / fsops.mbt / lifecycle.mbt
-│                             ServerConn 等价物：Dial/Login/Retr/Stor/... IO
-├── walker.mbt                目录树遍历                                   IO
-├── debug.mbt                 调试输出包装（对齐 io.Reader/Writer）          IO
+├── control.mbt               控制通道：命令编码、多行响应、状态码校验        IO
+│                             + 流量日志包装
+├── transport.mbt             EPSV / PASV / PRET / REST / 数据连接 / TLS   IO
+├── client.mbt                FTPClient + Session/Options + DialOptions    IO
+├── dial.mbt                  拨号 + 登录 + FEAT 能力协商                   IO
+├── commands.mbt              CWD / MKD / DELE / RNFR+RNTO / QUIT 等        IO
+├── list.mbt / transfer.mbt / walker.mbt
+│                             ServerConn 等价物：NLST/Retr/Stor/Walk/...  IO
 └── cmd/                      CLI 示例
 ```
 
-分层依赖（文件级）：纯逻辑（`entry` / `consts` / `status` / `error` / `scanner` /
-`parse*` / `pathutil`）← `control*` ← `transport_*` ← `client*` ← `walker`。
-`parse*` / `scanner` / `walker` / `pathutil` 不碰网络，可独立单测。
+分层依赖（文件级）：纯逻辑（`entry` / `status` / `error` / `parse` / `pathutil`）←
+`control` ← `transport` ← `client` ← `walker`。
+`parse` / `walker` / `pathutil` 不碰网络，可独立单测。
 
 平铺之后编译器不再按包隔离，分层约束改由文件头部的 `// Layer:` 标记 +
-`architecture.mbt` 的两份文件清单（`pure_logic_packages` / `io_sources`）守住，
-review 与新增文件时按它核对。
+`docs/porting/01-architecture.md` 第 2 节的分组目录树守住，review 与新增文件时按它核对。
 
 ### 2.4 API 映射示例
 

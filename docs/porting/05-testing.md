@@ -346,8 +346,8 @@ nested MKD and RMD round trip                       嵌套目录创建与自底�
 | 1 | `dial.mbt` 问候语 | 用 `cmd_expect(control, "", [220])` 读问候，**多发了一条空命令**，会话错位 | 改成只 `read_response` 不发送 |
 | 2 | `transfer.mbt` `check_data_shut` | 同样多发空命令读 `226` | 同上 |
 | 3 | `transport.mbt` | 用 `is_positive_completion`（2xx）判定传输起始回包，但 `125`/`150` 是 1xx，**每次都误判失败** | 改用 `is_positive_intermediate` |
-| 4 | `login.mbt` | 持锁后再调 `feat`/`set_transfer_type`，非重入互斥锁**自锁死** | 锁分段，嵌套调用放在锁外 |
-| 5 | `lifecycle.mbt` | `QUIT` 只接受 `200`/`220`，真服务器回 `221` | 补 `status_closing_control_connection` |
+| 4 | `dial.mbt` | 持锁后再调 `feat`/`set_transfer_type`，非重入互斥锁**自锁死** | 锁分段，嵌套调用放在锁外 |
+| 5 | `commands.mbt` | `QUIT` 只接受 `200`/`220`，真服务器回 `221` | 补 `status_closing_control_connection` |
 
 第 1/2 条的共同教训：**「读一个应答」和「发一条命令再读应答」是两件事**，
 `socket` 上没有「空命令」这回事。

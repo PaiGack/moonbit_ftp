@@ -4,8 +4,9 @@
 // The plain import block is shared by the pure logic files, the IO files and
 // the in-package tests, because MoonBit 0.1.20260904 has no per-file imports,
 // so the async stack is named here even though the parsers never use it.
-// `architecture.mbt` carries the pure logic / IO file inventory that review
-// relies on, and docs/porting/01-architecture.md section 3 states the rule.
+// The pure logic / IO file inventory that review relies on lives in the
+// grouped file tree of docs/porting/01-architecture.md section 2, backed by
+// the per-file `// Layer:` markers; section 3 states the rule.
 
 import {
   "moonbitlang/async",

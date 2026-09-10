@@ -4,6 +4,14 @@
 
 // Layer: pure logic — no IO, no `moonbitlang/async` dependency.
 
+// RFC 959 / RFC 2228 / RFC 2428 / RFC 3659 status codes and the constants
+// the client shares with them.
+//
+// This file merges `status` and `consts`: both are plain protocol constants
+// (status codes, the dial timeout, the MDTM time layout), they never changed
+// apart, and keeping them together makes the "where do I find the protocol
+// constants" question have one answer.
+
 ///|
 /// RFC 959 / RFC 2228 / RFC 2428 / RFC 3659 status codes.
 ///
@@ -216,3 +224,16 @@ pub fn is_positive_completion(code : Int) -> Bool {
 pub fn is_positive_intermediate(code : Int) -> Bool {
   code >= 100 && code < 200
 }
+
+///|
+/// Default timeout used when dialing a server, in milliseconds
+/// (upstream `ftp.DefaultDialTimeout`, 30s).
+pub let default_dial_timeout_ms : Int = 30 * 1000
+
+///|
+/// Go-style time layout used by the `MDTM` / `MFMT` commands.
+pub let time_format : String = "yyyyMMddHHmmss"
+
+///|
+/// Timezone used to interpret `MDTM` / `MFMT` timestamps (they are UTC).
+pub let utc_offset_seconds : Int = 0
