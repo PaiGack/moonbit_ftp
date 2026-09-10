@@ -36,7 +36,7 @@ pub let default_dial_timeout_ms : Int
 
 pub async fn delete(FTPClient, String) -> Unit
 
-pub async fn dial(String, timeout_ms? : Int, shut_timeout_ms? : Int, tls? : Bool, explicit_tls? : Bool, trust? : @tls.TrustedRoot, disable_epsv? : Bool, trust_pasv_ip? : Bool, disable_utf8? : Bool, disable_mlsd? : Bool, writing_mdtm? : Bool, force_list_hidden? : Bool, location? : @time.Zone, debug_log? : &@io.Writer?) -> FTPClient
+pub async fn dial(String, timeout_ms? : Int, shut_timeout_ms? : Int, tls? : Bool, explicit_tls? : Bool, trust? : @tls.TrustedRoot, disable_epsv? : Bool, trust_pasv_ip? : Bool, disable_utf8? : Bool, disable_mlsd? : Bool, writing_mdtm? : Bool, force_list_hidden? : Bool, location? : @time.Zone) -> FTPClient
 
 pub let epoch : @time.ZonedDateTime
 
@@ -268,10 +268,6 @@ pub async fn stor(FTPClient, String, &@io.Reader) -> Unit
 
 pub async fn stor_from(FTPClient, String, &@io.Reader, offset? : Int64) -> Unit
 
-pub let time_format : String
-
-pub let utc_offset_seconds : Int
-
 pub fn walk(FTPClient, String) -> Walker
 
 // Errors
@@ -292,14 +288,12 @@ pub struct Control {
   mut reader : &@io.Reader
   mut writer : &@io.Writer
   host : String
-  debug : &@io.Writer?
 }
 pub fn Control::host(Self) -> String
-pub fn Control::new(&@io.Reader, &@io.Writer, String, debug~ : &@io.Writer?) -> Self
+pub fn Control::new(&@io.Reader, &@io.Writer, String) -> Self
 pub async fn Control::read_line(Self) -> String
 pub async fn Control::send_line(Self, String) -> Unit
 pub fn Control::upgrade(Self, &@io.Reader, &@io.Writer) -> Unit
-pub fn Control::without_debug(&@io.Reader, &@io.Writer, String) -> Self
 
 pub struct DataConn {
   reader : &@io.Reader
@@ -332,10 +326,8 @@ pub struct DialOptions {
   mut writing_mdtm : Bool
   mut force_list_hidden : Bool
   mut location : @time.Zone
-  mut debug_log : &@io.Writer?
 }
 pub fn DialOptions::default() -> Self
-pub fn DialOptions::set_debug_log(Self, &@io.Writer?) -> Unit
 pub fn DialOptions::set_disable_epsv(Self, Bool) -> Unit
 pub fn DialOptions::set_disable_mlsd(Self, Bool) -> Unit
 pub fn DialOptions::set_disable_utf8(Self, Bool) -> Unit
@@ -468,20 +460,6 @@ pub fn Session::set_skip_epsv(Self, Bool) -> Unit
 pub fn Session::set_use_pret(Self, Bool) -> Unit
 pub fn Session::skip_epsv(Self) -> Bool
 pub fn Session::use_pret(Self) -> Bool
-
-pub struct TeeReader {
-  inner : &@io.Reader
-  log : &@io.Writer
-}
-pub fn TeeReader::new(&@io.Reader, &@io.Writer) -> Self
-pub async fn TeeReader::read(Self, FixedArray[Byte], offset? : Int, max_len? : Int) -> Int
-
-pub struct TeeWriter {
-  inner : &@io.Writer
-  log : &@io.Writer
-}
-pub fn TeeWriter::new(&@io.Writer, &@io.Writer) -> Self
-pub async fn TeeWriter::write(Self, &@io.Data) -> Unit
 
 pub(all) enum TransferType {
   Binary

@@ -71,7 +71,7 @@ CI 两条流水线（GitHub Actions / CNB）都绿。
 - [ ] `EntryType` 三值枚举 + `to_string()` 返回 `"file"` / `"folder"` / `"link"`
 - [ ] `TransferType` 枚举，值对应 FTP 命令参数 `"I"` / `"A"`
 - [ ] `Entry` 结构体（字段见 01-architecture.md 第 4 节）
-- [ ] 常量 `default_dial_timeout_ms = 30000`、`time_format = "yyyyMMddHHmmss"`
+- [ ] 常量 `default_dial_timeout_ms = 30000`
 
 验收：`entry_type_to_string` 三个值各一条测试。
 

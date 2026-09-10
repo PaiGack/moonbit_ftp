@@ -41,7 +41,7 @@
 | `DialWithForceListHidden(b)` | `force_list_hidden~ : Bool` | `false` | `LIST -a`，且强制走 LIST |
 | `DialWithLocation(loc)` | `location~ : @time.ZonedDateTime` | UTC 偏移 | 列表时间解析用 |
 | `DialWithContext(ctx)` | — | — | 改用外层 async 取消 |
-| `DialWithDebugOutput(w)` | `debug_log~ : (@io.Writer)?` | `None` | 流量日志 |
+| `DialWithDebugOutput(w)` | — | — | 不移植：日志装饰器从未接线，选项只存不读，已删除 |
 | `DialWithNetConn`（弃用） | — | — | 不移植，用 `dial_func` |
 | （隐式由 `tls~` 承载） | `trust~ : TrustedRoot` | `SystemRoot` | 证书信任策略 |
 | （隐式由 `dial_func` 承载） | — | — | — |

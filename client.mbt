@@ -324,8 +324,6 @@ pub struct DialOptions {
   mut force_list_hidden : Bool
   /// Timezone used to interpret `LIST` timestamps, defaults to UTC.
   mut location : @time.Zone
-  /// Optional traffic log.
-  mut debug_log : &@io.Writer?
 }
 
 ///|
@@ -345,7 +343,6 @@ pub fn DialOptions::default() -> DialOptions {
     writing_mdtm: false,
     force_list_hidden: false,
     location: @time.utc_zone,
-    debug_log: None,
   }
 }
 
@@ -448,15 +445,6 @@ pub fn DialOptions::set_location(
 }
 
 ///|
-/// Attach or detach the traffic log.
-pub fn DialOptions::set_debug_log(
-  self : DialOptions,
-  value : &@io.Writer?,
-) -> Unit {
-  self.debug_log = value
-}
-
-///|
 /// Everything `transport` needs from a dialed FTP session.
 ///
 /// This type exists to break the otherwise circular dependency between the
@@ -467,7 +455,7 @@ pub fn DialOptions::set_debug_log(
 pub struct Session {
   /// Negotiation results and connection parameters.
   options : Options
-  /// The control connection state: reader, writer, peer address, debug tee.
+  /// The control connection state: reader, writer, peer address.
   control : Control
   /// `EPSV` failed once, fall back to `PASV` for the rest of the session.
   mut skip_epsv : Bool

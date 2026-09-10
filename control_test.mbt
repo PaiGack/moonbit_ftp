@@ -29,7 +29,7 @@
 fn control_over(text : String) -> Control {
   let reader : &@io.Reader = @io.MemoryReader(writer => writer.write(text))
   let writer : &@io.Writer = DummySink::{ }
-  Control::without_debug(reader, writer, "127.0.0.1")
+  Control::new(reader, writer, "127.0.0.1")
 }
 
 ///|
