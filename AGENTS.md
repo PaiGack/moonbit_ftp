@@ -20,6 +20,13 @@ You can browse and install extra skills here:
 - Test files keep the usual naming: `*_test.mbt` (blackbox) and `*_wbtest.mbt`
   (whitebox). They live in the same root package as the code.
 
+- `ftp_server_test.mbt` holds the *real* FTP server end-to-end tests. They are
+  opt in through `FTP_TEST_*` environment variables and return early when
+  `FTP_TEST_HOST` is unset, so a bare `moon test` stays green locally while CI
+  runs them against `pyftpdlib` (`.github/ftp-fixture/serve.py`). When
+  `FTP_TEST_HOST` is set, a failure is a hard failure - never soften it into a
+  skip.
+
 - The root `moon.pkg` has one plain import block (shared by the pure logic
   files, the IO files and the in-package tests, because MoonBit 0.1.20260904 has
   no per-file imports) plus a `for "wbtest"` block. The async packages therefore

@@ -4,3 +4,5 @@ target/
 target
 .mooncakes/
 .moonagent/
+# Staging directory for the real FTP server in .cnb.yml
+.ci/ftp-root/

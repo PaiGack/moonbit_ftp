@@ -75,6 +75,7 @@ moon info && git diff --exit-code       # 接口文件无未提交变更
 ### W7 完成
 
 - [ ] CLI 六个子命令（`ls` / `get` / `put` / `walk` / `mkdir` / `rm`）在本地 `pyftpdlib` 上跑通
+      （服务器由 `.github/ftp-fixture/serve.py` 起，与 CI 同一份）
 - [ ] README 里每条命令都能照着复现
 - [ ] 错误输出到 stderr，退出码非 0
 
@@ -111,7 +112,8 @@ moon info && git diff --exit-code       # 接口文件无未提交变更
 
 测试
 ├── 轨道 A：解析/scanner/常量用例（搬运上游，30+ 条）
-└── 轨道 B：mock FTP 服务器端到端（6 种画像，命令序列断言）
+├── 轨道 B1：mock FTP 服务器端到端（6 种画像，命令序列断言）
+└── 轨道 B2：真实 FTP 服务器端到端（`ftp_server_test.mbt`，CI 起 pyftpdlib）
 
 文档
 ├── README.mbt.md                     目标 / 安装 / 用法 / 示例
@@ -124,6 +126,16 @@ moon info && git diff --exit-code       # 接口文件无未提交变更
 ├── mooncakes.io 上的 PaiGack/ftp
 └── Release tag
 ```
+
+### 真实服务器测试就绪（W7 前置）
+
+- [x] `ftp_server_test.mbt` 13 条用例在 `pyftpdlib` 上全绿
+- [x] 未设 `FTP_TEST_HOST` 时用例不失败（本机 `moon test` 保持全绿）
+- [x] GitHub Actions 起真服务器并跑真机用例
+- [x] CNB `main.push` / `pull_request` 通过 DinD 起真服务器
+- [x] CNB 云原生开发环境（`$: vscode:`）进入前起好同一个服务器
+- [x] fixture 内容由 git 固定（`.github/ftp-fixture/fixture/`）
+- [ ] TLS（`AUTH TLS`）真机用例——未做，见 05-testing.md 6.6
 
 ## 4. 未达成时的处理原则
 

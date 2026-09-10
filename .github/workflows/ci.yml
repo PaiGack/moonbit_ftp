@@ -15,6 +15,22 @@ jobs:
   moonbit:
     name: MoonBit check & test (native)
     runs-on: ubuntu-latest
+
+    # The integration tests talk to a real FTP daemon. `pyftpdlib` answers
+    # MLSD / MDTM / MFMT / EPSV, i.e. exactly the capabilities `login`
+    # negotiates, so it is the profile worth pinning in CI.
+    env:
+      FTP_TEST_HOST: 127.0.0.1
+      FTP_TEST_PORT: "2121"
+      FTP_TEST_USER: test
+      FTP_TEST_PASS: test
+      FTP_TEST_FIXTURE: /fixture
+      FTP_TEST_DIR: /upload
+      # Where the daemon serves from on the runner filesystem. The fixture
+      # tree is copied here from git and `upload/` is created empty, so a run
+      # never mutates the tracked files.
+      FTP_TEST_ROOT: ${{ github.workspace }}/.ci/ftp-root
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,10 +53,41 @@ jobs:
           git diff --exit-code
           git status
 
+      - name: Install Python FTP server
+        run: python3 -m pip install --user "pyftpdlib==2.2.0"
+
+      - name: Start FTP server
+        run: |
+          set -euo pipefail
+          # `fixture/` (hello.txt + sub/nested.txt) comes from git; the
+          # writable `upload/` directory is created empty on every run.
+          mkdir -p "$FTP_TEST_ROOT/upload"
+          cp -r .github/ftp-fixture/fixture "$FTP_TEST_ROOT/"
+          nohup python3 .github/ftp-fixture/serve.py \
+            --root "$FTP_TEST_ROOT" \
+            --port "$FTP_TEST_PORT" \
+            --user "$FTP_TEST_USER" \
+            --passwd "$FTP_TEST_PASS" \
+            > /tmp/ftpd.log 2>&1 &
+          for _ in $(seq 1 30); do
+            if python3 -c "import socket; socket.create_connection(('127.0.0.1', $FTP_TEST_PORT), 1).close()"; then
+              echo "FTP server is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "FTP server did not come up" >&2
+          cat /tmp/ftpd.log >&2
+          exit 1
+
       - name: moon test
         run: |
           moon test --target native --deny-warn --enable-coverage
           moon coverage report -f summary
+
+      - name: FTP server log
+        if: always()
+        run: cat /tmp/ftpd.log || true
 
       - name: moon build
         run: |

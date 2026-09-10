@@ -143,7 +143,10 @@ pub async fn cmd_data_conn_from(
       raise FtpError::ParseError(msg="transfer command failed")
     }
   }
-  guard is_positive_completion(response.code()) else {
+  // The reply that starts a transfer is a *positive intermediate* (`125` or
+  // `150`), not a completion: `2xx` only arrives at the end, on `226`. Testing
+  // `is_positive_completion` here rejected every real transfer.
+  guard is_positive_intermediate(response.code()) else {
     conn.close()
     raise FtpError::ServerError(code=response.code(), msg=response.message())
   }

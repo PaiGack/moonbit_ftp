@@ -4,12 +4,17 @@
 
 上游测试天然分两层，移植时原样保留这个划分：
 
-| 轨道 | 上游来源 | 覆盖对象 | 是否需要网络 |
-| --- | --- | --- | --- |
-| **A. 纯解析测试** | `parse_test.go` / `scanner_test.go` / `constants_test.go` | `types` / `status` / `scanner` / `parse` | 否，纯内存 |
-| **B. Mock 服务器端到端** | `conn_test.go` / `client_test.go` / `walker_test.go` | `control` / `transport` / `client` / `walker` | 是，但只连回环地址 |
+| 轨道 | 上游来源 | 覆盖对象 | 服务器 | 位置 |
+| --- | --- | --- | --- | --- |
+| **A. 纯解析** | `parse_test.go` / `scanner_test.go` / `constants_test.go` | `types` / `status` / `scanner` / `parse` | 无 | `*_test.mbt` |
+| **B1. Mock 端到端** | `conn_test.go` / `client_test.go` / `walker_test.go` | `control` / `transport` / `client` / `walker` | `@socket.TcpServer` 自建 | `*_test.mbt` |
+| **B2. 真机端到端** | 同上，但换真服务器 | 同上 | `pyftpdlib`（CI 起容器） | `ftp_server_test.mbt` |
 
 轨道 A 是资产：**字符串进、结构体出**，逐条直搬，零改动成本。轨道 B 必须用 `@socket.TcpServer` 复刻上游 mock。
+
+B1 与 B2 是互补的，不是替代关系：B1 能**断言完整命令序列**、能构造各种服务器画像，
+B2 则验证这些序列在真实实现上确实被接受。B2 第一次跑通就在客户端里挖出 5 个 B1
+测不出的 bug，见第 6.4 节。
 
 ## 2. 轨道 A：解析用例直搬
 
@@ -275,29 +280,121 @@ async fn (self : FtpMock) listen_data_conn() -> Int raise {
 
 `moon coverage analyze` 结果里，**`transport` / `client` 的降级分支必须被覆盖**（EPSV 失败、PASV 可疑 IP、时间不支持）。这些是「真实服务器上才会暴露」的路径，mock 里不测就没人测。
 
-## 6. 真实服务器冒烟测试（可选，CI 有条件时启用）
+## 6. 真实 FTP 服务器端到端测试（轨道 B 的真机部分）
+
+`ftp_server_test.mbt` 跑在一台**真实 FTP 守护进程**上，不是 mock。这一层
+补的正是 mock 补不了的东西：命令序列在真实实现上是否被接受。它第一次跑起来
+就在客户端里挖出了 5 个 mock 永远测不出的 bug（见 6.4）。
+
+### 6.1 服务器与 fixture
+
+| 项 | 值 |
+| --- | --- |
+| 守护进程 | `pyftpdlib` 2.2.0（纯 Python，支持 MLSD / MDTM / MFMT / EPSV） |
+| 启动脚本 | `.github/ftp-fixture/serve.py`（GitHub CI 与 CNB 共用同一份） |
+| fixture | `.github/ftp-fixture/fixture/`，由 git 固定 |
+| 账号 | `test` / `test` |
+| 端口 | 控制 2121，被动 30000-30009 |
+
+fixture 目录内容（**内容固定，不用脚本生成**）：
+
+```
+fixture/hello.txt        12 字节，内容 "hello world\n"
+fixture/sub/nested.txt   嵌套目录，验证 Folder 类型
+```
+
+测试在服务端写入的路径是 `/upload`（容器内为可写目录），读取的固定文件在
+`/fixture`。
+
+### 6.2 环境变量开关
+
+测试是**按环境变量启用**的，缺省不跑：
+
+| 变量 | 缺省 | 说明 |
+| --- | --- | --- |
+| `FTP_TEST_HOST` | 未设 | 未设时全部用例直接 return（不算失败） |
+| `FTP_TEST_PORT` | `21` | |
+| `FTP_TEST_USER` / `FTP_TEST_PASS` | `test` / `test` | |
+| `FTP_TEST_FIXTURE` | `/fixture` | 只读 fixture 目录 |
+| `FTP_TEST_DIR` | `/upload` | 可写目录，写用例用完自行清理 |
+
+MoonBit 没有 skip API，所以未配置时用例**提前 return**，而不是 fail：
+本机 `moon test --target native` 依旧是绿的。一旦 `FTP_TEST_HOST` 被设上，
+任何断言失败都是硬失败，没有「服务器抽风」的兜底。
+
+### 6.3 用例清单（13 条）
+
+```
+connect, login and PWD                dial → login → PWD == "/"
+FEAT negotiation reports MLST/MDTM    真机 FEAT 被接受且能力位正确
+MLSD listing of the fixture           MLSD 路径，校验 hello.txt 的 size/type
+LIST parsing of the fixture           disable_mlsd 走 LIST，校验 ls -l 解析
+SIZE and MDTM of a fixture file       213 回包解析
+RETR downloads the mounted fixture    内容逐字节比对
+RETR from an offset resumes           REST 偏移生效
+NLST returns bare names               裸名字列表
+MKD, CWD, rename and RMD round trip   目录生命周期
+STOR uploads a file                   上传后 SIZE 一致
+APPE appends to an uploaded file      APPE 后内容 == 两段拼接
+MFMT and MDTM agree on the time       写时间后读回完全一致
+a wrong password is rejected          530 变成 ServerError 而不是挂死
+```
+
+### 6.4 真机测试挖出的客户端 bug
+
+这些 bug 在 mock 下**不可能**被发现（mock 是我们自己写的，会「配合」客户端的
+错误行为），只有真服务器会照协议回包：
+
+| # | 位置 | 症状 | 修法 |
+| --- | --- | --- | --- |
+| 1 | `dial.mbt` 问候语 | 用 `cmd_expect(control, "", [220])` 读问候，**多发了一条空命令**，会话错位 | 改成只 `read_response` 不发送 |
+| 2 | `transfer.mbt` `check_data_shut` | 同样多发空命令读 `226` | 同上 |
+| 3 | `transport_dataconn.mbt` | 用 `is_positive_completion`（2xx）判定传输起始回包，但 `125`/`150` 是 1xx，**每次都误判失败** | 改用 `is_positive_intermediate` |
+| 4 | `login.mbt` | 持锁后再调 `feat`/`set_transfer_type`，非重入互斥锁**自锁死** | 锁分段，嵌套调用放在锁外 |
+| 5 | `lifecycle.mbt` | `QUIT` 只接受 `200`/`220`，真服务器回 `221` | 补 `status_closing_control_connection` |
+
+第 1/2 条的共同教训：**「读一个应答」和「发一条命令再读应答」是两件事**，
+`socket` 上没有「空命令」这回事。
+
+### 6.5 CI 接入
+
+| 环境 | 怎么起服务器 |
+| --- | --- |
+| GitHub Actions | 步骤内 `pip install pyftpdlib` + `serve.py`，fixture 挂 `${{ github.workspace }}/.github/ftp-fixture` |
+| CNB 流水线 | `services: [docker]`（DinD），`serve.py` 只读挂进 `python:3.12-slim` 容器 |
+| CNB 云原生开发 | `$: vscode:` 流水线在进入工作区前起同一个容器，IDE 里直接 `moon test` 就是真机用例 |
+
+本地手工跑：
 
 ```bash
-# pyftpdlib（纯 Python，最省事）
-python3 -m pip install pyftpdlib
-python3 -m pyftpdlib -p 2121 -w &
+python3 -m pip install "pyftpdlib==2.2.0"
+mkdir -p .ci/ftp-root/upload && cp -r .github/ftp-fixture/fixture .ci/ftp-root/
+python3 .github/ftp-fixture/serve.py --root "$PWD/.ci/ftp-root" --port 2121 &
 
-# vsftpd（验证 MDTM 写时间分支）
-docker run -d -p 2122:21 -e FTP_USER=test -e FTP_PASS=test \
-  fauria/vsftpd
+export PATH="$HOME/.moon/bin:$PATH"
+FTP_TEST_HOST=127.0.0.1 FTP_TEST_PORT=2121   moon test --target native
 ```
 
-冒烟用例（脚本化，不进 `moon test`）：
+`.ci/ftp-root/` 是启动时拼出来的目录，已进 `.gitignore`。
 
-```
-dial → login → pwd → mkdir → list → stor → retr → 比对内容
-     → set_time → get_time → 比对时间 → remove_dir_recur → quit
-```
+### 6.6 未覆盖的部分
 
-若 CI runner 不支持 Docker，这部分只在本地/发布前手工执行，并在 W8 的记录里留档。
+- **TLS**：`AUTH TLS` / `PBSZ` / `PROT P` 这条路径还没在真机上跑过。
+  pyftpdlib 支持 TLS，但需要一个自签证书 + 客户端信任策略，留到后续工作包。
+- **VsFtpd 画像**：`writing_mdtm`（`MDTM <time> <path>` 写时间）只在 mock 里
+  验证，没有真 VsFtpd 实例。`fauria/vsftpd` 镜像可用，但缺 MLSD，要另配一份
+  fixture。
+- **`LIST -a`**：`force_list_hidden=true` 会发 `LIST -a <path>`，pyftpdlib 把
+  `-a` 当路径的一部分，回 `550`。所以真机 LIST 用例走的是 `disable_mlsd`
+  （纯 `LIST`），`LIST -a` 仍由 mock 覆盖。
 
 ## 7. 不该做的事
 
 - **不要为了测试引入 mock 网络库**。`@socket.TcpServer` 已经够用，且能验证真实 TCP 行为（含 `\r\n` 分片）。
 - **不要把解析测试改成 Snapshot**。上游用例是精确断言，改成 snapshot 会掩盖字段级回归。
 - **不要跳过 `close_conn` 的命令序列断言**。省这一步，等于放弃「协议序列正确」这个最有价值的断言。
+- **不要在 CI 里静默跳过真机用例**。设了 `FTP_TEST_HOST` 就必须真的跑起来；
+  「服务器没起来所以跳过」等于把第 6.4 节那 5 个 bug 留回去。CNB 的启动步骤
+  会轮询端口并在超时时 `exit 1`，就是为了堵这个口子。
+- **不要用「客户端的期望」去写真服务器**。第 6.4 节的 5 个 bug 里有 3 个是
+  客户端自己**多发/错判**导致的；真机测试的价值就在于它不会配合客户端犯错。

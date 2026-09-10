@@ -56,11 +56,15 @@ pub async fn DataResponse::close(self : DataResponse) -> Unit {
 /// Read the `226` (or `250`) that terminates a transfer. Must always run
 /// before the next command is sent.
 pub async fn check_data_shut(session : Session) -> Unit {
-  ignore(
-    cmd_expect(session.control(), "", [
-      status_closing_data_connection, status_file_action_ok,
-    ]),
-  )
+  // The wrap-up reply is *read*, never requested: sending an empty command
+  // here (`cmd_expect(control, "", ...)`) puts a stray CRLF on the wire and
+  // real servers answer `500 Command "" not understood.`, leaving the session
+  // one reply behind.
+  let response = read_response(session.control())
+  guard response.code() == status_closing_data_connection ||
+    response.code() == status_file_action_ok else {
+    raise FtpError::ServerError(code=response.code(), msg=response.message())
+  }
 }
 
 ///|
