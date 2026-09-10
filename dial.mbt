@@ -75,11 +75,14 @@ pub async fn dial(
     location,
     features: {},
   }
-  // Greeting.
-  let greeting = cmd_expect(session.control(), "", [
-    status_service_ready_for_new_user,
-  ])
-  ignore(greeting)
+  // Greeting: the server speaks first, so this only *reads* the `220` line.
+  // Sending a command here (`cmd_expect(control, "", ...)`) would push an
+  // empty line onto the wire and desynchronise the whole session, which real
+  // servers answer with `500 Command "" not understood.`.
+  let greeting = read_response(session.control())
+  guard greeting.code() == status_service_ready_for_new_user else {
+    raise FtpError::ServerError(code=greeting.code(), msg=greeting.message())
+  }
   if explicit_tls {
     auth_tls(client)
   }

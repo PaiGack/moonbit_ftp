@@ -10,22 +10,29 @@
 /// The sequence matches upstream `Login`:
 /// `USER` -> `331` -> `PASS` -> `230`, then `FEAT`, then `TYPE I`, then
 /// optionally `OPTS UTF8 ON`, and for implicit TLS `PBSZ 0` / `PROT P`.
+///
+/// The `FEAT` / `OPTS` / `TYPE` steps are taken *outside* the client lock: they
+/// are public API and take the lock themselves, and the lock is deliberately
+/// not re-entrant (see `FTPClient::lock`). Holding it across these calls would
+/// deadlock every login against a real server.
 pub async fn login(
   client : FTPClient,
   user : String,
   password : String,
 ) -> Unit {
-  client.lock()
-  defer client.unlock()
-  let response = cmd_format(client.session.control(), "USER {}", [user], [
-    status_username_ok_need_password, status_user_logged_in_proceed,
-  ])
-  if response.code() == status_username_ok_need_password {
-    ignore(
-      cmd_format(client.session.control(), "PASS {}", [password], [
-        status_user_logged_in_proceed,
-      ]),
-    )
+  {
+    client.lock()
+    defer client.unlock()
+    let response = cmd_format(client.session.control(), "USER {}", [user], [
+      status_username_ok_need_password, status_user_logged_in_proceed,
+    ])
+    if response.code() == status_username_ok_need_password {
+      ignore(
+        cmd_format(client.session.control(), "PASS {}", [password], [
+          status_user_logged_in_proceed,
+        ]),
+      )
+    }
   }
   feat(client)
   if client.options.disable_utf8 == false && client.has_feature("UTF8") {
@@ -35,6 +42,8 @@ pub async fn login(
   }
   set_transfer_type(client, TransferType::Binary)
   if client.options.tls {
+    client.lock()
+    defer client.unlock()
     ignore(cmd_expect(client.session.control(), "PBSZ 0", [status_cmd_ok]))
     ignore(cmd_expect(client.session.control(), "PROT P", [status_cmd_ok]))
   }

@@ -178,6 +178,8 @@ pub let status_bad_filename : Int
 
 pub let status_cannot_open_data_connection : Int
 
+pub let status_closing_control_connection : Int
+
 pub let status_closing_data_connection : Int
 
 pub let status_cmd_not_implemented_superfluous : Int

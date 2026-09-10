@@ -28,11 +28,28 @@ wasm / wasm-gc 后端提供不了真实网络栈。
 ```bash
 moon fmt --check                         # 格式化检查
 moon check  --target native --deny-warn  # 类型检查，0 warning 0 error
-moon test   --target native              # 运行测试
+moon test   --target native              # 运行测试（真机用例默认跳过）
 moon build  --target native              # 构建
 moon run cmd/ftp                         # 运行 CLI（打印 usage）
 moon info                                # 更新生成接口（.mbti）
 ```
+
+### 真实 FTP 服务器测试
+
+`ftp_server_test.mbt` 的 13 条端到端用例跑在一台**真实 FTP 守护进程**上，
+需要显式设置环境变量才会执行（不设时用例直接跳过，本机 `moon test` 保持全绿）：
+
+```bash
+python3 -m pip install "pyftpdlib==2.2.0"
+mkdir -p .ci/ftp-root/upload && cp -r .github/ftp-fixture/fixture .ci/ftp-root/
+python3 .github/ftp-fixture/serve.py --root "$PWD/.ci/ftp-root" --port 2121 &
+
+FTP_TEST_HOST=127.0.0.1 FTP_TEST_PORT=2121 moon test --target native
+```
+
+GitHub Actions、CNB 流水线与 CNB 云原生开发环境都会自动起同一个服务器
+（`serve.py` + 仓库内的 fixture），无需手工准备。详见
+[docs/porting/05-testing.md](docs/porting/05-testing.md) 第 6 节。
 
 ## 目录结构
 

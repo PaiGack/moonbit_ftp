@@ -19,6 +19,10 @@ pub let status_restart_marker_reply : Int = 120
 pub let status_data_conn_already_in_use : Int = 125
 
 ///|
+/// `221 Service closing control connection.` — the answer to `QUIT`.
+pub let status_closing_control_connection : Int = 221
+
+///|
 pub let status_closing_data_connection : Int = 226
 
 ///|

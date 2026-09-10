@@ -38,7 +38,7 @@ pub async fn quit(client : FTPClient) -> Unit {
   client.set_closed(true)
   let errors : Array[Error] = []
   let response = cmd_expect(client.session.control(), "QUIT", [
-    status_cmd_ok, status_service_ready_for_new_user,
+    status_closing_control_connection, status_cmd_ok, status_service_ready_for_new_user,
   ]) catch {
     err => {
       errors.push(err)
