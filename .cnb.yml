@@ -21,6 +21,9 @@ main:
           script: |
             export PATH="$HOME/.moon/bin:$PATH"
             moon version
+            # 干净容器里没有 ~/.moon/registry 索引，直接跑 moon check 会报
+            # "module was not found in the registry"，所以先同步索引与依赖。
+            moon update
             moon check --target native --deny-warn
             moon build --target native
             moon test  --target native
@@ -32,6 +35,9 @@ main:
           script: |
             export PATH="$HOME/.moon/bin:$PATH"
             moon version
+            # 干净容器里没有 ~/.moon/registry 索引，直接跑 moon check 会报
+            # "module was not found in the registry"，所以先同步索引与依赖。
+            moon update
             moon check --target native --deny-warn
             moon build --target native
             moon test  --target native
