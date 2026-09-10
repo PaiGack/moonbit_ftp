@@ -53,8 +53,7 @@
 ├── lifecycle.mbt                     NOOP / REIN / QUIT                     IO
 ├── walker.mbt                        目录树遍历器                            IO
 ├── debug.mbt                         控制/数据通道原始流量日志包装             IO
-├── architecture.mbt                  架构守卫检查器
-├── architecture/                     架构守卫的消费者（对真实 moon.pkg 断言）
+├── architecture.mbt                  纯逻辑 / IO 文件清单（分层登记表）
 ├── cmd/ftp/                          CLI 示例
 ├── moon.pkg                          根包清单
 └── moon.mod                          模块根
@@ -95,10 +94,14 @@ entry ─┬─> status ──> error
 平铺之后这些文件同属一个包，编译器不再帮忙拦跨层引用，所以改用**两个手段**保住约束：
 
 1. 每个文件顶部的引用注释标明它属于纯逻辑还是 IO，review 时按注释核对；
-2. `architecture/` 读取真实的 `moon.pkg` 并断言 `moonbitlang/async` 没有被复制出
-   第二个普通 import 块 —— 一旦有人为了绕开依赖而拆块，测试立刻失败。
+2. `architecture.mbt` 里有两份显式清单（`pure_logic_packages` / `io_sources`），
+   新增文件必须同时补标记和清单，分层不会在平铺之后悄悄糊掉。
 
-纯逻辑文件清单在 `architecture.mbt` 的 `pure_logic_packages` 里，也是可执行的。
+这条约束目前是**文档 + 清单 + 注释**，没有自动断言：所有源码共享一个 `moon.pkg`，
+而 MoonBit（0.1.20260904）没有按文件限定 import 的语法，编译器层面无迹可查。改分层时
+请手工核对 `architecture.mbt` 的两份清单，并把结论写进 PR 描述。
+
+纯逻辑文件清单在 `architecture.mbt` 的 `pure_logic_packages` 里，可执行、可枚举。
 
 ## 4. 数据模型
 
