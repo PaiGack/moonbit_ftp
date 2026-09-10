@@ -45,3 +45,13 @@ moon fmt            # 格式化
 - CI 流水线：`.cnb.yml` 通过 `docker.build` 复用同一 Dockerfile，镜像按 `versionBy` 哈希缓存，Dockerfile 未变更时不重复构建
 
 修改 `.ide/Dockerfile` 后，CI 与开发环境会自动使用新镜像。
+
+## 文档
+
+- [移植方案（docs/porting-jlaffaye-ftp.md）](docs/porting-jlaffaye-ftp.md) —— `jlaffaye/ftp` 源码分析、包结构设计、API 映射与分阶段计划
+- [项目申报书（docs/proposal.md）](docs/proposal.md) —— MoonBit 开源赛事申报材料
+
+## 致谢与来源
+
+本项目为 [jlaffaye/ftp](https://github.com/jlaffaye/ftp)（ISC License）的 MoonBit 移植，
+参考其协议实现与测试用例。原项目版权归 Julien Laffaye 所有。

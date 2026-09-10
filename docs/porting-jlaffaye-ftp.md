@@ -1,414 +1,242 @@
-# jlaffaye/ftp 移植到 MoonBit 方案
+# `jlaffaye/ftp` → MoonBit 移植方案
 
-> 目标仓库：`nrzhangsan/moonbit_ftp`（模块名 `PaiGack/ftp`）
-> 参考项目：[github.com/jlaffaye/ftp](https://github.com/jlaffaye/ftp)（Go，FTP 客户端，RFC 959）
-> 分析基准：master @ `81e548e`（2026-08-21）
+> 目标项目：[jlaffaye/ftp](https://github.com/jlaffaye/ftp)（Go 语言 FTP 客户端库，RFC 959）
+> 分析对象：`master` 分支（约 1.4k stars / 382 forks，ISC License）
+> 本文档用于指导 `PaiGack/ftp` 的 MoonBit 移植工作。
 
-## 1. 参考项目分析
+---
 
-### 1.1 代码规模
+## 1. 上游项目分析
+
+### 1.1 项目定位
+
+`jlaffaye/ftp` 是一个纯 Go 实现的 FTP 客户端库，遵循 RFC 959，并额外支持：
+
+- RFC 2389（`FEAT` 特性协商）
+- RFC 3659（`MLST` / `MLSD` / `SIZE` / `MDTM`）
+- RFC 4217（显式 / 隐式 FTPS，`AUTH TLS` / `PBSZ` / `PROT P`）
+- 主动/被动模式，`EPSV`（RFC 2428）优先、`PASV` 回退
+- 常见服务器的兼容性处理（VsFtpd、ProFTPD、Serv-U、hostedftp、Windows IIS、WFTPD 等）
+
+它的价值在于**不是简单封装 socket**，而是把 FTP 这套"文本控制通道 + 独立数据通道"协议的
+各种历史包袱、服务器差异、目录列表格式差异都收敛成一套简洁的 Go API。
+
+### 1.2 源码结构（约 1.86k 行实现 + 1.41k 行测试）
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `ftp.go` | 1191 | 核心：连接、命令、传输、目录操作、Walker |
-| `parse.go` | 277 | LIST/MLSD 目录行解析（4 种风格） |
-| `status.go` | 119 | RFC 959 状态码 + 文案 |
-| `walker.go` | 98 | 目录树遍历器 |
-| `scanner.go` | 58 | 空白分隔字段扫描器 |
-| `debug.go` | 37 | 调试输出包装（Tee） |
-| 测试 | 1400+ | mock FTP server + 协议解析单测 |
+| `ftp.go` | 1191 | 核心：连接、登录、控制命令、数据传输、目录操作 |
+| `parse.go` | 277 | LIST / MLSD / DOS DIR / hostedftp 等列表行的解析 |
+| `status.go` | 119 | RFC 959 状态码常量与文本 |
+| `scanner.go` | 58 | 按空白切分的字段扫描器 |
+| `walker.go` | 98 | 目录树遍历器（`Walk` / `SkipDir` / `Stat` / `Path`） |
+| `debug.go` | 37 | 调试输出包装（TeeReader / MultiWriter） |
 
-总计约 **1780 行** 生产代码，测试约 **1400 行**。规模适中，适合移植。
+### 1.3 功能矩阵
 
-### 1.2 依赖分析（移植难点所在）
+**连接与选项（Dial + 19 个 DialOption）**
 
-| Go 依赖 | 用途 | MoonBit 现状 |
-| --- | --- | --- |
-| `net.Dial` / `net.Conn` | TCP 连接、超时、Deadline | MoonBit **无官方 TCP 库**，`moonbitlang/async` 提供 `async/net`（实验性） |
-| `net/textproto` | 控制连接「命令-响应」行协议 | 需自行实现（约 150 行） |
-| `bufio` | 按行读取数据连接 | 需自行实现缓冲读取 |
-| `crypto/tls` | FTPS（隐式/显式 TLS） | MoonBit 无 TLS 库，**建议一期不做** |
-| `io.Reader` / `io.Writer` / `io.Copy` | 流式上传下载 | 用 `@io.Reader` / `@io.Writer` 接口 + 自实现 `copy` |
-| `io.Pipe` | 「以写代上传」 | 用 `@async/pipe` 或回调式 `StorWith` |
-| `time` | 时间解析/格式化、时区 | `moonbitlang/x/time`（含 `LocalTime`/`ZonedDateTime`） |
-| `context` | 连接取消/超时 | 用 `async` 的取消语义或显式 `timeout` 参数 |
-| `errors.Join` | 聚合多错误 | 自实现 `join_errors` |
-| `path.Join` | 路径拼接 | `moonbitlang/x/fs` 或自实现 |
+- `Dial` / `Connect` / `DialTimeout`，默认 30s 超时
+- 超时、上下文、自定义 dialer、自定义 dial 函数
+- TLS：隐式 TLS、显式 TLS（`AUTH TLS` 升级）
+- `EPSV` 禁用、`PASV` 返回 IP 信任开关（防 SSRF）、UTF8 禁用、MLSD 禁用、`MDTM` 写时间、强制 `LIST -a`、时区、调试输出
 
-**结论**：移植的实质工作量在 **网络栈与 IO 抽象**，协议逻辑本身（RFC 959 命令、LIST 解析）是纯字符串处理，可 1:1 平移且易测试。
+**认证**
 
-### 1.3 架构与 API 概览
+- `Login(user, password)`：`USER` / `PASS`，成功后探测 `FEAT`，按需 `OPTS UTF8 ON`、`PBSZ 0` / `PROT P`
+- `Logout`（`REIN`）、`NoOp`（`NOOP`）、`Quit`（`QUIT`）
 
-Go 的 API 是「单一 `ServerConn` 结构体 + 大量方法 + 函数式 DialOption」：
+**数据传输**
 
-```
-Dial(addr, opts...) ─┬─ Login ─┬─ List/NameList/GetEntry
-                     │         ├─ Retr/RetrFrom/Stor/StorFrom/Append
-                     │         ├─ ChangeDir/CurrentDir/MakeDir/RemoveDir/RemoveDirRecur
-                     │         ├─ Rename/Delete/FileSize/GetTime/SetTime
-                     │         ├─ NoOp/Logout/Quit/Walk
-                     │         └─ Type(ASCII/Binary)
-                     └─ options: EPSV/PASV、UTF8、MLSD、TLS、调试输出、信任 PASV IP…
-```
+- 取文件：`Retr` / `RetrFrom(offset)` → `Response`（可读、可 `SetDeadline`、幂等 `Close`）
+- 存文件：`Stor` / `StorFrom(offset)` / `Append`
+- 目录列表：`List`（`MLSD` 优先，回退 `LIST [-a]`）、`NameList`（`NLST`）、`GetEntry`（`MLST`）
 
-关键设计点：
+**文件/目录操作**
 
-1. **被动模式优先**：`getDataConnPort()` 先试 `EPSV`，失败后 `skipEPSV=true` 永久降级到 `PASV`。
-2. **能力协商**：`Login` 后自动发 `FEAT`，解析出 `MLST/MFMT/MDTM/UTF8/PRET` 等能力，决定后续用 `MLSD` 还是 `LIST`、用 `MFMT` 还是非标准 `MDTM` 写时间。
-3. **SSRF 防护**：`PASV` 返回的 IP 默认**不信任**（改用控制连接对端 IP），除非显式开启 `DialWithTrustPasvIP`；`isBogusDataIP` 复刻 lftp 的判定（组播、私网/回环不一致视为伪造）。
-4. **命令注入防护**：`checkForCommandInjection` 拒绝含 `\r`/`\n` 的参数（CVE 类问题，`81e548e` 刚修）。
-5. **目录行解析多风格**：依次尝试 RFC 3659（MLSD `Type=file;Size=..;Modify=..; name`）、Unix `ls -l`、MS-DOS `DIR`、hostedftp 私有风格。
-6. **数据连接关闭语义**：读完数据后必须再读控制连接的 `226`，`checkDataShut` + `shutTimeout` 解决空闲超时。
-7. **Entry 模型**：`{Name, Target, Type(File/Folder/Link), Size, Time}`，`String()` 输出 `file/folder/link`。
+- `ChangeDir` / `ChangeDirToParent` / `CurrentDir`
+- `MakeDir` / `RemoveDir` / `RemoveDirRecur` / `Delete` / `Rename`
+- `FileSize` / `GetTime` / `SetTime` 及 `IsGetTimeSupported` / `IsSetTimeSupported` / `IsTimePreciseInList`
+- `Walk(root) *Walker` 目录树遍历
 
-### 1.4 命令与状态码
+**数据模型**
 
-支持的命令：`USER PASS REIN QUIT NOOP FEAT AUTH PBSZ PROT OPTS UTF8 ON TYPE EPSV PASV PRET REST RETR STOR APPE MLSD MLST LIST NLST CWD CDUP PWD SIZE MDTM MFMT RNFR RNTO DELE MKD RMD`。
+- `Entry{Name, Target, Type, Size, Time}`，`EntryType ∈ {File, Folder, Link}`
+- `TransferType ∈ {Binary("I"), ASCII("A")}`
+- 约 50 个 `Status*` 状态码常量 + `StatusText(code)`
 
-状态码在 `status.go` 中常量 + 文案齐全（1xx/2xx/3xx/4xx/5xx），可直接平移。
+### 1.4 关键实现要点（移植时必须保留的"隐性知识"）
 
-## 2. 移植总体策略
+1. **数据通道生命周期**：`cmdDataConnFrom` 统一处理 `PRET` 预热 → 建数据连接 → 可选 `REST offset` → 发传输命令 → 校验 `125/150`；非 `2xx` 时关闭数据连接并返回 `textproto.Error`。
+2. **关闭语义**：数据传输结束后必须回控制连接读 `226/250`（`checkDataShut`），否则后续命令会错位。`ShutTimeout` 用于空闲超时场景"推一下"控制连接 deadline。
+3. **错误聚合**：Go 的 `errors.Join` 被大量使用（`Quit` / `Stor` / `Append` / `List` / `Response.Close`），即"传输错误 + 关闭错误 + 状态读取错误"要一起返回。
+4. **命令注入防护**：`checkForCommandInjection` 拒绝参数中含 `\r` / `\n`，对应 `ErrInvalidCommand`。
+5. **EPSV 回退**：`EPSV` 失败一次后置 `skipEPSV`，后续走 `PASV`。
+6. **PASV 防 SSRF**：默认使用控制连接的 IP，仅当显式信任且数据 IP 非组播/私网跨界的"可疑 IP"时才用 PASV 返回的 IP。
+7. **TLS 数据连接**：不能直接用 `tls.DialWithDialer`（proftpd/pureftpd 会挂），需 `Dial` + `tls.Client` 延迟握手；零字节上传需显式 `Handshake()`。
+8. **LIST 解析容错**：依次尝试 RFC3659 → Unix ls → DOS DIR → hostedftp 四种解析器，全部失败才报 `UnsupportedListLine`；时间字段有"半年规则"（无年份且超过 6 个月视为去年）。
+9. **`Close` 幂等**：`Response.Close` 二次调用返回 nil。
 
-### 2.1 三阶段路线
+---
 
-| 阶段 | 目标 | 交付物 | 依赖 |
-| --- | --- | --- | --- |
-| **P0 纯逻辑** | 不依赖网络的协议层 | `status`、`entry`、`parse`、`walker`、`scanner` + 完整单测 | 仅 `moonbitlang/x` |
-| **P1 控制连接** | 可真实连接并执行命令 | `textproto`、`conn`（Dial/Login/cmd/FEAT/EPSV/PASV） | `moonbitlang/async`（TCP） |
-| **P2 数据传输** | 完整客户端能力 | List/Retr/Stor/Append/Walk + CLI 示例 | P1 |
-| **P3 增强（可选）** | 对齐 Go 高级特性 | FTPS、PRET、并发装饰器、断点续传便捷封装 | P2 |
+## 2. 移植策略
 
-**关键决策**：先做 P0。理由：P0 是无 IO 的纯函数，能 100% 覆盖测试、锁定行为；且当前仓库 CI（`moon build --target wasm-gc/native`）不依赖网络，P0 可立即接入 CI。
+### 2.1 总体原则
 
-### 2.2 目录结构设计
+**保协议语义、改语言惯用法。** 不逐行翻译 Go，而是保留：
 
-```
-moonbit_ftp/
-├── moon.mod                       # 模块 PaiGack/ftp
-├── src/
-│   ├── status/                    # 状态码 + 文案（P0）
-│   ├── entry/                     # Entry / EntryType / TransferType（P0）
-│   ├── parser/                    # LIST/MLSD/PASV/EPSV/PWD 解析（P0）
-│   ├── scanner/                   # 字段扫描器（P0）
-│   ├── walker/                    # 目录遍历器（P0，依赖 Parse + List 接口）
-│   ├── textproto/                 # 行协议：命令/响应/多行响应（P1）
-│   ├── transport/                 # TCP 抽象层（P1）
-│   └── ftp/                       # Client：Dial/Login/命令方法（P1/P2）
-├── cmd/
-│   └── ftpmain/                   # CLI（P2）
-└── docs/
-```
+- 对外 API 的形状（可选参数 → MoonBit 的 `label~`，错误 → `raise`/`Result`）
+- 协议行为（命令序列、状态码校验、回退逻辑）
+- 兼容性细节（上面 1.4 的 9 点）
 
-> 兼容考量：现有仓库根目录为单包结构（`ftp.mbt`）。若希望快速见效，可先保留根包，把 `src/*` 作为子包；`moon.pkg` 中声明依赖。迁移成本低，推荐直接采用 `src/` 分层。
+同时做以下 MoonBit 化改造：
 
-### 2.3 依赖选型
-
-- 必需：`moonbitlang/x`（`time`、`fs`/`path`、`encoding`）
-- 网络：`moonbitlang/async`（`async/net`、`async/io`、`async/pipe`）——注意其 API 仍在演进，需锁定版本
-- 不引入：TLS（一期不做，用 trait 预留扩展点）
-
-## 3. 模块级映射与设计
-
-### 3.1 类型定义（`entry`）
-
-```moonbit
-///|
-pub enum EntryType {
-  File
-  Folder
-  Link
-} derive(Debug, Eq)
-
-///|
-pub fn EntryType::to_string(self : EntryType) -> String {
-  match self {
-    File => "file"
-    Folder => "folder"
-    Link => "link"
-  }
-}
-
-///|
-pub enum TransferType {
-  Binary  // "I"
-  Ascii   // "A"
-}
-
-///|
-pub struct Entry {
-  pub name : String
-  pub target : String?     // 符号链接目标，替代 Go 的空字符串
-  pub typ : EntryType
-  pub size : UInt64
-  pub time : @time.ZonedDateTime?   // 类型化时间，替代 time.Time
-} derive(Debug, Eq)
-```
-
-差异说明：
-- Go 的 `Target string` 用 `String?` 表达「无链接目标」，更贴合 MoonBit 风格。
-- Go 的零值 `time.Time{}` 在 MoonBit 中用 `Option` 表达，避免魔法零值。
-- `Size uint64` 保留为 `UInt64`。
-
-### 3.2 状态码（`status`）
-
-使用 `Int` 常量 + `match` 返回文案，天然获得穷尽性检查收益：
-
-```moonbit
-///|
-pub let status_ready : Int = 220
-
-///|
-pub fn status_text(code : Int) -> String {
-  match code {
-    220 => "Service ready for new user."
-    230 => "User logged in, proceed."
-    // ... RFC 959 全集
-    _ => "Unknown status code: \{code}"
-  }
-}
-```
-
-### 3.3 目录行解析（`parser`）—— 移植重点
-
-Go 用「解析器切片顺序尝试」的策略，MoonBit 用数组 + 首个成功：
-
-```moonbit
-///|
-pub fn parse_list_line(
-  line : String,
-  now : @time.ZonedDateTime,
-  loc : @time.TimeZone,
-) -> Entry raise ParseError {
-  // 依次尝试：RFC3659 -> ls -l -> MS-DOS DIR -> hostedftp
-}
-```
-
-需要逐一还原的四类风格：
-
-1. **RFC 3659 / MLSD**：`Type=file;Size=1024;Modify=20220813133357; path`
-   - 以 `;` 切分 key=value，`Modify` 用固定格式 `%Y%m%d%H%M%S` 解析
-   - 同一 entry 的多行需合并（`GetEntry` 会跨行累加）
-2. **Unix `ls -l`**：`-rw-r--r-- 1 user group 1024 Jan 02 15:04 name`
-   - 首字段长度必须为 10（或 11 且第 10 字符为 `+`，ACL 标记）
-   - 首字符判定 `-`/`d`/`l`；链接行按 ` -> ` 拆 name/target
-   - **日期歧义处理**：`Jan 02 15:04`（近半年）补当年，若晚于 `now + 6M` 则减 1 年；`Jan 02 2024` 直接取日期 + `00:00`
-3. **MS-DOS DIR**：`01-02-06  03:04PM  <DIR>  name`，试 4 种时间格式
-4. **hostedftp**：链接数为 0 的私有格式，重写为 `ls` 风格再解析
-
-必须移植的边界用例（对应 `parse_test.go`）：
-- 未知类型首字符 → 报错而非静默跳过
-- 字段不足 6/8 个 → 报错
-- 非法日期 → 返回 unsupported，触发下一个解析器
-
-### 3.4 扫描器（`scanner`）
-
-Go 的实现按字节推进（`NextFields(n)` / `Remaining()`），移植时保持语义：
-
-```moonbit
-///|
-pub fn next_fields(s : Scanner, count : Int) -> Array[String]
-pub fn remaining(s : Scanner) -> String
-```
-
-注意：Go 版本对**连续空格**只按「跳前导空格 + 读非空格」处理，且 `Next()` 在返回前多走一步指针，行为需用测试锁定（`scanner_test.go` 已有用例可直接抄）。
-
-### 3.5 遍历器（`walker`）
-
-Go 的 `Walker` 持有一个显式栈（DFS，后进先出），`Next()` 返回 `Bool`，配合 `Path()/Stat()/Err()/SkipDir()`。MoonBit 可直接复刻：
-
-```moonbit
-///|
-pub struct Walker {
-  client : Client
-  root : String
-  cur : Item?
-  stack : Array[Item]
-  descend : Bool
-}
-
-///|
-pub fn Walker::next(self : Walker) -> Bool
-pub fn Walker::skip_dir(self : Walker) -> Unit
-pub fn Walker::path(self : Walker) -> String
-pub fn Walker::stat(self : Walker) -> Entry?
-pub fn Walker::error(self : Walker) -> FtpError?
-```
-
-设计改进建议：额外提供 `iter()` 风格（MoonBit 无泛型 iterator 包袱，可用 `Iterator[Entry]` 或直接 `List` 收集），兼顾易用性。
-
-### 3.6 控制连接协议层（`textproto`）
-
-这是 Go 标准库能力的替代，需自实现约 150~200 行：
-
-```moonbit
-///|
-pub struct Conn {
-  reader : @io.Reader
-  writer : @io.Writer
-}
-
-///|
-pub fn Conn::command(self : Conn, format : String, args : Array[String]) -> Unit
-pub fn Conn::read_response(self : Conn, expected : Int) -> (Int, String)
-```
-
-要点：
-- **多行响应**：`250-line1\r\n line2\r\n250 End\r\n`，以 `NNN-` 开头表示续行，`NNN ` 结束；返回拼接后的 message
-- **超时**：Go 用 `SetDeadline`，MoonBit 可用 `async` 的 `with_timeout` 包裹读写
-- **注入防护**：命令拼接后校验不得含 `\r`/`\n`，否则返回 `InvalidCommand`
-- **调试输出**：把读到的字节 `tee` 到 `@io.Writer`（对应 `debug.go`），可用装饰器实现
-
-### 3.7 客户端（`ftp`）
-
-Go 的 DialOption 是「闭包列表」，MoonBit 无闭包结构体糖，改用 **Builder / 显式 Options 结构**：
-
-```moonbit
-///|
-pub struct Options {
-  timeout : Duration
-  shut_timeout : Duration
-  disable_epsv : Bool
-  trust_pasv_ip : Bool
-  disable_utf8 : Bool
-  disable_mlsd : Bool
-  writing_mdtm : Bool
-  force_list_hidden : Bool
-  location : @time.TimeZone
-  debug : @io.Writer?
-}
-
-///|
-pub async fn Client::dial(addr : String, options? : Options) -> Client raise FtpError
-```
-
-方法清单（对齐 Go，一期不做 TLS 相关）：
-
-| 分类 | 方法 |
+| Go 概念 | MoonBit 对应 |
 | --- | --- |
-| 连接 | `dial` `login` `quit` `logout` `noop` |
-| 能力 | `feat` `type_` `is_time_precise_in_list` `is_get_time_supported` `is_set_time_supported` |
-| 目录 | `list` `name_list` `get_entry` `change_dir` `change_dir_to_parent` `current_dir` `make_dir` `remove_dir` `remove_dir_recur` |
-| 文件 | `retr` `retr_from` `stor` `stor_from` `append` `rename` `delete` `file_size` |
-| 时间 | `get_time` `set_time` |
-| 遍历 | `walk` |
-| 数据通道 | `open_data_conn` `get_data_conn_port` `epsv` `pasv` |
+| `error` 返回值 | `raise` + 自定义 `suberror`（协议错误 / IO 错误 / 不支持） |
+| `errors.Join` | 累积 `Array[Error]`，最后统一抛出（或 `ErrorGroup` 类型） |
+| `io.Reader` / `io.Writer` | `@async.io.Reader` / `@async.io.Writer`（trait） |
+| `net.Conn` | `@async.socket.Tcp` / `@async.tls.Tls` |
+| `context.Context` | `moonbitlang/async` 的 `with_timeout` / 取消机制 |
+| `tls.Config` | `@async.tls.Tls::client(trust~, host~)` |
+| `time.Time` | `moonbitlang/x/time` 或自实现 RFC 时间工具 |
+| `textproto.Conn` | 自实现控制通道（带行缓冲的多行响应解析） |
 
-**登录流程**（严格按序，顺序错会导致真实服务器失败）：
-1. `USER` → `230` 直接成功 / `331` 继续
-2. `PASS` → `230`
-3. `FEAT` → 解析能力表（失败不视为错误，视为无扩展）
-4. `TYPE I`（二进制）
-5. `OPTS UTF8 ON`（若 FEAT 含 UTF8；`501/504/202` 视为成功）
-6. 隐式 TLS 时追加 `PBSZ 0` + `PROT P`
+### 2.2 依赖选型
 
-**数据连接流程**：
+- **`moonbitlang/async`（native target）**：提供 `socket.Tcp`、`socket.Addr` 及 `tls.Tls`，是官方异步 I/O 库，覆盖被动/主动连接、TLS、超时、取消。
+  - 移植项目的 `preferred_target` 应从当前的 `wasm` 改为 `native`（FTP 需要真实网络栈）。
+- **`moonbitlang/x`**：时间、编码等工具（按需引入）。
+- 不做第三方 FTP 依赖（mooncakes.io 上目前**不存在** FTP 客户端库，已检索确认）。
+
+> 说明：选择异步栈而非阻塞 C FFI，是因为 `moonbitlang/async` 是官方维护、跨平台、且已包含 TLS；
+> 同时 MoonBit 的 `async` 语法能让"控制通道等待响应"与"数据通道读写"自然并行。
+
+### 2.3 包结构设计
+
 ```
-getDataConnPort: EPSV 优先（失败置 skipEPSV）→ PASV
-openDataConn:    connect(host, port)
-cmdDataConnFrom: PRET?(预热) → 打开数据连接 → REST?(偏移) → 发送命令
-                 期望 125/150，否则关闭数据连接并抛 ServerError(code, msg)
+src/
+├── pkg                        # 门面包：对外 API 聚合与再导出
+├── types/                     # Entry / EntryType / TransferType / Status 常量
+├── error/                     # 错误类型：InvalidCommand / UnsupportedListLine / ServerError ...
+├── control/                   # 控制通道：命令编码、多行响应、状态码解析、状态码表
+├── scanner/                   # 空白字段扫描器（List line 解析用）
+├── parse/                     # RFC3659 / ls / DIR / hostedftp 四种列表解析
+├── transport/                 # EPSV / PASV / 数据连接 / TLS / PRET / REST 统一入口
+├── client/                    # ServerConn 等价物：Dial/Login/Retr/Stor/List/...
+├── walker/                    # 目录树遍历
+└── debug/                     # 调试输出包装（对齐 io.Reader/Writer）
 ```
 
-**能力开关**（`FEAT` 结果驱动）：
-- `MLST` 且未禁用 → `List` 用 `MLSD`（时间精确到秒）+ 支持 `GetEntry`
-- 否则 → `LIST`（`force_list_hidden` 时 `LIST -a`）
-- `MFMT` → `SetTime` 用 `MFMT`；否则 `MDTM` 可写(VsFtpd 私有)时用 `MDTM`；都没有则不支持
-- `PRET` → 传输前先 `PRET <cmd>`
+分层依赖：`types` ← `scanner`/`parse`/`control` ← `transport` ← `client` ← `walker`。
+`parse` / `scanner` / `walker` 为纯逻辑包，可独立单测，不依赖网络。
 
-## 4. 错误模型
-
-Go 用 `error` + `textproto.Error`，MoonBit 建议用 **typed error enum** 而非字符串：
+### 2.4 API 映射示例
 
 ```moonbit
-///|
-pub suberror FtpError {
-  IoError(String)
-  ServerError(code~ : Int, msg~ : String)   // 替代 textproto.Error
-  InvalidCommand                            // 控制字符注入
-  InvalidResponse(String)                   // PASV/EPSV/PWD 格式错误
-  Unsupported(String)                       // SetTime/GetTime 不支持
-  ParseError(String)                        // 目录行解析失败
-  Closed
+// Go: c, err := ftp.Dial("ftp.example.org:21", ftp.DialWithTimeout(5*time.Second))
+let c = try @ftp.dial("ftp.example.org:21", timeout=5000) catch { ... }
+
+// Go: err = c.Login("anonymous", "anonymous")
+c.login("anonymous", "anonymous")
+
+// Go: r, err := c.Retr("a.txt"); buf, _ := io.ReadAll(r); r.Close()
+let r = c.retr("a.txt")
+let buf = r.read_all()
+r.close()
+
+// Go: entries, err := c.List(".")
+let entries = c.list(".")
+
+// Go: w := c.Walk("/root"); for w.Next() { fmt.Println(w.Path(), w.Stat()) }
+let w = c.walk("/root")
+while w.next() {
+  println(w.path())
 }
 ```
 
-好处：调用方可对 `ServerError(code=550)` 精确分支，比 Go 的字符串比较更安全。多错误聚合（`errors.Join`）用 `Array[FtpError]` + 组合函数实现。
+设计约定：
 
-## 5. 测试策略
+- 所有可能失败的调用 `raise`，错误类型统一继承 `FtpError`。
+- 可选参数一律用 `label~`（如 `timeout~`、`location~`、`disable_epsv~`），避免 Go 的 `...DialOption` 变参。
+- `DialOption` 语义用 `DialOptions` 结构体承载，内部字段私有、通过 `with_*` 构造函数生成，保持可读性。
 
-### 5.1 移植 Go 的 mock server
+### 2.5 分阶段实施计划
 
-`conn_test.go`/`client_test.go` 内置了一个 `ftpMock`：监听本地端口、`textproto` 对话、可脚本化返回 `FEAT`、`PASV/EPSV`、`LIST/STOR` 等。这套 mock 是**最有价值的移植资产**，应完整搬到 MoonBit：
-
-- 放在 `src/ftp/internal/mock/`（或 `moon.pkg` 的 test-import）
-- 用 `async/net` 起本地监听，`port 0` 自动分配
-- 断言**命令序列**（Go 的 `mock.commands`）：例如登录后必须依次看到 `USER/PASS/FEAT/TYPE/OPTS`
-- 覆盖用例：`TestConnPASV`、`TestConnEPSV`、`TestWrongLogin`、`TestPASVIgnoresServerSuppliedHost`、`TestTrustPasvIP`、`TestTimeStandard/Vsftpd*`、`TestDeleteDirRecur`、`TestDialWithDialFunc`
-
-### 5.2 纯函数单测（P0，可立即落地）
-
-| 模块 | 用例（来自 Go 测试） |
-| --- | --- |
-| `parser` | `TestParseValidListLine`、`TestParseSymlinks`、`TestParseUnsupportedListLine`、`TestSettime` |
-| `status` | `TestStatusText`、`TestEntryTypeString` |
-| `scanner` | `TestScanner`、`TestScannerEmpty` |
-| `walker` | `TestWalkReturnsCorrectlyPopulatedWalker`、`TestSkipDirIsCorrectlySet`、`TestEmptyStackReturnsFalse`、`TestCurInit` |
-| 安全 | `TestNoCommandInjection`、`TestBogusDataIP`、`TestEPSV_Parse_*` |
-
-MoonBit 测试形态：稳定断言用 `assert_eq!` / `assert_true!`；结构化输出用 `debug_inspect` 做快照（配合 `moon test --update`）。assert 消息避免浮点误差，日期比较统一转为 UTC 时间戳整数。
-
-### 5.3 集成测试（P2）
-
-- 本地 Docker 起 `pure-ftpd` / `vsftpd`，跑真实上传下载、断点续传、UTF-8 文件名、递归删除
-- 至少覆盖一个「不支持 MLSD」「不支持 MFMT」的服务器，验证能力降级路径
-
-## 6. 安全要点（必须保留）
-
-| 风险 | Go 的处理 | 移植要求 |
+| 阶段 | 内容 | 产物 |
 | --- | --- | --- |
-| 命令注入 | `checkForCommandInjection` 拒绝 CR/LF | 必须保留，且在 `command()` 层统一校验 |
-| SSRF via PASV | 默认忽略服务器给的 IP，除非 `trustPasvIP` | 默认关闭；`isBogusDataIP` 规则一并移植 |
-| 凭证泄漏 | 调试输出会打印 `PASS` | 建议新增敏感参数脱敏（改进项） |
-| TLS 校验 | `tls.Config` 交由调用方 | 一期不提供 TLS，需在文档明确「明文传输」限制 |
+| P0 | 工程初始化：native target、依赖、CI、目录骨架 | 可编译空框架 |
+| P1 | 纯逻辑层：`types` / `status` / `scanner` / `parse`（含 4 种解析器） | 单测全覆盖，对齐上游 `parse_test.go` 用例 |
+| P2 | `control`：命令编码、多行响应、状态码校验、注入防护 | 纯内存单测 |
+| P3 | `transport`：EPSV/PASV/PRET/REST/数据连接/TLS | mock 服务器联调 |
+| P4 | `client`：Dial/Login/Quit/List/Retr/Stor/目录操作/时间操作 | mock 服务器端到端 |
+| P5 | `walker`：目录树遍历 + `SkipDir` | 与上游 `walker_test.go` 对齐 |
+| P6 | 兼容性：VsFtpd `MDTM` 写、`LIST -a`、hostedftp、DOS DIR、IIS | 差异化测试用例 |
+| P7 | 示例 + README + 发布 mooncakes.io | 可运行示例、`moon add PaiGack/ftp` |
 
-## 7. 工作量估算
+### 2.6 测试策略
 
-| 阶段 | 内容 | 预估 |
+1. **纯逻辑单测**：直接搬运上游 `parse_test.go` / `scanner_test.go` / `constants_test.go` 的用例集
+   （UNIX ls、`ls -l` 变体、ACL `+` 权限、hostedftp、DOS DIR、RFC3659、符号链接、多空格文件名、非法行、半年时间规则）。
+2. **Mock FTP 服务器**：用 `moonbitlang/async` 的 `TcpServer` 实现上游 `conn_test.go` 的 `ftpMock`
+   （`FEAT` 特性协商、`PASV`/`EPSV` 数据通道、`STOR`/`RETR`/`LIST`/`MLSD`/`MLST`/`MDTM`/`MFMT`、`no-time`/`std-time`/`vsftpd` 三种服务器画像），
+   并断言命令序列为 `USER, PASS, FEAT, TYPE, OPTS, ..., QUIT`。
+3. **边界用例**：命令注入、EPSV 畸形响应、PASV 可疑 IP、二次 `Close`、零字节上传、REST 断点续传、超时。
+4. **端到端（可选）**：CI 中启动 `pyftpdlib`/`vsftpd` 容器做真实服务器冒烟测试（runner 支持时才启用）。
+
+---
+
+## 3. 与上游的差异与裁剪
+
+**保留**：RFC 959 全量命令、EPSV/PASV、FTPS、列表四解析器、Walker、防注入、防 SSRF、调试输出、时间操作。
+
+**明确不做（首版边界）**：
+
+- `SITE` / `ACCT` / `APPE` 之外的扩展命令（如 `CCC`、`MODE`、`STRU`、`ALLO`）
+- 主动模式（`PORT`/`EPRT`）——上游也只实现被动模式，保持一致
+- FTP 代理（`HTTP CONNECT`）、SSH/SFTP
+- 断点续传之外的并发分片下载
+- WASM/JS 后端（FTP 依赖原生网络栈，首版只支持 `native`）
+
+**可能增强**（作为项目亮点）：
+
+- 基于 `moonbitlang/async` 的**并发传输**（`with_task_group` 并行多文件）
+- 目录列表解析的**属性化测试**（对齐上游用例 + 随机 fuzz）
+- 与 Go 版行为的**差分测试**记录
+
+---
+
+## 4. 许可证与合规
+
+- 上游 `jlaffaye/ftp` 采用 **ISC License**（宽松，类 MIT）。
+- 本仓库当前为 **Apache-2.0**。
+- ISC 与 Apache-2.0 兼容：移植需在 README 与专门文档中**保留原始版权声明**并注明来源、链接、许可证及参考范围。
+- 本项目将：
+  1. 在 README 增加"致谢与来源"章节；
+  2. 保留上游 ISC 许可证原文于 `docs/` 或 `LICENSE-THIRD-PARTY`；
+  3. 若后续包含直接复制的代码片段，逐文件标注来源。
+
+---
+
+## 5. 风险与应对
+
+| 风险 | 说明 | 应对 |
 | --- | --- | --- |
-| P0 | status/entry/parser/scanner/walker + 测试 | 2~3 人日 |
-| P1 | textproto + transport + dial/login/feat/epsv/pasv + mock server | 4~6 人日 |
-| P2 | 传输与目录方法、walker 联通、CLI | 4~5 人日 |
-| P3 | 集成测试、文档、并发装饰器 | 2~3 人日 |
-| 合计 | | **12~17 人日** |
+| 异步栈 API 变动 | `moonbitlang/async` 仍在快速迭代（0.x） | 锁定版本；把 socket/TLS 调用收敛到 `transport` 一层，便于替换 |
+| 无阻塞式同步 socket | MoonBit 无 Go 式阻塞 IO；需 async 语法 | 纯逻辑层与 IO 层解耦，核心解析零 IO |
+| TLS 数据连接兼容性 | Go 版有 proftpd/pureftpd 的坑 | 复刻"延迟握手 + 零字节显式 handshake"逻辑 |
+| 时间类型差异 | Go `time.Time` 精度/时区语义丰富 | 用 UTC 内部表示 + 自定义 `parse_time`/`format_time`，严格对齐格式串 |
+| 测试需要真实网络 | 部分用例依赖 socket | 优先 mock 服务器；真实服务器用例放 CI 可选阶段 |
 
-主要不确定性：`moonbitlang/async` 的网络 API 稳定性与 `@io.Reader/Writer` 的适配成本。
+---
 
-## 8. 风险与对策
+## 6. 验收清单（对齐赛事要求）
 
-1. **MoonBit 网络生态不成熟** → 抽象 `transport` trait，先提供 `async/net` 实现，后续可换后端；所有网络代码隔离在 `transport`/`textproto` 两个包内。
-2. **时间类型差异**（Go `time.Time` 带位置信息）→ 统一以 `@time.ZonedDateTime` 建模，解析后立刻归一化到指定时区，测试比较用 UTC 时间戳。
-3. **无 `io.Pipe`（以写代上传）** → P2 提供 `stor_with(cb : (@io.Writer) -> Unit)` 回调式 API 作为替代。
-4. **错误处理风格差异** → 用 `raise FtpError` 显式声明；Go 的「忽略某个错误继续」语义改写成明确的分支，避免被 `!` 静默吞掉。
-5. **API 兼容性**：不追求与 Go 完全同名，优先符合 MoonBit 命名规范（`snake_case` 方法、`Option` 替代零值），但**命令序列与协议行为必须逐字节对齐**。
-
-## 9. 里程碑建议
-
-- **M1**：P0 完成，`moon test` 全绿，CI 覆盖 parser/status/scanner/walker
-- **M2**：P1 完成，能对本地 pure-ftpd 完成 `dial → login → pwd → feat`
-- **M3**：P2 完成，能 `list / retr / stor / walk`，`cmd` 下提供可用 CLI
-- **M4**：文档 + 与 Go 版行为对照表 + 集成测试报告
-
-## 10. 与 Go 版 API 对照表（节选）
-
-| Go | MoonBit 设计 |
-| --- | --- |
-| `ftp.Dial(addr, opts...)` | `Client::dial(addr, options?)` |
-| `c.Login(u, p)` | `client.login(u, p)` |
-| `c.List(path) ([]*Entry, error)` | `client.list(path) -> Array[Entry] raise FtpError` |
-| `c.Retr(path) (*Response, error)` | `client.retr(path) -> DataConn raise FtpError` |
-| `c.Stor(path, r io.Reader)` | `client.stor(path, reader)` |
-| `c.Walk(root) *Walker` | `client.walk(root) -> Walker` |
-| `DialWithDisabledEPSV(b)` | `Options::{ disable_epsv: true }` |
-| `DialWithTrustPasvIP(b)` | `Options::{ trust_pasv_ip: true }` |
-| `textproto.Error` | `FtpError::ServerError(code~, msg~)` |
-| `errors.Join(errs...)` | `FtpError::join(errs)` |
+- [ ] MoonBit 为主要实现语言
+- [ ] 源码结构清晰，可完成声明的核心功能
+- [ ] README 说明目标、安装、用法、示例且可复现
+- [ ] CI 覆盖检查 / 构建 / 测试
+- [ ] 至少一个可运行示例（如 CLI `moon run cmd/ftp`，支持 `ls` / `get` / `put`）
+- [ ] 完整测试覆盖核心路径（解析 + 协议序列 + 边界）
+- [ ] 发布到 mooncakes.io
+- [ ] OSI 许可证 + 上游来源注明
