@@ -1,0 +1,59 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "PaiGack/ftp/types"
+
+import {
+  "moonbitlang/core/debug",
+  "moonbitlang/x/time",
+}
+
+// Values
+pub let default_dial_timeout_ms : Int
+
+pub let epoch : @time.ZonedDateTime
+
+pub fn make_entry(String, EntryType, time? : @time.ZonedDateTime) -> Entry
+
+pub fn make_file(String, time? : @time.ZonedDateTime) -> Entry
+
+pub fn make_folder(String, time? : @time.ZonedDateTime) -> Entry
+
+pub fn make_link(String, String, time? : @time.ZonedDateTime) -> Entry
+
+pub let time_format : String
+
+pub let utc_offset_seconds : Int
+
+// Errors
+
+// Types and methods
+pub struct Entry {
+  mut name : String
+  mut target : String
+  mut type_ : EntryType
+  mut size : UInt64
+  mut time : @time.ZonedDateTime
+} derive(@debug.Debug)
+pub fn Entry::set_name(Self, String) -> Unit
+pub fn Entry::set_size(Self, UInt64) -> Unit
+pub fn Entry::set_target(Self, String) -> Unit
+pub fn Entry::set_time(Self, @time.ZonedDateTime) -> Unit
+pub fn Entry::set_type(Self, EntryType) -> Unit
+
+pub(all) enum EntryType {
+  File
+  Folder
+  Link
+} derive(Eq, @debug.Debug)
+pub fn EntryType::to_string(Self) -> String
+
+pub(all) enum TransferType {
+  Binary
+  ASCII
+} derive(Eq, @debug.Debug)
+pub fn TransferType::argument(Self) -> String
+pub fn TransferType::from_string(String) -> Self?
+pub fn TransferType::to_string(Self) -> String
+
+// Type aliases
+
+// Traits

@@ -1,5 +1,9 @@
 # 构建环境复用 .ide/Dockerfile 构建的镜像，避免每次流水线重复安装 MoonBit 工具链。
 # 镜像由平台按 versionBy 计算哈希缓存：.ide/Dockerfile 未变时直接复用，不再重复 docker build。
+#
+# FTP 需要真实 TCP + TLS，moon.mod 里 preferred_target = "native"，
+# 因此所有 moon 命令都显式带 --target native，也不再有 wasm-gc 构建步骤。
+# native 后端需要 C 编译器与 libc 头文件，两者由 .ide/Dockerfile 提供。
 .ftp-ci-env: &ftp-ci-env
   docker:
     build:
@@ -17,9 +21,9 @@ main:
           script: |
             export PATH="$HOME/.moon/bin:$PATH"
             moon version
-            moon check
-            moon build
-            moon test
+            moon check --target native --deny-warn
+            moon build --target native
+            moon test  --target native
 
   pull_request:
     - <<: *ftp-ci-env
@@ -28,6 +32,6 @@ main:
           script: |
             export PATH="$HOME/.moon/bin:$PATH"
             moon version
-            moon check
-            moon build
-            moon test
+            moon check --target native --deny-warn
+            moon build --target native
+            moon test  --target native

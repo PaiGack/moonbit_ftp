@@ -1,13 +1,5 @@
 // Learn more about moon.mod configuration:
 // https://docs.moonbitlang.com/en/latest/toolchain/moon/module.html
-//
-// To add a dependency, run this command in your terminal:
-//   moon add moonbitlang/x
-//
-// Or manually declare it in `import`, for example:
-// import {
-//   "moonbitlang/x@0.4.6",
-// }
 
 name = "PaiGack/ftp"
 
@@ -26,3 +18,8 @@ keywords = [ "ftp", "network", "client", "protocol", "async" ]
 preferred_target = "native"
 
 description = "A pure MoonBit FTP client library ported from jlaffaye/ftp, supporting passive mode, MLSD/LIST parsing, resume and FTPS."
+
+import {
+  "moonbitlang/async@0.21.3",
+  "moonbitlang/x@0.5.4",
+}
