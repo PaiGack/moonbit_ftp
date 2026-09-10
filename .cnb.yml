@@ -4,6 +4,13 @@
 # FTP 需要真实 TCP + TLS，moon.mod 里 preferred_target = "native"，
 # 因此所有 moon 命令都显式带 --target native，也不再有 wasm-gc 构建步骤。
 # native 后端需要 C 编译器与 libc 头文件，两者由 .ide/Dockerfile 提供。
+#
+# 镜像里只有工具链、没有 mooncakes 索引，首次构建前必须 `moon update` 拉取依赖索引，
+# 否则 `moon check/build/test` 会以
+# "Failed to resolve registry dependency `moonbitlang/async` ... module was not found in the registry"
+# 失败（GitHub Actions 侧装的工具链自带索引，所以那边不需要这一步）。
+# 注意：索引拉下来后只能读、不能再被 `moon` 写回文件，否则会报
+# "Permission denied (os error 13)"，故索引目录保持 install 时的属主与权限、不做 chown。
 .ftp-ci-env: &ftp-ci-env
   docker:
     build:
@@ -13,25 +20,22 @@
       versionBy:
         - .ide/Dockerfile
 
+.ftp-ci-stages: &ftp-ci-stages
+  stages:
+    - name: build
+      script: |
+        export PATH="$HOME/.moon/bin:$PATH"
+        moon version
+        moon update
+        moon check --target native --deny-warn
+        moon build --target native
+        moon test  --target native
+
 main:
   push:
     - <<: *ftp-ci-env
-      stages:
-        - name: build
-          script: |
-            export PATH="$HOME/.moon/bin:$PATH"
-            moon version
-            moon check --target native --deny-warn
-            moon build --target native
-            moon test  --target native
+      <<: *ftp-ci-stages
 
   pull_request:
     - <<: *ftp-ci-env
-      stages:
-        - name: build
-          script: |
-            export PATH="$HOME/.moon/bin:$PATH"
-            moon version
-            moon check --target native --deny-warn
-            moon build --target native
-            moon test  --target native
+      <<: *ftp-ci-stages
