@@ -77,17 +77,16 @@ GitHub Actions、CNB 流水线与 CNB 云原生开发环境都会自动起同一
 │                                     FTPClient（对齐上游 ServerConn）公开 API         IO
 ├── walker.mbt                        目录树遍历器（建在 client 上）                   IO
 ├── debug.mbt                         控制 / 数据通道原始流量日志包装                   IO
-├── architecture.mbt                  架构守卫检查器
-├── architecture/                     架构守卫的消费者（跑真实 moon.pkg 断言）
+├── architecture.mbt                  纯逻辑 / IO 文件清单（分层登记表）
 ├── cmd/ftp/                          CLI 示例：ls / get / put / walk / mkdir / rm
 ├── moon.pkg                          根包清单（唯一的源码包）
 └── moon.mod                          模块根
 ```
 
 根包只有一个 `moon.pkg`，它的普通 import 块里带着 `moonbitlang/async`：纯逻辑与 IO
-源码同属一个包，MoonBit 目前也没有「按文件限定 import」的语法。作为补偿，
-`architecture/` 会读取真实的 `moon.pkg` 并断言 async 依赖只出现在普通块里、
-没有被偷偷复制成第二个块，把这条架构约束继续变成可执行检查。
+源码同属一个包，MoonBit 目前也没有「按文件限定 import」的语法。分层约束因此靠两样东西
+落地：每个源文件头部的 `// Layer: pure logic` / `// Layer: IO` 标记，以及
+`architecture.mbt` 里两份显式清单（`pure_logic_packages` / `io_sources`）。
 
 依赖方向单向、禁止反向，详见 [docs/porting/01-architecture.md](docs/porting/01-architecture.md)。
 

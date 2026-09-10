@@ -43,6 +43,12 @@ jobs:
       - name: MoonBit version
         run: moon version --all
 
+      # A fresh runner has no ~/.moon/registry index, so `moon check` would fail
+      # with "module was not found in the registry" for moonbitlang/async and
+      # moonbitlang/x. Sync the registry index (and pull dependencies) first.
+      - name: moon update
+        run: moon update
+
       # FTP needs a real TCP + TLS stack, so only the native backend is built.
       # `preferred_target = native` in moon.mod makes wasm builds fail.
       - name: moon check

@@ -106,8 +106,7 @@ moon info && git diff --exit-code       # 接口文件无未提交变更
 │                                 FTPClient 公开 API
 ├── walker.mbt                    目录树遍历
 ├── debug.mbt                     流量日志
-├── architecture.mbt / architecture/
-│                                 架构守卫
+├── architecture.mbt              纯逻辑 / IO 文件清单
 └── cmd/ftp/                      CLI 示例
 
 测试

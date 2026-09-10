@@ -158,7 +158,7 @@ status_text(430) == "Invalid username or password."
 - [ ] `response.mbt`：FTP 响应解析
   - 单行：`220 Server ready`
   - 多行：`211-Features:` 开头，中间行以空格开头，结束行为 `211 End`（**结束行以 `211 ` 开头且不含 `-`**）
-  - 返回 `{code : Int, message : String}`，`message` 为多行正文（**不含首尾的状态行**，与 Go `textproto.ReadResponse` 语义一致）
+  - 返回 `{code : Int, message : String}`，与 Go `textproto.ReadResponse` 逐字节一致：**保留**首尾状态行的正文（`211-Features:\n FEAT\n PASV\nEnd`）。这一点被下游依赖——`FEAT` 靠前导空格过滤掉首尾行，`MLST` 靠 `lines[1:lc-1]` 取事实行；正文若丢掉边界行，`GetEntry` 会直接报 `invalid response`。另外三字节无分隔符的行（`200`）按 Go 判为 `short response` 错误
 - [ ] `command.mbt`：
   - `send(client, cmd : String) -> Unit`（追加 `\r\n` 写出）
   - `cmd(client, expected~ : Int, format~ : String, args~ : Array[String]) -> (Int, String)`

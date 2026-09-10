@@ -75,11 +75,17 @@ pub async fn feat(client : FTPClient) -> Unit {
 ///|
 /// Parse a `FEAT` body into a set of command names.
 ///
-/// Every line has the shape ` COMMAND [description]`; only the first token is
-/// kept, uppercased.
+/// Feature lines have the shape ` COMMAND [description]`; only the first token
+/// is kept, uppercased.
+///
+/// The leading space test is not cosmetic: the body carries the text of the
+/// `211-Features:` and `211 End` framing lines too (see `read_response`), and
+/// once trimmed they would otherwise register as features named `FEATURES:`
+/// and `END`. Upstream filters with exactly this test.
 pub fn parse_features(body : String) -> Map[String, Bool] {
   let features : Map[String, Bool] = Map([])
   for line in body.split("\n") {
+    guard line.length() > 0 && line.unsafe_get(0) == ' ' else { continue }
     let trimmed = line.trim()
     guard trimmed != "" else { continue }
     let name = match trimmed.find(" ") {

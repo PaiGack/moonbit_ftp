@@ -2,10 +2,10 @@
 // layer. See docs/porting/01-architecture.md section 2.
 //
 // The plain import block is shared by the pure logic files, the IO files and
-// the in-package tests, because MoonBit 0.1.20260904 has no per-file imports.
-// `architecture/architecture_test.mbt` keeps the old architecture rule
-// executable: it asserts the manifest never gains a second plain import block
-// that would let the async stack leak into the parsers.
+// the in-package tests, because MoonBit 0.1.20260904 has no per-file imports,
+// so the async stack is named here even though the parsers never use it.
+// `architecture.mbt` carries the pure logic / IO file inventory that review
+// relies on, and docs/porting/01-architecture.md section 3 states the rule.
 
 import {
   "moonbitlang/async",
