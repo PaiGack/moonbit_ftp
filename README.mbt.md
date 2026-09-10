@@ -28,8 +28,6 @@ moon fmt            # 格式化
 ```
 .
 ├── .ide/Dockerfile         # 开发环境（MoonBit 工具链 + VS Code 扩展）
-├── .cnb.yml                # CNB 流水线
-├── .github/workflows/ci.yml # GitHub Actions 流水线
 ├── cmd/main/               # 可执行入口
 ├── ftp.mbt                 # 库代码
 ├── ftp_test.mbt            # 黑盒测试
@@ -37,12 +35,6 @@ moon fmt            # 格式化
 ├── moon.mod                # 模块配置
 └── moon.pkg                # 包配置
 ```
-
-## CI
-
-- **GitHub Actions**（`.github/workflows/ci.yml`）：`moon fmt --check`、`moon check --deny-warn`、
-  `moon info` 一致性检查、`moon test --enable-coverage`、多后端构建与示例运行。
-- **CNB 流水线**（`.cnb.yml`）：复用 `.ide/Dockerfile` 构建的镜像，按 `versionBy` 哈希缓存。
 
 ## 致谢与来源
 
