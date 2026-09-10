@@ -36,3 +36,12 @@ moon fmt            # 格式化
 ├── moon.mod              # 模块配置
 └── moon.pkg              # 包配置
 ```
+
+## 开发环境与 CI 共用镜像
+
+`.ide/Dockerfile` 同时作为云原生开发环境与 CI 构建环境：
+
+- 本地/云端 IDE：`.ide/Dockerfile`（MoonBit 工具链 + VS Code 扩展）
+- CI 流水线：`.cnb.yml` 通过 `docker.build` 复用同一 Dockerfile，镜像按 `versionBy` 哈希缓存，Dockerfile 未变更时不重复构建
+
+修改 `.ide/Dockerfile` 后，CI 与开发环境会自动使用新镜像。

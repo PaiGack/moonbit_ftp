@@ -1,9 +1,20 @@
+# 构建环境复用 .ide/Dockerfile 构建的镜像，避免每次流水线重复安装 MoonBit 工具链。
+# 镜像由平台按 versionBy 计算哈希缓存：.ide/Dockerfile 未变时直接复用，不再重复 docker build。
+.ftp-ci-env: &ftp-ci-env
+  docker:
+    build:
+      dockerfile: .ide/Dockerfile
+      by:
+        - .ide/Dockerfile
+      versionBy:
+        - .ide/Dockerfile
+
 main:
   push:
-    - stages:
+    - <<: *ftp-ci-env
+      stages:
         - name: build
           script: |
-            curl -fsSL https://cli.moonbitlang.cn/install/unix.sh | bash
             export PATH="$HOME/.moon/bin:$PATH"
             moon version
             moon check
@@ -11,10 +22,10 @@ main:
             moon test
 
   pull_request:
-    - stages:
+    - <<: *ftp-ci-env
+      stages:
         - name: build
           script: |
-            curl -fsSL https://cli.moonbitlang.cn/install/unix.sh | bash
             export PATH="$HOME/.moon/bin:$PATH"
             moon version
             moon check
