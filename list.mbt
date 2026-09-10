@@ -93,8 +93,12 @@ pub async fn list(client : FTPClient, path : String) -> Array[Entry] {
 }
 
 ///|
-/// `MLST <path>`: the facts of a single entry, read from the middle lines of
-/// the reply.
+/// `MLST <path>`: the facts of a single entry.
+///
+/// The body carries the framing lines too, so this follows upstream exactly:
+/// the message must split into at least three lines, the first and the last
+/// are dropped, and the remaining lines are merged into one entry (RFC 3659
+/// allows the facts of a single file to be spread over several lines).
 pub async fn get_entry(client : FTPClient, path : String) -> Entry {
   client.lock()
   defer client.unlock()
@@ -102,20 +106,27 @@ pub async fn get_entry(client : FTPClient, path : String) -> Entry {
     status_file_action_ok,
   ])
   let lines = response.message().split("\n").collect()
-  guard lines.length() >= 1 else {
-    raise FtpError::UnsupportedListLine(line=response.message())
+  // `lc < 3` is upstream's "invalid response": anything shorter than
+  // `<head>\n<facts>\n<tail>` cannot carry a fact line.
+  guard lines.length() >= 3 else {
+    raise FtpError::ParseError(msg="invalid response")
   }
-  // The `MLST` body may either be a single facts line, or a blank line
-  // followed by the facts; take the first non-empty line.
-  for line in lines {
-    let trimmed = line.trim().to_owned()
-    guard trimmed != "" else { continue }
-    match parse_rfc3659_line(trimmed) {
-      Some(entry) => return entry
-      None => continue
+  let mut entry : Entry? = None
+  for i = 1; i < lines.length() - 1; i = i + 1 {
+    // RFC 3659 requires a leading space; some servers omit it and some add
+    // several, so all forms are accepted here.
+    let line = lines[i].trim_start().to_owned()
+    // Some servers send a trailing blank line, which is ignored.
+    guard line != "" else { continue }
+    entry = match entry {
+      None => parse_rfc3659_line(line)
+      Some(entry) => Some(parse_next_rfc3659_line(entry, line))
     }
   }
-  raise FtpError::UnsupportedListLine(line=response.message())
+  match entry {
+    Some(entry) => entry
+    None => raise FtpError::UnsupportedListLine(line=response.message())
+  }
 }
 
 ///|
