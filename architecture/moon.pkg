@@ -1,5 +1,0 @@
-import {
-  "PaiGack/ftp" @root,
-  "moonbitlang/async",
-  "moonbitlang/async/fs",
-} for "test"

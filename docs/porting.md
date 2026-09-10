@@ -141,8 +141,9 @@
 `parse*` / `pathutil`）← `control*` ← `transport_*` ← `client*` ← `walker`。
 `parse*` / `scanner` / `walker` / `pathutil` 不碰网络，可独立单测。
 
-平铺之后编译器不再按包隔离，架构约束改由 `architecture/` 对真实 `moon.pkg` 做断言守住：
-async 依赖只能出现在根包的普通 import 块里，且该块不能被拆成第二份。
+平铺之后编译器不再按包隔离，分层约束改由文件头部的 `// Layer:` 标记 +
+`architecture.mbt` 的两份文件清单（`pure_logic_packages` / `io_sources`）守住，
+review 与新增文件时按它核对。
 
 ### 2.4 API 映射示例
 

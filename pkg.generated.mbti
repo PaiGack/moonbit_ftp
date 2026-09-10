@@ -52,8 +52,6 @@ pub fn find_date_start_pub(String, Int) -> Int?
 
 pub fn flatten_errors(Error) -> Array[Error]
 
-pub let forbidden_imports : Array[String]
-
 pub fn format_mdtm(@time.ZonedDateTime) -> String
 
 pub async fn get_data_port(Session) -> (String, Int)
@@ -102,8 +100,6 @@ pub fn make_folder(String, time? : @time.ZonedDateTime) -> Entry
 
 pub fn make_link(String, String, time? : @time.ZonedDateTime) -> Entry
 
-pub fn manifest_imports(String, String) -> Bool
-
 pub let month_names : Array[String]
 
 pub async fn name_list(FTPClient, String) -> Array[String]
@@ -151,8 +147,6 @@ pub fn parse_rfc3659_line(String) -> Entry? raise FtpError
 pub fn parse_uint(String, Int) -> UInt64 raise FtpError
 
 pub async fn pasv(Session) -> (String, Int)
-
-pub fn plain_imports(String) -> String
 
 pub let pure_logic_packages : Array[String]
 
@@ -279,8 +273,6 @@ pub async fn stor_from(FTPClient, String, &@io.Reader, offset? : Int64) -> Unit
 pub let time_format : String
 
 pub let utc_offset_seconds : Int
-
-pub fn violations(String, String) -> Array[String]
 
 pub fn walk(FTPClient, String) -> Walker
 
