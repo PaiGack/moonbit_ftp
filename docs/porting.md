@@ -30,7 +30,7 @@
 | `status.go` | 119 | RFC 959 状态码常量与文本 |
 | `scanner.go` | 58 | 按空白切分的字段扫描器 |
 | `walker.go` | 98 | 目录树遍历器（`Walk` / `SkipDir` / `Stat` / `Path`） |
-| `debug.go` | 37 | 调试输出包装（TeeReader / MultiWriter） |
+| `debug.go` | 37 | 调试输出包装（TeeReader / MultiWriter）——**不移植**，装饰器从未被接线 |
 
 ### 1.3 功能矩阵
 

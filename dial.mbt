@@ -37,7 +37,6 @@ pub async fn dial(
   writing_mdtm? : Bool = false,
   force_list_hidden? : Bool = false,
   location? : @time.Zone = @time.utc_zone,
-  debug_log? : &@io.Writer? = None,
 ) -> FTPClient {
   let options : DialOptions = {
     timeout_ms,
@@ -52,7 +51,6 @@ pub async fn dial(
     writing_mdtm,
     force_list_hidden,
     location,
-    debug_log,
   }
   let (host, port) = split_addr(addr, if tls { 990 } else { 21 })
   let socket_addr = @socket.Addr::parse("\{host}:\{port}") catch {
@@ -64,10 +62,7 @@ pub async fn dial(
   // The trusted IP for PASV is the peer we actually reached, not the hostname
   // we asked for: DNS may resolve to several addresses.
   let peer = tcp.addr().ip()
-  let control = match debug_log {
-    Some(writer) => Control::new(tcp, tcp, format_ip(peer), debug=Some(writer))
-    None => Control::without_debug(tcp, tcp, format_ip(peer))
-  }
+  let control = Control::new(tcp, tcp, format_ip(peer))
   let state_options = options.to_state_options()
   let session = Session::new(control, options=state_options)
   let client : FTPClient = {

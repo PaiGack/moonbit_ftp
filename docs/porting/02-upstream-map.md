@@ -12,7 +12,7 @@
 | `status.go` | 119 | `status.mbt` | 常量表 + `status_text` |
 | `scanner.go` | 58 | `parse.mbt` | 逐方法对齐 |
 | `walker.go` | 98 | `walker.mbt` | 栈遍历语义完全保留 |
-| `debug.go` | 37 | `control.mbt` | 对齐 `Reader`/`Writer` trait |
+| `debug.go` | 37 | — | **不移植**：流量日志装饰器从未被接线，已连同 `debug_log` 一起删除 |
 
 ## 2. `ftp.go` 细分落点
 
@@ -121,11 +121,15 @@ Walker {
 
 上游做两件事：包装控制连接（读写双向 tee）、包装数据流（读单向 tee）。
 
-MoonBit 版：
+MoonBit 版**不移植**这一层。曾经按上面的思路写过一对 `TeeReader` / `TeeWriter`
+装饰结构体，但检查下来没有任何一处实例化过它们：`Control::debug` 的写入方只有一个
+`dial` 的局部 label，而 `DialOptions::debug_log` 存进去之后从没有人读回去，更不改动已
+经建好的 `Control`。也就是说「打开流量日志」这个选项端到端是空的。与其留一条接不上
+的线，不如把装饰器、`Control::debug` 字段和 `debug_log` 选项一并删掉；真要流量日志时
+在 `Control::send_line` / `read_line` 里加一个已注入的 writer 即可。
 
-- 控制通道：实现 `@io.Reader + @io.Writer` 的装饰结构体，读到的字节同时写给日志 writer。
-- 数据通道：只包装 `Reader`。
-- **日志输出必须是可选注入**，默认关闭时零开销（走原始连接，不套装饰器）。
+对应地，`DialWithDebugOutput` 与 `dialOptions.wrapConn` / `wrapStream` 都没有落点，
+见 10.2 与 10.6。
 
 ## 8. 测试文件映射
 
@@ -171,9 +175,9 @@ MoonBit 版：
 | —（Go 用 `ftp.Binary` / `ftp.ASCII` 常量） | `TransferType::from_string` | `entry.mbt` | 字符串 → 枚举，供 CLI 使用 |
 | `Entry` | `Entry` | `entry.mbt` | 5 个 `mut` 字段，同名 |
 | `EntryType` 零值 `EntryTypeFile` | `make_entry` / `make_file` / `make_folder` / `make_link` | `entry.mbt` | Go 的零值语义在 MoonBit 里没有对应物，改用显式构造函数 |
-| `timeFormat` | `time_format` | `status.mbt` | `"yyyyMMddHHmmss"`（Go 是 `"20060102150405"`，同一含义的两种写法） |
+| `timeFormat` | — | — | **不移植**：`MDTM` / `MFMT` 的时间格式在 `parse_mdtm` / `format_mdtm` 里直接按字段拼解析，没有需要共享的格式常量 |
 | `DefaultDialTimeout` | `default_dial_timeout_ms` | `status.mbt` | 改名：Go 是 `time.Duration`（纳秒），MoonBit 统一用毫秒 `Int` |
-| —（隐式 `time.UTC` 回退） | `utc_offset_seconds` | `status.mbt` | 新增：显式表达默认时区偏移，避免各处硬编码 0 |
+| —（隐式 `time.UTC` 回退） | — | — | 不需要：`parse_mdtm` 固定用 `@time.utc_zone`，不引入可配置的偏移常量 |
 | `ErrInvalidCommand` | `FtpError::InvalidCommand` | `error.mbt` | 改名：Go 是 `error` 变量，MoonBit 是 `suberror` 变体 |
 | `errUnsupportedListLine` | `FtpError::UnsupportedListLine` | `error.mbt` | 改名：同上，且**带上了原始行**（`line~`）便于定位 |
 | `errUnsupportedListDate` | `FtpError::UnsupportedListDate` | `error.mbt` | 改名：同上，带 `field~` |
@@ -249,8 +253,8 @@ MoonBit 版：
 | `getDataConnPort()` | `get_data_port` | `transport.mbt` | 改名：`get` → `get`，但去掉了缩写 `Conn` |
 | `openDataConn()` | `open_data_conn` | `transport.mbt` | 返回 `DataConn`（连接 + 延迟握手状态） |
 | —（`net.Conn` 包装） | `DataConn` + `DataConn::reader` / `::writer` / `::close` | `transport.mbt` | 新增：Go 直接用 `net.Conn`，MoonBit 需要显式持有 reader/writer |
-| `dialOptions.wrapConn(netConn)` | `TeeReader` / `TeeWriter` 的选择 | `control.mbt` + `Control::new` | `debug_log` 非空时才包装，见 10.7 |
-| `dialOptions.wrapStream(rd)` | `TeeReader` 用于 `DataConn` | `control.mbt` + `transport.mbt` | 只包装读方向，与上游一致 |
+| `dialOptions.wrapConn(netConn)` | — | — | **不移植**：参见 10.6，流量日志装饰器连同 `debug_log` 一起删掉了 |
+| `dialOptions.wrapStream(rd)` | — | — | **不移植**：同上 |
 | `Dial(addr, options...)` | `dial` | `dial.mbt` | Go 变参 → MoonBit label 参数 |
 | `Connect(addr)` | — | — | **不移植**，上游已 Deprecated（见第 9 节） |
 | `DialTimeout(addr, timeout)` | — | — | **不移植**，同上 |
@@ -271,7 +275,7 @@ MoonBit 版：
 | `DialWithContext(ctx)` | — | — | **不移植**，取消交给 `async` 的取消机制，见 10.9 |
 | `DialWithTLS(cfg)` | `DialOptions::set_tls` | `client.mbt` | 隐式 TLS（FTPS） |
 | `DialWithExplicitTLS(cfg)` | `DialOptions::set_explicit_tls` | `client.mbt` | 显式 TLS（`AUTH TLS`） |
-| `DialWithDebugOutput(w)` | `DialOptions::set_debug_log` | `client.mbt` | 改名：`io.Writer` → `&@io.Writer` |
+| `DialWithDebugOutput(w)` | — | — | **不移植**：选项字段只存不读（`dial` 用的是它自己的局部 label，不是 `client.options` 里那份），带着一个永不到达控制通道的 writer，见 10.6 |
 | `dialOptions` | `Options` | `client.mbt` | 改名 + 搬家：与 `FTPClient` 同处一个文件，让 `client` 与 `transport` 共享它而不互相 import |
 | —（无对应物） | `DialOptions` | `client.mbt` | 新增：`dial` 的 label 默认值来源（`Options` 是传输层只读视图），两层结构见 10.9 |
 
@@ -334,8 +338,8 @@ MoonBit 版：
 | `scanner.NextFields(count)` | `Scanner::next_fields` | `parse.mbt` | |
 | `scanner.Remaining()` | `Scanner::remaining` | `parse.mbt` | 保留前导空格 |
 | —（无对应物） | `Scanner::at_end` | `parse.mbt` | 新增：替代 Go 里的 `s.pos >= len(s.str)` 判断 |
-| `newDebugWrapper(conn, w)` | `TeeReader::new` + `TeeWriter::new` | `control.mbt` | 改名：Go 一个双向 wrapper → MoonBit 拆成读/写两个装饰器 |
-| `streamDebugWrapper(rd, w)` | `TeeReader` | `control.mbt` | 数据流只包装读方向 |
+| `newDebugWrapper(conn, w)` | — | — | **不移植**：原来是一对 `TeeReader` / `TeeWriter` 装饰器，但从未被实例化过；`Control` 上的 `debug` 字段也没有真正接线的来源，故连装饰器一起删掉 |
+| `streamDebugWrapper(rd, w)` | — | — | **不移植**：同上，`DataConn` 侧从来没有包装读方向的调用点 |
 | `debugWrapper.Close()` | — | — | 不需要：装饰器不拥有底层连接，关闭由 `Control` / `DataConn` 负责 |
 
 ### 10.7 `walker.go`
@@ -364,7 +368,6 @@ MoonBit 版：
 | `DataConn` | `transport.mbt` | Go 直接返回 `net.Conn`；MoonBit 需要显式表达「连接 + 是否已握手」 |
 | `Control` | `control.mbt` | Go 的 `conn` 结构体（未导出），平铺后需要一个公开类型承载控制通道 |
 | `ListFormat` | `parse.mbt` | 比 Go 多带「命中了哪种列表格式」，供测试断言与 `list` 分支 |
-| `TeeReader` / `TeeWriter` | `control.mbt` | Go 的 `io.TeeReader` 在 MoonBit 侧没有等价物 |
 
 ### 10.9 行为等价性备注
 
