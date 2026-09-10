@@ -177,3 +177,42 @@ test "a four digit year is used verbatim" {
   assert_eq(entry.time.day(), 19)
   assert_eq(entry.name, "message.ftp")
 }
+
+// Scanner cases (the scanner is part of `parse.mbt`, ported from
+// upstream `scanner_test.go`).
+
+///|
+test "scanner walks fields and keeps the separator in remaining" {
+  let scanner = Scanner::new("foo  bar x  y")
+  assert_eq(scanner.next(), "foo")
+  assert_eq(scanner.remaining(), " bar x  y")
+  assert_eq(scanner.next(), "bar")
+  assert_eq(scanner.remaining(), "x  y")
+  assert_eq(scanner.next(), "x")
+  assert_eq(scanner.remaining(), " y")
+  assert_eq(scanner.next(), "y")
+  assert_eq(scanner.next(), "")
+  assert_eq(scanner.remaining(), "")
+}
+
+///|
+test "scanner on an empty input yields empty fields" {
+  let scanner = Scanner::new("")
+  assert_eq(scanner.next(), "")
+  assert_eq(scanner.next(), "")
+  assert_eq(scanner.remaining(), "")
+}
+
+///|
+test "scanner next_fields stops without raising when input runs out" {
+  let scanner = Scanner::new("a b")
+  assert_eq(scanner.next_fields(5), ["a", "b"])
+}
+
+///|
+test "scanner tolerates a leading run of spaces" {
+  let scanner = Scanner::new("   a b")
+  assert_eq(scanner.next(), "a")
+  assert_eq(scanner.next(), "b")
+  assert_eq(scanner.next(), "")
+}

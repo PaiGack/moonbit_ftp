@@ -4,12 +4,16 @@
 
 // Layer: IO — uses the `moonbitlang/async` stack from the root moon.pkg.
 
-// The control connection and the request/response framing on top of it.
+// The control connection, the request/response framing on top of it, and the
+// traffic log decorators that sit in front of it.
 //
-// This file merges `control`, `command` and `response`: a control connection
-// is only meaningful together with the two operations performed on it (write a
-// command, read a reply), and the reply type exists solely as the return of
-// `read_response`. The three were split across files but never used apart.
+// This file merges `control`, `command`, `response` and `debug` (that split
+// had already lost its files before this change: the block comments below are
+// the only trace of it). A control connection is only meaningful together with
+// the two operations performed on it (write a command, read a reply); the reply
+// type exists solely as the return of `read_response`; and the tee decorators
+// exist to be wired into `Control::debug`, which `dial` does when `debug_log~`
+// is set. None of the four pieces was ever used apart from the others.
 
 ///|
 /// An FTP control connection: a line buffered reader/writer pair over the
@@ -259,4 +263,56 @@ pub fn parse_code(line : String) -> Int? {
 /// fourth byte is `-`.
 pub fn is_continuation(line : String) -> Bool {
   line.length() > 3 && line.unsafe_get(3).to_int() == 45
+}
+
+///|
+/// A reader decorator that mirrors everything it reads into a log writer.
+///
+/// Wiring is optional: when the caller does not ask for a traffic log the raw
+/// connection is used directly and this decorator is never allocated, so the
+/// debug support costs nothing in the default configuration.
+pub struct TeeReader {
+  inner : &@io.Reader
+  log : &@io.Writer
+}
+
+///|
+/// Wrap `inner` so every chunk is also written to `log`.
+pub fn TeeReader::new(inner : &@io.Reader, log : &@io.Writer) -> TeeReader {
+  { inner, log, }
+}
+
+///|
+/// Read through to the wrapped reader, echoing the bytes read.
+pub async fn TeeReader::read(
+  self : TeeReader,
+  dst : FixedArray[Byte],
+  offset? : Int = 0,
+  max_len? : Int = dst.length() - offset,
+) -> Int {
+  let n = self.inner.read(dst, offset~, max_len~)
+  if n > 0 {
+    self.log.write(dst.unsafe_reinterpret_as_bytes()[offset:offset + n])
+  }
+  n
+}
+
+///|
+/// A writer decorator mirroring everything it writes into a log writer.
+pub struct TeeWriter {
+  inner : &@io.Writer
+  log : &@io.Writer
+}
+
+///|
+/// Wrap `inner` so every chunk is also written to `log`.
+pub fn TeeWriter::new(inner : &@io.Writer, log : &@io.Writer) -> TeeWriter {
+  { inner, log, }
+}
+
+///|
+/// Write through to the wrapped writer, echoing the bytes written.
+pub async fn TeeWriter::write(self : TeeWriter, data : &@io.Data) -> Unit {
+  ignore(self.log.write(data))
+  self.inner.write(data)
 }

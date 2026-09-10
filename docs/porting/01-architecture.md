@@ -23,27 +23,22 @@
 
 ```
 .
-├── entry.mbt / consts.mbt            数据模型与常量                        纯逻辑
-├── status.mbt                        RFC 959 状态码 + status_text()        纯逻辑
-├── error.mbt                         FtpError / FtpErrors                 纯逻辑
-├── scanner.mbt                       LIST 行字段扫描器                      纯逻辑
-├── parse.mbt                         四种解析器 + 回退链 + 数值辅助          纯逻辑
-├── parse_time.mbt                    LIST 时间字段解析（含半年规则）          纯逻辑
-├── pathutil.mbt                      Go path.Join 语义的远端路径拼接          纯逻辑
-├── control.mbt                       控制连接 + 命令编码 + 响应解析           IO
-├── state.mbt                         client 与 transport 共享的连接状态       IO
-├── transport.mbt                     EPSV / PASV / 数据连接 / TLS 延迟握手    IO
-├── client.mbt                        FTPClient + DialOptions + SIZE/MDTM/MFMT IO
-├── dial.mbt                          dial / split_addr / parse_decimal      IO
-├── login.mbt                         USER/PASS/FEAT/AUTH/TYPE/PBSZ/PROT     IO
-├── nav.mbt                           cwd / cd / cd_up / extract_quoted      IO
-├── list.mbt                          NLST / LIST / MLSD / MLST / TYPE       IO
-├── transfer.mbt                      RETR / STOR / APPE / 226 收尾           IO
-├── fsops.mbt                         MKD / RMD / DELE / RNFR+RNTO           IO
-├── lifecycle.mbt                     NOOP / REIN / QUIT                     IO
-├── walker.mbt                        目录树遍历器                            IO
-├── debug.mbt                         控制/数据通道原始流量日志包装             IO
-├── architecture.mbt                  纯逻辑 / IO 文件清单（分层登记表）
+├── entry.mbt                         数据模型（Entry / EntryType / TransferType） 纯逻辑
+├── status.mbt                        RFC 959 状态码 + 常量 + status_text()        纯逻辑
+├── error.mbt                         FtpError / FtpErrors                        纯逻辑
+├── parse.mbt                         四种解析器 + 回退链 + 时间解析 + 字段扫描器     纯逻辑
+├── pathutil.mbt                      Go path.Join 语义的远端路径拼接               纯逻辑
+├── control.mbt                       控制连接 + 命令编码 + 响应解析 + 流量日志包装   IO
+├── transport.mbt                     EPSV / PASV / 数据连接 / TLS 延迟握手          IO
+├── client.mbt                        FTPClient + Session + Options/DialOptions     IO
+│                                     + SIZE / MDTM / MFMT
+├── dial.mbt                          dial / split_addr / parse_decimal + 登录       IO
+│                                     + FEAT 能力协商
+├── commands.mbt                      CWD / PWD / MKD / RMD / DELE / RNFR+RNTO      IO
+│                                     / NOOP / REIN / QUIT
+├── list.mbt                          NLST / LIST / MLSD / MLST / TYPE              IO
+├── transfer.mbt                      RETR / STOR / APPE / 226 收尾                  IO
+├── walker.mbt                        目录树遍历器                                  IO
 ├── cmd/ftp/                          CLI 示例
 ├── moon.pkg                          根包清单
 └── moon.mod                          模块根
@@ -54,29 +49,30 @@
 
 | 符号 | 位置 | 重命名原因 |
 | --- | --- | --- |
-| `set_time` | `parse_time.mbt`（纯逻辑） | 与 `client_time.mbt` 的公开 `set_time` 同名 |
-| `set_file_time` | `client_time.mbt`（IO） | 上条的 IO 侧新名字，语义更明确 |
-| `DateResponse` | `response.mbt`（控制通道响应） | 与 `transfer.mbt` 的 `DataResponse` 区分：一个是控制通道应答，一个是数据传输句柄 |
-| `Response::code()` / `Response::message()` | `response.mbt` | 平铺后字段名与包名不再隔离，改成方法调用避免 `.message` 歧义 |
+| `set_time` | `parse.mbt`（纯逻辑，时间解析部分） | 与 `client.mbt` 的公开 `set_time` 同名 |
+| `set_file_time` | `client.mbt`（IO） | 上条的 IO 侧新名字，语义更明确 |
+| `Response` | `control.mbt`（控制通道响应） | 与 `transfer.mbt` 的 `DataResponse` 区分：一个是控制通道应答，一个是数据传输句柄 |
+| `Response::code()` / `Response::message()` | `control.mbt` | 平铺后字段名与包名不再隔离，改成方法调用避免 `.message` 歧义 |
 
 ## 3. 依赖方向
 
 ```
 entry ─┬─> status ──> error
-       ├─> scanner ─> parse
-       └─> pathutil
+       ├─> parse ──> pathutil
+       │
+       └─> (纯逻辑到此为止)
                        │
                 (以下可依赖上面全部纯逻辑符号)
                        ▼
                   control ──> transport ──> client ──> walker
                                    │            │
-                                   └──> debug <─┘
+                                   └────────────┘
 ```
 
 硬性约束：
 
-- 纯逻辑文件（`entry` / `consts` / `status` / `error` / `scanner` / `parse*` /
-  `pathutil`）**不得**依赖 `moonbitlang/async`。
+- 纯逻辑文件（`entry` / `status` / `error` / `parse*` / `pathutil`）**不得**依赖
+  `moonbitlang/async`。
 - `parse*` 只接 `String` 和 `Entry`，绝不接 `Reader`。
 - `client*` 不直接调 socket，所有连接建立走 `transport_*`。
 - `walker` 只依赖 `client` 的公开符号。
@@ -84,14 +80,13 @@ entry ─┬─> status ──> error
 平铺之后这些文件同属一个包，编译器不再帮忙拦跨层引用，所以改用**两个手段**保住约束：
 
 1. 每个文件顶部的引用注释标明它属于纯逻辑还是 IO，review 时按注释核对；
-2. `architecture.mbt` 里有两份显式清单（`pure_logic_packages` / `io_sources`），
-   新增文件必须同时补标记和清单，分层不会在平铺之后悄悄糊掉。
+2. 纯逻辑与 IO 的文件在下面第 2 节的目录树里分组列出，新增文件按所在分组补标记。
 
-这条约束目前是**文档 + 清单 + 注释**，没有自动断言：所有源码共享一个 `moon.pkg`，
+这条约束目前是**文档 + 注释**，没有自动断言：所有源码共享一个 `moon.pkg`，
 而 MoonBit（0.1.20260904）没有按文件限定 import 的语法，编译器层面无迹可查。改分层时
-请手工核对 `architecture.mbt` 的两份清单，并把结论写进 PR 描述。
+请手工核对文件头部的 `// Layer:` 标记，并把结论写进 PR 描述。
 
-纯逻辑文件清单在 `architecture.mbt` 的 `pure_logic_packages` 里，可执行、可枚举。
+纯逻辑文件：`entry` / `status` / `error` / `parse*` / `pathutil`，共 5 个。
 
 ## 4. 数据模型
 

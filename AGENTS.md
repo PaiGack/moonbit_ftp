@@ -37,7 +37,8 @@ You can browse and install extra skills here:
   files, the IO files and the in-package tests, because MoonBit 0.1.20260904 has
   no per-file imports) plus a `for "wbtest"` block. The async packages therefore
   sit in the plain block on purpose; the pure logic / IO split is carried by the
-  per-file `// Layer:` markers and by the file lists in `architecture.mbt`.
+  per-file `// Layer:` markers and by the grouped file tree in
+  `docs/porting/01-architecture.md` section 2.
 
 - In the toplevel directory, there is a `moon.mod` file listing module
   metadata.

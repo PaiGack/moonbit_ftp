@@ -71,24 +71,22 @@ GitHub Actions、CNB 流水线与 CNB 云原生开发环境调用的都是**同�
 
 ```
 .
-├── entry.mbt / consts.mbt            Entry / EntryType / TransferType / 常量        纯逻辑
-├── status.mbt                        RFC 959 状态码常量 + status_text()             纯逻辑
+├── entry.mbt                         Entry / EntryType / TransferType              纯逻辑
+├── status.mbt                        RFC 959 状态码与常量 + status_text()            纯逻辑
 ├── error.mbt                         FtpError / FtpErrors                          纯逻辑
-├── scanner.mbt                       空白分隔字段扫描器（LIST 行解析用）             纯逻辑
 ├── parse.mbt                         RFC3659 / UNIX ls / DOS DIR / hostedftp 解析器  纯逻辑
-│                                     与 parse_list_line 回退链
-├── parse_time.mbt                    LIST 时间字段解析（含半年规则）                 纯逻辑
+│                                     回退链 + LIST 时间字段解析 + 字段扫描器
 ├── pathutil.mbt                      远端路径 join（对齐 Go path.Join 语义）        纯逻辑
 ├── control.mbt                       控制通道：命令编码、多行响应、状态码校验        IO
-├── state.mbt                         client 与 transport 共享的连接状态               IO
+│                                     + 流量日志包装
 ├── transport.mbt                     EPSV / PASV / PRET / REST / 数据连接 / TLS 建立   IO
-├── client.mbt                        FTPClient（对齐上游 ServerConn）+ DialOptions   IO
-├── dial.mbt / login.mbt / nav.mbt / list.mbt / transfer.mbt
-├── fsops.mbt / lifecycle.mbt
-│                                     连接、登录、导航、列表、传输、文件操作、生命周期 IO
-├── walker.mbt                        目录树遍历器（建在 client 上）                   IO
-├── debug.mbt                         控制 / 数据通道原始流量日志包装                   IO
-├── architecture.mbt                  纯逻辑 / IO 文件清单（分层登记表）
+├── client.mbt                        FTPClient + Session/Options + DialOptions       IO
+│                                     + SIZE / MDTM / MFMT
+├── dial.mbt                          dial / 登录 / FEAT 能力协商                     IO
+├── commands.mbt                      CWD / PWD / MKD / RMD / DELE / RNFR+RNTO        IO
+│                                     / NOOP / REIN / QUIT
+├── list.mbt / transfer.mbt / walker.mbt
+│                                     列表、传输、目录树遍历                          IO
 ├── cmd/ftp/                          CLI 示例：ls / get / put / walk / mkdir / rm
 ├── scripts/                          跨 CI 复用的公共脚本
 │   ├── start-ftp.sh                  起四个真实 FTP 服务器容器（CNB / GitHub 共用）
@@ -100,9 +98,8 @@ GitHub Actions、CNB 流水线与 CNB 云原生开发环境调用的都是**同�
 ```
 
 根包只有一个 `moon.pkg`，它的普通 import 块里带着 `moonbitlang/async`：纯逻辑与 IO
-源码同属一个包，MoonBit 目前也没有「按文件限定 import」的语法。分层约束因此靠两样东西
-落地：每个源文件头部的 `// Layer: pure logic` / `// Layer: IO` 标记，以及
-`architecture.mbt` 里两份显式清单（`pure_logic_packages` / `io_sources`）。
+源码同属一个包，MoonBit 目前也没有「按文件限定 import」的语法。分层约束因此落在每个
+源文件头部的 `// Layer: pure logic` / `// Layer: IO` 标记上，目录树按层分组列出文件名。
 
 依赖方向单向、禁止反向，详见 [docs/porting/01-architecture.md](docs/porting/01-architecture.md)。
 

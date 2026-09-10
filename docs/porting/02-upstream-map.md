@@ -7,12 +7,12 @@
 
 | 上游文件 | 行数 | MoonBit 落点 | 备注 |
 | --- | --- | --- | --- |
-| `ftp.go` | 1191 | `client*.mbt` + `entry.mbt` + `error.mbt` | 按职责拆 6 个文件，不整文件照搬 |
-| `parse.go` | 277 | `parse*.mbt` | 四种解析器各一个文件 |
+| `ftp.go` | 1191 | `client.mbt` + `entry.mbt` + `error.mbt` + `dial.mbt` + `commands.mbt` | 按职责拆多个文件，不整文件照搬 |
+| `parse.go` | 277 | `parse.mbt` | 四种解析器 + 时间解析 + 字段扫描器集中一个文件 |
 | `status.go` | 119 | `status.mbt` | 常量表 + `status_text` |
-| `scanner.go` | 58 | `scanner.mbt` | 逐方法对齐 |
+| `scanner.go` | 58 | `parse.mbt` | 逐方法对齐 |
 | `walker.go` | 98 | `walker.mbt` | 栈遍历语义完全保留 |
-| `debug.go` | 37 | `debug.mbt` | 对齐 `Reader`/`Writer` trait |
+| `debug.go` | 37 | `control.mbt` | 对齐 `Reader`/`Writer` trait |
 
 ## 2. `ftp.go` 细分落点
 
@@ -21,23 +21,23 @@
 | 上游内容 | 落点文件 | 说明 |
 | --- | --- | --- |
 | `EntryType` / `TransferType` / `Entry` | `entry.mbt` | 纯数据 |
-| `DefaultDialTimeout` / `timeFormat` | `consts.mbt` | 常量 |
+| `DefaultDialTimeout` / `timeFormat` | `status.mbt` | 常量 |
 | `ErrInvalidCommand` | `error.mbt` | `FtpError::InvalidCommand` |
 | `ServerConn` 结构体字段 | `client.mbt` | 含 capabilities 缓存 |
-| `DialOption` + 16 个 `DialWith*` 选项函数 | `options.mbt` | 见 04-api-mapping.md |
+| `DialOption` + 16 个 `DialWith*` 选项函数 | `client.mbt` | 见 04-api-mapping.md |
 | `Dial` / `Connect` / `DialTimeout` | `dial.mbt` | |
-| `Login` / `authTLS` / `feat` / `setUTF8` | `login.mbt` | 能力协商集中一处 |
-| `epsv` / `parseEPSV` / `pasv` / `isBogusDataIP` / `getDataConnPort` / `openDataConn` | `transport_*.mbt` | 拆成 `transport_epsv.mbt` / `transport_pasv.mbt` / `transport_dataconn.mbt` |
-| `cmd` / `checkForCommandInjection` | `command.mbt` | |
-| `cmdDataConnFrom` | `transport_dataconn.mbt` | 数据通道开启流程核心 |
+| `Login` / `authTLS` / `feat` / `setUTF8` | `dial.mbt` | 能力协商集中一处 |
+| `epsv` / `parseEPSV` / `pasv` / `isBogusDataIP` / `getDataConnPort` / `openDataConn` | `transport.mbt` | 数据通道相关逻辑集中一个文件 |
+| `cmd` / `checkForCommandInjection` | `control.mbt` | |
+| `cmdDataConnFrom` | `transport.mbt` | 数据通道开启流程核心 |
 | `Type` / `NameList` / `List` / `GetEntry` | `list.mbt` | |
-| `IsTimePreciseInList` / `ChangeDir` / `ChangeDirToParent` / `CurrentDir` | `nav.mbt` | |
-| `FileSize` / `GetTime` / `IsGetTimeSupported` / `SetTime` / `IsSetTimeSupported` | `client_time.mbt` | |
+| `IsTimePreciseInList` / `ChangeDir` / `ChangeDirToParent` / `CurrentDir` | `commands.mbt` | |
+| `FileSize` / `GetTime` / `IsGetTimeSupported` / `SetTime` / `IsSetTimeSupported` | `client.mbt` | |
 | `Retr` / `RetrFrom` / `Stor` / `StorFrom` / `Append` / `checkDataShut` | `transfer.mbt` | 最核心、坑最多 |
-| `Rename` / `Delete` / `RemoveDirRecur` / `MakeDir` / `RemoveDir` | `fsops.mbt` | |
-| `Walk` | `nav.mbt` | 只做 `Walker` 构造 |
-| `NoOp` / `Logout` / `Quit` | `lifecycle.mbt` | |
-| `Response` 及其 4 个方法 | `response.mbt` | |
+| `Rename` / `Delete` / `RemoveDirRecur` / `MakeDir` / `RemoveDir` | `commands.mbt` | |
+| `Walk` | `commands.mbt` | 只做 `Walker` 构造 |
+| `NoOp` / `Logout` / `Quit` | `commands.mbt` | |
+| `Response` 及其 4 个方法 | `control.mbt` | |
 | `statusText` map | `status.mbt` | |
 
 ## 3. `parse.go` 细分落点
@@ -45,14 +45,14 @@
 | 上游函数 | 落点 | 要点 |
 | --- | --- | --- |
 | `listLineParsers` 数组 | `parse.mbt` | 回退顺序固定：RFC3659 → ls → DOS → hostedftp |
-| `parseRFC3659ListLine` | `parse_rfc3659.mbt` | `;` 与空格位置校验，`iSemicolon > iWhitespace` 即拒绝 |
-| `parseNextRFC3659ListLine` | `parse_rfc3659.mbt` | 多行同名合并（MLST 用），名字不一致要报错 |
-| `parseLsListLine` | `parse_unix_ls.mbt` | 首字段必须 10 字节，或 11 字节且第 11 位是 `+`（ACL） |
-| `parseDirListLine` | `parse_dos_dir.mbt` | 4 种时间格式逐个试 |
-| `parseHostedFTPLine` | `parse_hostedftp.mbt` | link count 为 0，换算成 1 后复用 ls 解析 |
+| `parseRFC3659ListLine` | `parse.mbt` | `;` 与空格位置校验，`iSemicolon > iWhitespace` 即拒绝 |
+| `parseNextRFC3659ListLine` | `parse.mbt` | 多行同名合并（MLST 用），名字不一致要报错 |
+| `parseLsListLine` | `parse.mbt` | 首字段必须 10 字节，或 11 字节且第 11 位是 `+`（ACL） |
+| `parseDirListLine` | `parse.mbt` | 4 种时间格式逐个试 |
+| `parseHostedFTPLine` | `parse.mbt` | link count 为 0，换算成 1 后复用 ls 解析 |
 | `parseListLine` | `parse.mbt` | 顶层入口，返回 `Format` 标明命中哪种 |
 | `Entry::setSize` | `parse.mbt` | `ParseUint(str, 0, 64)` → MoonBit 需支持 `0x` 前缀 |
-| `Entry::setTime` | `parse_time.mbt` | **半年规则**在这里 |
+| `Entry::setTime` | `parse.mbt` | **半年规则**在这里 |
 
 `setTime` 的半年规则（上游注释引 `info ls` 10.1.6）：
 
@@ -171,9 +171,9 @@ MoonBit 版：
 | —（Go 用 `ftp.Binary` / `ftp.ASCII` 常量） | `TransferType::from_string` | `entry.mbt` | 字符串 → 枚举，供 CLI 使用 |
 | `Entry` | `Entry` | `entry.mbt` | 5 个 `mut` 字段，同名 |
 | `EntryType` 零值 `EntryTypeFile` | `make_entry` / `make_file` / `make_folder` / `make_link` | `entry.mbt` | Go 的零值语义在 MoonBit 里没有对应物，改用显式构造函数 |
-| `timeFormat` | `time_format` | `consts.mbt` | `"yyyyMMddHHmmss"`（Go 是 `"20060102150405"`，同一含义的两种写法） |
-| `DefaultDialTimeout` | `default_dial_timeout_ms` | `consts.mbt` | 改名：Go 是 `time.Duration`（纳秒），MoonBit 统一用毫秒 `Int` |
-| —（隐式 `time.UTC` 回退） | `utc_offset_seconds` | `consts.mbt` | 新增：显式表达默认时区偏移，避免各处硬编码 0 |
+| `timeFormat` | `time_format` | `status.mbt` | `"yyyyMMddHHmmss"`（Go 是 `"20060102150405"`，同一含义的两种写法） |
+| `DefaultDialTimeout` | `default_dial_timeout_ms` | `status.mbt` | 改名：Go 是 `time.Duration`（纳秒），MoonBit 统一用毫秒 `Int` |
+| —（隐式 `time.UTC` 回退） | `utc_offset_seconds` | `status.mbt` | 新增：显式表达默认时区偏移，避免各处硬编码 0 |
 | `ErrInvalidCommand` | `FtpError::InvalidCommand` | `error.mbt` | 改名：Go 是 `error` 变量，MoonBit 是 `suberror` 变体 |
 | `errUnsupportedListLine` | `FtpError::UnsupportedListLine` | `error.mbt` | 改名：同上，且**带上了原始行**（`line~`）便于定位 |
 | `errUnsupportedListDate` | `FtpError::UnsupportedListDate` | `error.mbt` | 改名：同上，带 `field~` |
@@ -185,30 +185,30 @@ MoonBit 版：
 | Go 符号 | MoonBit 符号 | 落点 | 备注 |
 | --- | --- | --- | --- |
 | `ServerConn` | `FTPClient` | `client.mbt` | 改名：对齐上游 `client_test.go` 里的叫法与 docs/porting 的用词 |
-| `ServerConn.Login(user, password)` | `login` | `login.mbt` | 改名：平铺成包级函数，Go 的 `user, password string` → `user~, password~` label |
+| `ServerConn.Login(user, password)` | `login` | `dial.mbt` | 改名：平铺成包级函数，Go 的 `user, password string` → `user~, password~` label |
 | `ServerConn.authTLS()` | `Control::upgrade` 内联 | `control.mbt` | 改名：TLS 升级是控制通道的行为，收进 `Control`，不再单独暴露 |
-| `ServerConn.feat()` | `feat` | `login.mbt` | 返回 `Unit`，把 `parse_features` 的结果写回 client 的能力缓存 |
-| —（`feat` 里的解析循环） | `parse_features` | `login.mbt` | 新增：把「FEAT 正文 → `Map[String, Bool]`」抽成纯函数，可单测 |
-| `ServerConn.setUTF8()` | `login` 内联 + `DialOptions::disable_utf8` | `login.mbt` / `options.mbt` | 改名：不是一个独立公开步骤，只是登录流程里的一次 `OPTS UTF8 ON` |
+| `ServerConn.feat()` | `feat` | `dial.mbt` | 返回 `Unit`，把 `parse_features` 的结果写回 client 的能力缓存 |
+| —（`feat` 里的解析循环） | `parse_features` | `dial.mbt` | 新增：把「FEAT 正文 → `Map[String, Bool]`」抽成纯函数，可单测 |
+| `ServerConn.setUTF8()` | `login` 内联 + `DialOptions::disable_utf8` | `dial.mbt` / `client.mbt` | 改名：不是一个独立公开步骤，只是登录流程里的一次 `OPTS UTF8 ON` |
 | `ServerConn.Type(transferType)` | `set_transfer_type` | `list.mbt` | 改名：与 `TransferType` 同名易混淆 |
-| `ServerConn.cmd(expected, format, ...)` | `cmd` / `cmd_expect` / `cmd_format` | `command.mbt` | 拆三个：`cmd` 只读响应，`cmd_expect` 校验状态码，`cmd_format` 做参数替换 |
-| `checkForCommandInjection` | `check_for_command_injection` | `command.mbt` | 逐字符判定，见 10.9 |
-| `ServerConn.cmdDataConnFrom(offset, format, ...)` | `cmd_data_conn_from` | `transport_dataconn.mbt` | 数据通道开启流程核心 |
+| `ServerConn.cmd(expected, format, ...)` | `cmd` / `cmd_expect` / `cmd_format` | `control.mbt` | 拆三个：`cmd` 只读响应，`cmd_expect` 校验状态码，`cmd_format` 做参数替换 |
+| `checkForCommandInjection` | `check_for_command_injection` | `control.mbt` | 逐字符判定，见 10.9 |
+| `ServerConn.cmdDataConnFrom(offset, format, ...)` | `cmd_data_conn_from` | `transport.mbt` | 数据通道开启流程核心 |
 | `ServerConn.NameList(path)` | `name_list` | `list.mbt` | |
 | `ServerConn.List(path)` | `list` | `list.mbt` | 返回 `Array[Entry]`（Go 是 `[]*Entry`，MoonBit 无指针） |
 | `ServerConn.GetEntry(path)` | `get_entry` | `list.mbt` | |
 | `ServerConn.IsTimePreciseInList()` | `FTPClient::is_time_precise_in_list` | `client.mbt` | 读能力缓存 |
-| `ServerConn.ChangeDir(path)` | `change_dir` | `nav.mbt` | |
-| `ServerConn.ChangeDirToParent()` | `change_dir_to_parent` | `nav.mbt` | |
-| `ServerConn.CurrentDir()` | `current_dir` | `nav.mbt` | |
-| —（`CurrentDir` 里的引号提取） | `extract_quoted` | `nav.mbt` | 新增：从 `257 "/incoming" created.` 提路径，纯函数 |
-| `ServerConn.FileSize(path)` | `file_size` | `client_time.mbt` | `int64` → `UInt64` |
-| `ServerConn.GetTime(path)` | `get_time` | `client_time.mbt` | `time.Time` → `@time.ZonedDateTime` |
-| —（`GetTime` 里的 `MDTM` 回包解析） | `parse_mdtm` | `client_time.mbt` | 新增：纯函数，可单测 |
+| `ServerConn.ChangeDir(path)` | `change_dir` | `commands.mbt` | |
+| `ServerConn.ChangeDirToParent()` | `change_dir_to_parent` | `commands.mbt` | |
+| `ServerConn.CurrentDir()` | `current_dir` | `commands.mbt` | |
+| —（`CurrentDir` 里的引号提取） | `extract_quoted` | `commands.mbt` | 新增：从 `257 "/incoming" created.` 提路径，纯函数 |
+| `ServerConn.FileSize(path)` | `file_size` | `client.mbt` | `int64` → `UInt64` |
+| `ServerConn.GetTime(path)` | `get_time` | `client.mbt` | `time.Time` → `@time.ZonedDateTime` |
+| —（`GetTime` 里的 `MDTM` 回包解析） | `parse_mdtm` | `client.mbt` | 新增：纯函数，可单测 |
 | `ServerConn.IsGetTimeSupported()` | `FTPClient::is_get_time_supported` | `client.mbt` | |
-| `ServerConn.SetTime(path, t)` | `set_file_time` | `client_time.mbt` | **改名**：与 `parse_time.mbt` 的 `set_time` 撞名，IO 侧取更明确的名字 |
+| `ServerConn.SetTime(path, t)` | `set_file_time` | `client.mbt` | **改名**：与 `parse.mbt` 的 `set_time` 撞名，IO 侧取更明确的名字 |
 | `ServerConn.IsSetTimeSupported()` | `FTPClient::is_set_time_supported` | `client.mbt` | |
-| —（`SetTime` 的 `yyyyMMddHHmmss` 格式化） | `format_mdtm` | `client_time.mbt` | 新增：纯函数 |
+| —（`SetTime` 的 `yyyyMMddHHmmss` 格式化） | `format_mdtm` | `client.mbt` | 新增：纯函数 |
 | `ServerConn.Retr(path)` | `retr` | `transfer.mbt` | |
 | `ServerConn.RetrFrom(path, offset)` | `retr_from` | `transfer.mbt` | `uint64` → `Int64`（`REST` 偏移） |
 | `ServerConn.Stor(path, r)` | `stor` | `transfer.mbt` | |
@@ -216,64 +216,64 @@ MoonBit 版：
 | `ServerConn.Append(path, r)` | `append` | `transfer.mbt` | |
 | `ServerConn.checkDataShut()` | `check_data_shut` | `transfer.mbt` | |
 | —（`io.Copy`） | `stream` | `transfer.mbt` | 私有辅助：逐块搬运并计数，供 `stor_from` / `append` 共用 |
-| `ServerConn.Rename(from, to)` | `rename` | `fsops.mbt` | |
-| `ServerConn.Delete(path)` | `delete` | `fsops.mbt` | |
+| `ServerConn.Rename(from, to)` | `rename` | `commands.mbt` | |
+| `ServerConn.Delete(path)` | `delete` | `commands.mbt` | |
 | `ServerConn.RemoveDirRecur(path)` | — | — | **未实现**，见第 12 节 |
-| `ServerConn.MakeDir(path)` | `make_dir` | `fsops.mbt` | |
-| `ServerConn.RemoveDir(path)` | `remove_dir` | `fsops.mbt` | |
+| `ServerConn.MakeDir(path)` | `make_dir` | `commands.mbt` | |
+| `ServerConn.RemoveDir(path)` | `remove_dir` | `commands.mbt` | |
 | `ServerConn.Walk(root)` | `walk` | `walker.mbt` | 只做 `Walker` 构造，与上游一致 |
-| `ServerConn.NoOp()` | `no_op` | `lifecycle.mbt` | |
-| `ServerConn.Logout()` | `logout` | `lifecycle.mbt` | |
-| `ServerConn.Quit()` | `quit` | `lifecycle.mbt` | 幂等，二次调用直接返回 |
-| —（Go 里的 `closed` 字段） | `FTPClient::is_closed` | `lifecycle.mbt` | 改名：Go 是未导出字段，MoonBit 用 getter 暴露 |
+| `ServerConn.NoOp()` | `no_op` | `commands.mbt` | |
+| `ServerConn.Logout()` | `logout` | `commands.mbt` | |
+| `ServerConn.Quit()` | `quit` | `commands.mbt` | 幂等，二次调用直接返回 |
+| —（Go 里的 `closed` 字段） | `FTPClient::is_closed` | `commands.mbt` | 改名：Go 是未导出字段，MoonBit 用 getter 暴露 |
 | —（Go 里的 `mutex`） | `FTPClient::lock` / `FTPClient::unlock` | `client.mbt` | 改名：Go 的 `sync.Mutex` 在 MoonBit 里手写，见 10.8 |
 
 ### 10.3 `ftp.go` — 传输与选项
 
 > 补充说明：`dial` 的选项既可走 label（`dial(addr, timeout_ms~, ...)`），也可以先构造
-> `DialOptions` 再逐项 `set_*`。`options.mbt` 里的 15 个 `set_*` 是后者的写法，与
+> `DialOptions` 再逐项 `set_*`。`client.mbt` 里的 15 个 `set_*` 是后者的写法，与
 > `dial` 的 label 一一对应；上游的 `...DialOption` 变参因此有了两种等价表达。
 
 
 
 | Go 符号 | MoonBit 符号 | 落点 | 备注 |
 | --- | --- | --- | --- |
-| `epsv()` | `epsv` | `transport_epsv.mbt` | |
-| `parseEPSV(line)` | `parse_epsv` | `transport_epsv.mbt` | |
-| —（`parseEPSV` 内的数字扫描） | `is_all_digits` / `parse_port` | `transport_epsv.mbt` | 新增：拆成两个可单测的小函数 |
-| `pasv()` | `pasv` | `transport_pasv.mbt` | |
-| `parsePasv`（内联在 `pasv` 里） | `parse_pasv` | `transport_pasv.mbt` | 新增：从方法体里提出来 |
-| `isBogusDataIP(cmdIP, dataIP)` | `is_bogus_data_ip` | `transport_pasv.mbt` | |
-| —（`isBogusDataIP` 内的 IP 分类） | `is_private` / `is_loopback` / `is_multicast` | `transport_pasv.mbt` | 新增：`net.IP` 的分类逻辑改成字符串实现 |
-| —（`parsePasv` 内的单段解析） | `parse_octet` | `transport_pasv.mbt` | 新增：解析 `.` 分隔的十进制段 |
-| `getDataConnPort()` | `get_data_port` | `transport_dataconn.mbt` | 改名：`get` → `get`，但去掉了缩写 `Conn` |
-| `openDataConn()` | `open_data_conn` | `transport_dataconn.mbt` | 返回 `DataConn`（连接 + 延迟握手状态） |
-| —（`net.Conn` 包装） | `DataConn` + `DataConn::reader` / `::writer` / `::close` | `transport_dataconn.mbt` | 新增：Go 直接用 `net.Conn`，MoonBit 需要显式持有 reader/writer |
-| `dialOptions.wrapConn(netConn)` | `TeeReader` / `TeeWriter` 的选择 | `debug.mbt` + `Control::new` | `debug_log` 非空时才包装，见 10.7 |
-| `dialOptions.wrapStream(rd)` | `TeeReader` 用于 `DataConn` | `debug.mbt` + `transport_dataconn.mbt` | 只包装读方向，与上游一致 |
+| `epsv()` | `epsv` | `transport.mbt` | |
+| `parseEPSV(line)` | `parse_epsv` | `transport.mbt` | |
+| —（`parseEPSV` 内的数字扫描） | `is_all_digits` / `parse_port` | `transport.mbt` | 新增：拆成两个可单测的小函数 |
+| `pasv()` | `pasv` | `transport.mbt` | |
+| `parsePasv`（内联在 `pasv` 里） | `parse_pasv` | `transport.mbt` | 新增：从方法体里提出来 |
+| `isBogusDataIP(cmdIP, dataIP)` | `is_bogus_data_ip` | `transport.mbt` | |
+| —（`isBogusDataIP` 内的 IP 分类） | `is_private` / `is_loopback` / `is_multicast` | `transport.mbt` | 新增：`net.IP` 的分类逻辑改成字符串实现 |
+| —（`parsePasv` 内的单段解析） | `parse_octet` | `transport.mbt` | 新增：解析 `.` 分隔的十进制段 |
+| `getDataConnPort()` | `get_data_port` | `transport.mbt` | 改名：`get` → `get`，但去掉了缩写 `Conn` |
+| `openDataConn()` | `open_data_conn` | `transport.mbt` | 返回 `DataConn`（连接 + 延迟握手状态） |
+| —（`net.Conn` 包装） | `DataConn` + `DataConn::reader` / `::writer` / `::close` | `transport.mbt` | 新增：Go 直接用 `net.Conn`，MoonBit 需要显式持有 reader/writer |
+| `dialOptions.wrapConn(netConn)` | `TeeReader` / `TeeWriter` 的选择 | `control.mbt` + `Control::new` | `debug_log` 非空时才包装，见 10.7 |
+| `dialOptions.wrapStream(rd)` | `TeeReader` 用于 `DataConn` | `control.mbt` + `transport.mbt` | 只包装读方向，与上游一致 |
 | `Dial(addr, options...)` | `dial` | `dial.mbt` | Go 变参 → MoonBit label 参数 |
 | `Connect(addr)` | — | — | **不移植**，上游已 Deprecated（见第 9 节） |
 | `DialTimeout(addr, timeout)` | — | — | **不移植**，同上 |
 | `splitAddr`（`Dial` 内联） | `split_addr` | `dial.mbt` | 新增：`host:port` / `[ipv6]:port` / 裸 host |
 | —（`strconv.Atoi`） | `parse_decimal` | `dial.mbt` | 新增：十进制整数解析，失败返回 `None` |
-| `DialWithTimeout(d)` | `DialOptions::set_timeout_ms` | `options.mbt` | 改名：`time.Duration` → 毫秒 `Int`（另有同名 `dial` label） |
-| `DialWithShutTimeout(d)` | `DialOptions::set_shut_timeout_ms` | `options.mbt` | 同上 |
+| `DialWithTimeout(d)` | `DialOptions::set_timeout_ms` | `client.mbt` | 改名：`time.Duration` → 毫秒 `Int`（另有同名 `dial` label） |
+| `DialWithShutTimeout(d)` | `DialOptions::set_shut_timeout_ms` | `client.mbt` | 同上 |
 | `DialWithDialer(dialer)` | —（合并进 `timeout_ms`） | `dial.mbt` | **未实现**：`net.Dialer` 的字段在 MoonBit 侧无对应物，现在只有超时被保留，见第 12 节 |
 | `DialWithNetConn(conn)` | — | — | **不移植**，上游已 Deprecated，用 `dial_func~` 替代 |
 | `DialWithDialFunc(f)` | `dial_func~`（计划中的 label） | — | **未实现**：用于注入自定义连接，随 W2–W6 补，见第 12 节 |
-| `DialWithDisabledEPSV(b)` | `DialOptions::set_disable_epsv` | `options.mbt` | 改名：`Disabled` → `disable`，与 MoonBit 命名习惯一致 |
-| `DialWithTrustPasvIP(b)` | `DialOptions::set_trust_pasv_ip` | `options.mbt` | |
-| `DialWithDisabledUTF8(b)` | `DialOptions::set_disable_utf8` | `options.mbt` | |
-| `DialWithDisabledMLSD(b)` | `DialOptions::set_disable_mlsd` | `options.mbt` | |
-| `DialWithWritingMDTM(b)` | `DialOptions::set_writing_mdtm` | `options.mbt` | |
-| `DialWithForceListHidden(b)` | `DialOptions::set_force_list_hidden` | `options.mbt` | |
-| `DialWithLocation(loc)` | `DialOptions::set_location` | `options.mbt` | `*time.Location` → `@time.Zone` |
+| `DialWithDisabledEPSV(b)` | `DialOptions::set_disable_epsv` | `client.mbt` | 改名：`Disabled` → `disable`，与 MoonBit 命名习惯一致 |
+| `DialWithTrustPasvIP(b)` | `DialOptions::set_trust_pasv_ip` | `client.mbt` | |
+| `DialWithDisabledUTF8(b)` | `DialOptions::set_disable_utf8` | `client.mbt` | |
+| `DialWithDisabledMLSD(b)` | `DialOptions::set_disable_mlsd` | `client.mbt` | |
+| `DialWithWritingMDTM(b)` | `DialOptions::set_writing_mdtm` | `client.mbt` | |
+| `DialWithForceListHidden(b)` | `DialOptions::set_force_list_hidden` | `client.mbt` | |
+| `DialWithLocation(loc)` | `DialOptions::set_location` | `client.mbt` | `*time.Location` → `@time.Zone` |
 | `DialWithContext(ctx)` | — | — | **不移植**，取消交给 `async` 的取消机制，见 10.9 |
-| `DialWithTLS(cfg)` | `DialOptions::set_tls` | `options.mbt` | 隐式 TLS（FTPS） |
-| `DialWithExplicitTLS(cfg)` | `DialOptions::set_explicit_tls` | `options.mbt` | 显式 TLS（`AUTH TLS`） |
-| `DialWithDebugOutput(w)` | `DialOptions::set_debug_log` | `options.mbt` | 改名：`io.Writer` → `&@io.Writer` |
-| `dialOptions` | `Options` | `state.mbt` | 改名 + 搬家：挪进 `state.mbt`，让 `client` 与 `transport` 共享它而不互相 import |
-| —（无对应物） | `DialOptions` | `options.mbt` | 新增：`dial` 的 label 默认值来源（`Options` 是传输层只读视图），两层结构见 10.9 |
+| `DialWithTLS(cfg)` | `DialOptions::set_tls` | `client.mbt` | 隐式 TLS（FTPS） |
+| `DialWithExplicitTLS(cfg)` | `DialOptions::set_explicit_tls` | `client.mbt` | 显式 TLS（`AUTH TLS`） |
+| `DialWithDebugOutput(w)` | `DialOptions::set_debug_log` | `client.mbt` | 改名：`io.Writer` → `&@io.Writer` |
+| `dialOptions` | `Options` | `client.mbt` | 改名 + 搬家：与 `FTPClient` 同处一个文件，让 `client` 与 `transport` 共享它而不互相 import |
+| —（无对应物） | `DialOptions` | `client.mbt` | 新增：`dial` 的 label 默认值来源（`Options` 是传输层只读视图），两层结构见 10.9 |
 
 ### 10.4 `ftp.go` — 响应
 
@@ -283,9 +283,9 @@ MoonBit 版：
 | `Response.Read(buf)` | `DataResponse::read` | `transfer.mbt` | |
 | `Response.Close()` | `DataResponse::close` | `transfer.mbt` | 幂等；同时做 `check_data_shut` 的 `226` 收尾 |
 | `Response.SetDeadline(t)` | — | — | **不提供**，形状变化见 docs/porting/01-architecture.md 第 7 节 |
-| —（`ReadResponse` 的返回三元组） | `Response` + `Response::code` / `Response::message` | `response.mbt` | 新增：控制通道应答类型，字段改成方法调用（`.message()`），避免与字段名歧义 |
-| `readResponse`（`conn.go`） | `read_response` | `response.mbt` | 多行响应 `211-...211 End` 在这里归一 |
-| —（状态码提取） | `parse_code` / `is_continuation` | `response.mbt` | 新增：拆成两个纯函数 |
+| —（`ReadResponse` 的返回三元组） | `Response` + `Response::code` / `Response::message` | `control.mbt` | 新增：控制通道应答类型，字段改成方法调用（`.message()`），避免与字段名歧义 |
+| `readResponse`（`conn.go`） | `read_response` | `control.mbt` | 多行响应 `211-...211 End` 在这里归一 |
+| —（状态码提取） | `parse_code` / `is_continuation` | `control.mbt` | 新增：拆成两个纯函数 |
 
 ### 10.5 `parse.go`
 
@@ -293,23 +293,23 @@ MoonBit 版：
 | --- | --- | --- | --- |
 | `parseFunc` | — | — | 不需要：MoonBit 直接用 `match` 顺序调用四个解析器 |
 | `listLineParsers` | `parse_list_line` 里的调用顺序 | `parse.mbt` | 回退顺序硬编码：RFC3659 → ls → DOS → hostedftp |
-| `parseRFC3659ListLine` | `parse_rfc3659_line` | `parse_rfc3659.mbt` | 返回 `Entry?`：`None` = 不是这种格式（可回退） |
-| `parseNextRFC3659ListLine` | `parse_next_rfc3659_line` | `parse_rfc3659.mbt` | MLST 多行合并 |
-| `parseLsListLine` | `parse_ls_line` | `parse_unix_ls.mbt` | |
-| —（`parseLsListLine` 内的日期定位） | `find_date_start_pub` | `parse_unix_ls.mbt` | 新增：对外暴露，测试用 |
-| `parseDirListLine` | `parse_dos_dir_line` | `parse_dos_dir.mbt` | |
-| `dirTimeFormats` | `parse_dos_date` 里的四种格式 | `parse_dos_dir.mbt` | 四种布局逐个试 |
-| `parseHostedFTPLine` | `parse_hostedftp_line` | `parse_hostedftp.mbt` | |
+| `parseRFC3659ListLine` | `parse_rfc3659_line` | `parse.mbt` | 返回 `Entry?`：`None` = 不是这种格式（可回退） |
+| `parseNextRFC3659ListLine` | `parse_next_rfc3659_line` | `parse.mbt` | MLST 多行合并 |
+| `parseLsListLine` | `parse_ls_line` | `parse.mbt` | |
+| —（`parseLsListLine` 内的日期定位） | `find_date_start_pub` | `parse.mbt` | 新增：对外暴露，测试用 |
+| `parseDirListLine` | `parse_dos_dir_line` | `parse.mbt` | |
+| `dirTimeFormats` | `parse_dos_date` 里的四种格式 | `parse.mbt` | 四种布局逐个试 |
+| `parseHostedFTPLine` | `parse_hostedftp_line` | `parse.mbt` | |
 | `parseListLine` | `parse_list_line` | `parse.mbt` | 返回 `(Entry, ListFormat)`，比 Go 的裸 `*Entry` 多带一个「命中了哪种格式」 |
 | —（无对应物） | `ListFormat` | `parse.mbt` | 新增：`Rfc3659` / `UnixLs` / `DosDir` / `HostedFtp`，供测试与调试断言 |
 | `Entry.setSize(str)` | `set_size` | `parse.mbt` | 改名：平铺后不再是方法；保留 `ParseUint(s, 0, 64)` 的进制语义 |
 | —（`strconv.ParseUint`） | `parse_uint` | `parse.mbt` | 新增：显式带 `radix` 参数 |
-| `Entry.setTime(fields, now, loc)` | `apply_list_time` | `parse_time.mbt` | **改名**：与 `client_time.mbt` 的 `set_file_time` 语义区分，一个用于解析、一个用于发 `MFMT` |
-| —（`time.ParseInLocation`） | `new_datetime` | `parse_time.mbt` | 新增：`(year, month, day, hour, minute, zone)` → `@time.ZonedDateTime` |
-| —（`fields[2]` 的形状判定） | `ListDateField` + `parse_list_date_field` | `parse_time.mbt` | 新增：把「有时间 / 只有年份」的字段解析成一个小结构体 |
-| —（半年规则） | `ListDateField::has_time` / `::year` / `::day` / `::hour` / `::minute` / `::next` | `parse_time.mbt` | 新增：字段访问器，保持半年规则可单测 |
-| —（月份名表） | `month_names` + `parse_month` | `parse_time.mbt` | 新增：`Jan`…`Dec` → `1`…`12` |
-| —（`ls -l` 时间字段整体） | `parse_ls_time` | `parse_time.mbt` | 新增：`MMM DD HH:MM` 与 `MMM DD  YYYY` 的统一入口 |
+| `Entry.setTime(fields, now, loc)` | `apply_list_time` | `parse.mbt` | **改名**：与 `client.mbt` 的 `set_file_time` 语义区分，一个用于解析、一个用于发 `MFMT` |
+| —（`time.ParseInLocation`） | `new_datetime` | `parse.mbt` | 新增：`(year, month, day, hour, minute, zone)` → `@time.ZonedDateTime` |
+| —（`fields[2]` 的形状判定） | `ListDateField` + `parse_list_date_field` | `parse.mbt` | 新增：把「有时间 / 只有年份」的字段解析成一个小结构体 |
+| —（半年规则） | `ListDateField::has_time` / `::year` / `::day` / `::hour` / `::minute` / `::next` | `parse.mbt` | 新增：字段访问器，保持半年规则可单测 |
+| —（月份名表） | `month_names` + `parse_month` | `parse.mbt` | 新增：`Jan`…`Dec` → `1`…`12` |
+| —（`ls -l` 时间字段整体） | `parse_ls_time` | `parse.mbt` | 新增：`MMM DD HH:MM` 与 `MMM DD  YYYY` 的统一入口 |
 
 `setSize` 的进制语义（上游 `strconv.ParseUint(str, 0, 64)`）在 `set_size` 里逐条保住：
 
@@ -328,14 +328,14 @@ MoonBit 版：
 | `statusText` map | `status_text` 的 `match` 分支 | `status.mbt` | 改名：Go 的 `map[int]string` 写成 `match`，未知码走 `_` 分支 |
 | `StatusText(code)` | `status_text(code)` | `status.mbt` | 未知码 `"Unknown status code: {code}"`，与上游逐字一致 |
 | —（无对应物） | `is_positive_completion` / `is_positive_intermediate` | `status.mbt` | 新增：`2xx` / `1xx` 判定，`list` 与 `login` 流程共用 |
-| `scanner` | `Scanner` | `scanner.mbt` | 改名：Go 未导出类型，MoonBit 作为公开工具类型 |
-| `newScanner(str)` | `Scanner::new` | `scanner.mbt` | |
-| `scanner.Next()` | `Scanner::next` | `scanner.mbt` | 位置语义见第 4 节 |
-| `scanner.NextFields(count)` | `Scanner::next_fields` | `scanner.mbt` | |
-| `scanner.Remaining()` | `Scanner::remaining` | `scanner.mbt` | 保留前导空格 |
-| —（无对应物） | `Scanner::at_end` | `scanner.mbt` | 新增：替代 Go 里的 `s.pos >= len(s.str)` 判断 |
-| `newDebugWrapper(conn, w)` | `TeeReader::new` + `TeeWriter::new` | `debug.mbt` | 改名：Go 一个双向 wrapper → MoonBit 拆成读/写两个装饰器 |
-| `streamDebugWrapper(rd, w)` | `TeeReader` | `debug.mbt` | 数据流只包装读方向 |
+| `scanner` | `Scanner` | `parse.mbt` | 改名：Go 未导出类型，MoonBit 作为公开工具类型 |
+| `newScanner(str)` | `Scanner::new` | `parse.mbt` | |
+| `scanner.Next()` | `Scanner::next` | `parse.mbt` | 位置语义见第 4 节 |
+| `scanner.NextFields(count)` | `Scanner::next_fields` | `parse.mbt` | |
+| `scanner.Remaining()` | `Scanner::remaining` | `parse.mbt` | 保留前导空格 |
+| —（无对应物） | `Scanner::at_end` | `parse.mbt` | 新增：替代 Go 里的 `s.pos >= len(s.str)` 判断 |
+| `newDebugWrapper(conn, w)` | `TeeReader::new` + `TeeWriter::new` | `control.mbt` | 改名：Go 一个双向 wrapper → MoonBit 拆成读/写两个装饰器 |
+| `streamDebugWrapper(rd, w)` | `TeeReader` | `control.mbt` | 数据流只包装读方向 |
 | `debugWrapper.Close()` | — | — | 不需要：装饰器不拥有底层连接，关闭由 `Control` / `DataConn` 负责 |
 
 ### 10.7 `walker.go`
@@ -358,13 +358,13 @@ MoonBit 版：
 | MoonBit 符号 | 落点 | 为什么需要 |
 | --- | --- | --- |
 | `FtpErrors` + `join_errors` + `flatten_errors` | `error.mbt` | MoonBit 没有 `errors.Join`；`stor_from` / `append` / `DataResponse::close` 要一次报出「传输错误 + 关闭错误 + 状态读取错误」 |
-| `Session` + `Session::control` / `options` / `skip_epsv` / `use_pret` | `state.mbt` | 打破 `client` 与 `transport` 的循环依赖：两边都持有同一个 `Session` |
-| `Options` | `state.mbt` | `dialOptions` 的传输层只读视图，避免 `transport` 依赖 `client` |
-| `DialOptions` | `options.mbt` | 对外的可变选项包（对齐 Go 的 `...DialOption` 变参） |
-| `DataConn` | `transport_dataconn.mbt` | Go 直接返回 `net.Conn`；MoonBit 需要显式表达「连接 + 是否已握手」 |
+| `Session` + `Session::control` / `options` / `skip_epsv` / `use_pret` | `client.mbt` | 打破 `client` 与 `transport` 的循环依赖：两边都持有同一个 `Session` |
+| `Options` | `client.mbt` | `dialOptions` 的传输层只读视图，避免 `transport` 依赖 `client` |
+| `DialOptions` | `client.mbt` | 对外的可变选项包（对齐 Go 的 `...DialOption` 变参） |
+| `DataConn` | `transport.mbt` | Go 直接返回 `net.Conn`；MoonBit 需要显式表达「连接 + 是否已握手」 |
 | `Control` | `control.mbt` | Go 的 `conn` 结构体（未导出），平铺后需要一个公开类型承载控制通道 |
 | `ListFormat` | `parse.mbt` | 比 Go 多带「命中了哪种列表格式」，供测试断言与 `list` 分支 |
-| `TeeReader` / `TeeWriter` | `debug.mbt` | Go 的 `io.TeeReader` 在 MoonBit 侧没有等价物 |
+| `TeeReader` / `TeeWriter` | `control.mbt` | Go 的 `io.TeeReader` 在 MoonBit 侧没有等价物 |
 
 ### 10.9 行为等价性备注
 
@@ -458,7 +458,7 @@ MoonBit 版在 `client.mbt` 里手写同一把锁，`defer` 语义由显式的 `
 | 上游测试 | 用例数 | MoonBit 落点 | 状态 |
 | --- | --- | --- | --- |
 | `parse_test.go` | 30+ | `parse_test.mbt`（根包黑盒） | 四种格式、ACL、符号链接、多空格文件名、非法行、`UInt64` 抗溢出已覆盖 |
-| `parse_test.go` 的时间部分 | 8 | `parse_time` 相关用例（根包） | 半年规则 4 条边界（`22:59` 不减年 / `23:00` 减年）已覆盖 |
+| `parse_test.go` 的时间部分 | 8 | `parse.mbt` 时间解析相关用例（根包） | 半年规则 4 条边界（`22:59` 不减年 / `23:00` 减年）已覆盖 |
 | `scanner_test.go` | 6 | `scanner_test.mbt` | 含空串与中间态断言，逐条搬 |
 | `constants_test.go` | 5 | `status_test.mbt` | 逐条搬 |
 | `walker_test.go` | 10+ | `walker` 用例（待补） | **部分覆盖**：纯逻辑部分待补，见第 12 节 |
@@ -466,13 +466,13 @@ MoonBit 版在 `client.mbt` 里手写同一把锁，`defer` 语义由显式的 `
 | `client_test.go` | 20+ | `ftp_server_test.mbt` | 同上 |
 | `ftp_test.go` | 3 | 合并进 client 用例 | **未覆盖**：同上 |
 
-白盒用例：`entry_wbtest.mbt`（entry 内部不变量）、`parse_time` 的字段级用例。
+白盒用例：`entry_wbtest.mbt`（entry 内部不变量）、`parse.mbt` 的字段级用例。
 
 ## 12. 缺口与后续动作
 
 本节的每一条都是**已知未完成**，不写「已支持」：
 
-1. **`RemoveDirRecur` 缺失**。上游用它做递归删除，MoonBit 版的 `fsops.mbt` 只有
+1. **`RemoveDirRecur` 缺失**。上游用它做递归删除，MoonBit 版的 `commands.mbt` 只有
    `make_dir` / `remove_dir` / `delete` / `rename`。补法是建在已有的 `Walker` 上（下游
    是「先遍历收集，再从深到浅删」），归到 W6。
 2. **`walker_test.go` 的纯逻辑用例未搬**。`skip_dir`、空栈、`cur` 初始化可以在没有服务器的
