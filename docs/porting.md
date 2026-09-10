@@ -179,7 +179,7 @@ while w.next() {
 
 1. **纯逻辑单测**：直接搬运上游 `parse_test.go` / `scanner_test.go` / `constants_test.go` 的用例集
    （UNIX ls、`ls -l` 变体、ACL `+` 权限、hostedftp、DOS DIR、RFC3659、符号链接、多空格文件名、非法行、半年时间规则）。
-2. **真实 FTP 服务器端到端**：CI 中通过 `.ci/start-ftp.sh` 起 `bogem/ftp`（vsftpd 3.0.3）
+2. **真实 FTP 服务器端到端**：CI 中通过 `scripts/start-ftp.sh` 起 `jmoyer/vsftpd`（vsftpd 3.0.5）
    的四个能力画像（`full` / `no-mlst` / `no-time` / `no-epsv`），覆盖 `FEAT` 协商、
    `PASV`/`EPSV` 数据通道、`STOR`/`RETR`/`LIST`/`NLST`/`MDTM`、目录生命周期。
    **仓库内不保留任何 mock 服务器**；命令序列断言改为副作用断言（见 05-testing.md 3.2）。

@@ -58,7 +58,7 @@ Go 风格时间布局，并做「半年规则」运算。MoonBit 的 `moonbitlan
 
 ### R3 TLS 数据连接在真实服务器上的兼容性（概率：中 / 影响：中）
 
-**现状**：握手时序问题只有在真实服务器上才暴露。仓库现在只有 `bogem/ftp`（vsftpd）
+**现状**：握手时序问题只有在真实服务器上才暴露。仓库现在只有 `jmoyer/vsftpd`（vsftpd）
 一个真实守护进程，ProFTPD / PureFTPD 的坑仍不可复现。
 
 **应对**：
@@ -112,7 +112,7 @@ no system C compiler found; tried cl, cc, gcc, clang
 
 ### R7 无真实 FTP 服务器联调（概率：中 / 影响：中）
 
-**应对**：**已解决**。CI 每轮都通过 `.ci/start-ftp.sh` 起 `bogem/ftp` 的四个画像容器，
+**应对**：**已解决**。CI 每轮都通过 `scripts/start-ftp.sh` 起 `jmoyer/vsftpd` 的四个画像容器，
 真机用例不是可选阶段，服务器起不来直接 `exit 1`。见 [05-testing.md](./05-testing.md)。
 
 ### R8 覆盖率不达标（概率：低 / 影响：低）

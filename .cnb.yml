@@ -6,11 +6,11 @@
 # native 后端需要 C 编译器与 libc 头文件，两者由 .ide/Dockerfile 提供。
 #
 # 端到端测试跑在真实的 FTP 守护进程上，不用任何 mock：
-# 服务器是 `bogem/ftp`（vsftpd 3.0.3），由 .ci/start-ftp.sh 以 DinD 起四个容器，
-# 每个容器一份 vsftpd 配置，对应一个「能力画像」（full / no-mlst / no-time /
-# no-epsv）。同一份启动脚本也被 GitHub Actions 与云原生开发环境使用，
-# 三处行为完全一致。画像的配置在 testdata/ftp/vsftpd-*.conf，fiixture 在
-# testdata/ftp/fixture。
+# 服务器是 `jmoyer/vsftpd`（vsftpd 3.0.5，Debian Trixie），由 scripts/start-ftp.sh
+# 以 DinD 起四个容器，每个容器一份 vsftpd 配置，对应一个「能力画像」
+# （full / no-mlst / no-time / no-epsv）。同一份脚本也被 GitHub Actions 与云原生
+# 开发环境使用，三处行为完全一致。画像的配置在 testdata/ftp/vsftpd-*.conf，
+# fixture 在 testdata/ftp/fixture。
 #
 # 镜像里只有工具链、没有 mooncakes 索引，首次构建前必须 `moon update` 拉取依赖索引，
 # 否则 `moon check/build/test` 会以
@@ -34,7 +34,10 @@
 #   no-time 2123  被动 30020-30029
 #   no-epsv 2124  被动 30030-30039
 # 客户端在 chroot 内看到的根是 /，fixture 只读挂在 /fixture，可写目录是 /upload。
+# FTP_IMAGE 显式指定测试服务器镜像，scripts/start-ftp.sh 也接受同名环境变量。
 .ftp-test-env: &ftp-test-env
+  FTP_IMAGE: jmoyer/vsftpd
+  FTP_IMAGE_TAG: latest
   FTP_TEST_HOST: 127.0.0.1
   FTP_TEST_PORT: "2121"
   FTP_TEST_USER: test
@@ -47,20 +50,18 @@
 
 # 起 FTP 容器：四个画像一次起好，脚本内部轮询端口，超时直接 exit 1。
 # 容器起不来时宁可红，也不让端到端用例静默跳过。
+# 起停都走 scripts/ 下的公共脚本，GitHub Actions 与云原生开发环境用的是同一份。
 .start-ftp-server: &start-ftp-server
   name: start ftp server
   script: |
     set -euo pipefail
-    .ci/start-ftp.sh
+    scripts/start-ftp.sh
 
 .stop-ftp-server: &stop-ftp-server
   name: ftp server log and stop
   script: |
-    for profile in full no-mlst no-time no-epsv; do
-      echo "===== moonbit-ftp-$profile ====="
-      docker logs "moonbit-ftp-$profile" 2>&1 | tail -40 || true
-      docker rm -f "moonbit-ftp-$profile" >/dev/null 2>&1 || true
-    done
+    set +e
+    scripts/stop-ftp.sh
 
 # push 与 pull_request 共用同一段构建步骤，避免两处脚本漂移。
 .moon-test: &moon-test

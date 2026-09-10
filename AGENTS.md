@@ -22,9 +22,16 @@ You can browse and install extra skills here:
 - `ftp_server_test.mbt` holds the *real* FTP server end-to-end tests. They are
   opt in through `FTP_TEST_*` environment variables and return early when
   `FTP_TEST_HOST` is unset, so a bare `moon test` stays green locally while CI
-  runs them against `pyftpdlib` (`.github/ftp-fixture/serve.py`). When
-  `FTP_TEST_HOST` is set, a failure is a hard failure - never soften it into a
-  skip.
+  runs them against real vsftpd containers started by `scripts/start-ftp.sh`.
+  There is no mock server anywhere in the repository. When `FTP_TEST_HOST` is
+  set, a failure is a hard failure - never soften it into a skip.
+
+- Cross-CI shell scripts live in `scripts/` and are the single source of truth
+  for every pipeline. `.cnb.yml`, `.github/workflows/ci.yml` and the CNB cloud
+  dev environment all call the same `scripts/start-ftp.sh` /
+  `scripts/stop-ftp.sh`; do not inline an equivalent `docker run` into a
+  pipeline, and do not add a per-provider copy. Non-standard staging paths go
+  under `.tmp/` and are gitignored.
 
 - The root `moon.pkg` has one plain import block (shared by the pure logic
   files, the IO files and the in-package tests, because MoonBit 0.1.20260904 has

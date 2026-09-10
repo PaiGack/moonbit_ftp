@@ -75,7 +75,7 @@ moon info && git diff --exit-code       # 接口文件无未提交变更
 ### W7 完成
 
 - [ ] CLI 六个子命令（`ls` / `get` / `put` / `walk` / `mkdir` / `rm`）在本地真实服务器上跑通
-      （服务器由 `.ci/start-ftp.sh` 起，与 CI 同一份）
+      （服务器由 `scripts/start-ftp.sh` 起，与 CI 同一份）
 - [ ] README 里每条命令都能照着复现
 - [ ] 错误输出到 stderr，退出码非 0
 
@@ -111,7 +111,7 @@ moon info && git diff --exit-code       # 接口文件无未提交变更
 
 测试
 ├── 轨道 A：解析/scanner/常量用例（搬运上游，30+ 条），纯逻辑
-├── 轨道 B：真实 FTP 服务器端到端（`ftp_server_test.mbt`，CI 起 bogem/ftp 四个画像）
+├── 轨道 B：真实 FTP 服务器端到端（`ftp_server_test.mbt`，CI 起 jmoyer/vsftpd 四个画像）
 └── 轨道 C：帧解析（`control_test.mbt`，内存 Reader，无 socket）
 
 文档
@@ -128,11 +128,11 @@ moon info && git diff --exit-code       # 接口文件无未提交变更
 
 ### 真实服务器测试就绪（W7 前置）
 
-- [x] `ftp_server_test.mbt` 17 条用例在 `bogem/ftp`（vsftpd 3.0.3）全绿
+- [x] `ftp_server_test.mbt` 17 条用例在 `jmoyer/vsftpd`（vsftpd 3.0.5）全绿
 - [x] 四个画像（`full` / `no-mlst` / `no-time` / `no-epsv`）由真实配置开关区分
 - [x] 未设 `FTP_TEST_HOST` 时用例不失败（本机 `moon test` 保持全绿）
 - [x] 仓库内没有任何 mock 服务器（`mock_server_test.mbt` 已删除）
-- [x] GitHub Actions 起真服务器并跑真机用例（`.ci/start-ftp.sh`）
+- [x] GitHub Actions 起真服务器并跑真机用例（`scripts/start-ftp.sh`）
 - [x] CNB `main.push` / `pull_request` 通过 DinD 起真服务器
 - [x] CNB 云原生开发环境（`$: vscode:`）进入前起好同四个容器
 - [x] fixture 内容由 git 固定（`testdata/ftp/fixture/`）

@@ -36,20 +36,32 @@ moon info                                # 更新生成接口（.mbti）
 
 ### 真实 FTP 服务器测试
 
-`ftp_server_test.mbt` 的 13 条端到端用例跑在一台**真实 FTP 守护进程**上，
-需要显式设置环境变量才会执行（不设时用例直接跳过，本机 `moon test` 保持全绿）：
+`ftp_server_test.mbt` 的端到端用例跑在**真实的 vsftpd** 上，需要显式设置环境变量才会
+执行（不设时用例直接 return，本机 `moon test` 保持全绿）。服务器由公共脚本
+`scripts/start-ftp.sh` 以 Docker 起，四个「能力画像」各一个容器：
 
 ```bash
-python3 -m pip install "pyftpdlib==2.2.0"
-mkdir -p .ci/ftp-root/upload && cp -r .github/ftp-fixture/fixture .ci/ftp-root/
-python3 .github/ftp-fixture/serve.py --root "$PWD/.ci/ftp-root" --port 2121 &
+scripts/start-ftp.sh            # 起 full / no-mlst / no-time / no-epsv 四个容器
 
-FTP_TEST_HOST=127.0.0.1 FTP_TEST_PORT=2121 moon test --target native
+export FTP_TEST_HOST=127.0.0.1 FTP_TEST_PORT=2121        FTP_TEST_USER=test FTP_TEST_PASS=test        FTP_TEST_FIXTURE=/fixture FTP_TEST_DIR=/upload        FTP_TEST_PORT_NO_MLST=2122 FTP_TEST_PORT_NO_TIME=2123 FTP_TEST_PORT_NO_EPSV=2124
+moon test --target native
+
+scripts/stop-ftp.sh             # 打日志并清理容器
 ```
 
-GitHub Actions、CNB 流水线与 CNB 云原生开发环境都会自动起同一个服务器
-（`serve.py` + 仓库内的 fixture），无需手工准备。详见
-[docs/porting/05-testing.md](docs/porting/05-testing.md) 第 6 节。
+GitHub Actions、CNB 流水线与 CNB 云原生开发环境调用的都是**同一份**脚本
+（`scripts/start-ftp.sh` / `scripts/stop-ftp.sh`），镜像为
+`jmoyer/vsftpd`（vsftpd 3.0.5），fixture 在 `testdata/ftp/fixture/`。
+详见 [docs/porting/05-testing.md](docs/porting/05-testing.md) 第 4 节。
+
+### 公共脚本
+
+跨 CI 复用、需要跟平台无关的脚本统一放在 `scripts/`：
+
+| 脚本 | 作用 |
+| --- | --- |
+| `scripts/start-ftp.sh` | 起四个真实 FTP 服务器容器并轮询端口，起不来直接 exit 1 |
+| `scripts/stop-ftp.sh` | 打印每个容器的日志并删除，从不失败 |
 
 ## 目录结构
 
@@ -78,6 +90,11 @@ GitHub Actions、CNB 流水线与 CNB 云原生开发环境都会自动起同一
 ├── debug.mbt                         控制 / 数据通道原始流量日志包装                   IO
 ├── architecture.mbt                  纯逻辑 / IO 文件清单（分层登记表）
 ├── cmd/ftp/                          CLI 示例：ls / get / put / walk / mkdir / rm
+├── scripts/                          跨 CI 复用的公共脚本
+│   ├── start-ftp.sh                  起四个真实 FTP 服务器容器（CNB / GitHub 共用）
+│   └── stop-ftp.sh                   打容器日志并清理
+├── testdata/ftp/                     测试数据：fixture 与 vsftpd 配置模板
+├── .cnb.yml / .github/workflows/     CNB 与 GitHub 两条流水线（调同一份 scripts/）
 ├── moon.pkg                          根包清单（唯一的源码包）
 └── moon.mod                          模块根
 ```

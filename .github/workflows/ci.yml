@@ -16,11 +16,12 @@ jobs:
     name: MoonBit check & test (native)
     runs-on: ubuntu-latest
 
-    # The integration tests talk to a real FTP daemon: the `bogem/ftp` image,
-    # which is vsftpd 3.0.3. `bogem/ftp` is pinned rather than a Python daemon
-    # because it is the image the project supports against, and vsftpd is the
-    # daemon that exercises the `disable_mlsd` / `MDTM` / `EPSV` fallbacks for
-    # real. There is deliberately no mock server any more.
+    # The integration tests talk to a real FTP daemon: the `jmoyer/vsftpd`
+    # image, which is vsftpd 3.0.5 on Debian Trixie. A maintained vsftpd image
+    # is pinned rather than a Python daemon because it is the daemon the
+    # project supports against, and vsftpd is what exercises the
+    # `disable_mlsd` / `MDTM` / `EPSV` fallbacks for real. There is
+    # deliberately no mock server any more.
     #
     # Four profiles run side by side, one container each:
     #   full     2121  the reference server
@@ -28,6 +29,9 @@ jobs:
     #   no-time  2123  MDTM refused, so no modification time is readable
     #   no-epsv  2124  EPSV refused, PASV must be used and kept
     env:
+      # Image the tests run against, also read by scripts/start-ftp.sh.
+      FTP_IMAGE: jmoyer/vsftpd
+      FTP_IMAGE_TAG: latest
       FTP_TEST_HOST: 127.0.0.1
       FTP_TEST_PORT: "2121"
       FTP_TEST_USER: test
@@ -37,8 +41,10 @@ jobs:
       FTP_TEST_PORT_NO_MLST: "2122"
       FTP_TEST_PORT_NO_TIME: "2123"
       FTP_TEST_PORT_NO_EPSV: "2124"
-      # Where .ci/start-ftp.sh stages the fixture and the per-profile configs.
-      FTP_ROOT: ${{ github.workspace }}/.ci/ftp-root
+      # Where scripts/start-ftp.sh stages the fixture, the per-profile configs
+      # and the container user homes.
+      FTP_ROOT: ${{ github.workspace }}/.tmp/ftp-root
+      FTP_CONF_ROOT: ${{ github.workspace }}/.tmp/ftp-conf
 
     steps:
       - name: Checkout
@@ -68,24 +74,21 @@ jobs:
           git diff --exit-code
           git status
 
-      # Pulls `bogem/ftp`, which is public, and starts one container per
-      # profile. The script polls each control port and exits non-zero when a
+      # Pulls `jmoyer/vsftpd`, which is public, and starts one container per
+      # profile. The same script is used by the CNB pipeline and the cloud dev
+      # environment; it polls each control port and exits non-zero when a
       # profile does not come up.
       - name: Start FTP server
-        run: .ci/start-ftp.sh
+        run: scripts/start-ftp.sh
 
       - name: moon test
         run: |
           moon test --target native --deny-warn --enable-coverage
           moon coverage report -f summary
 
-      - name: FTP server log
+      - name: FTP server log and stop
         if: always()
-        run: |
-          for profile in full no-mlst no-time no-epsv; do
-            echo "===== moonbit-ftp-$profile ====="
-            docker logs "moonbit-ftp-$profile" 2>&1 | tail -40 || true
-          done
+        run: scripts/stop-ftp.sh
 
       - name: moon build
         run: |

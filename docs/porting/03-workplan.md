@@ -357,13 +357,13 @@ status_text(430) == "Invalid username or password."
 - [ ] 全局参数：`--host` / `--port` / `--user` / `--pass` / `--timeout` / `--tls` / `--trust-pasv-ip`
 - [ ] 未给 `--port` 时按 `--tls` 决定默认端口（21 / 990）
 - [ ] 错误输出到 stderr，退出码非 0
-- [ ] README 里给出可复现的示例（含用 `.ci/start-ftp.sh` 起本地真实服务器的命令）
+- [ ] README 里给出可复现的示例（含用 `scripts/start-ftp.sh` 起本地真实服务器的命令）
 
 ### 验收
 
 ```bash
 # 起本地真实 FTP 服务器（需要 Docker）
-.ci/start-ftp.sh
+scripts/start-ftp.sh
 
 # 示例可跑通
 moon run cmd/ftp -- --host 127.0.0.1 --port 2121 --user anonymous --pass "" ls /

@@ -8,7 +8,7 @@
 //
 // These used to drive a scripted in-process mock (`@socket.TcpServer` plus a
 // hand written reply table). That mock is gone: every end-to-end assertion now
-// runs against the real vsftpd started by `.ci/start-ftp.sh`, so the client
+// runs against the real vsftpd started by `scripts/start-ftp.sh`, so the client
 // cannot be "helped along" by a server written to agree with it.
 //
 // What survives here is the half that never needed a server: the pure helpers
