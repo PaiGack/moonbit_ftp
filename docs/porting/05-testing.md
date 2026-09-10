@@ -248,10 +248,10 @@ fixture/sub/nested.txt   嵌套目录，验证 Folder 类型
 
 | 画像 | 控制端口 | 被动端口 | 配置开关 | 覆盖的客户端分支 |
 | --- | --- | --- | --- | --- |
-| `full` | 2121 | 30000-30009 | 无 | 基准路径 |
-| `no-mlst` | 2122 | 30010-30019 | `cmds_denied=MLST,MLSD` | `disable_mlsd` / `LIST` 回退 |
-| `no-time` | 2123 | 30020-30029 | `cmds_denied=MDTM,MFMT` | 「不支持时间操作」的降级 |
-| `no-epsv` | 2124 | 30030-30039 | `cmds_denied=EPSV` | EPSV 失败后永久回退 PASV |
+| `full` | 2121 | 30000-30099 | 无 | 基准路径 |
+| `no-mlst` | 2122 | 30100-30199 | `cmds_denied=MLST,MLSD` | `disable_mlsd` / `LIST` 回退 |
+| `no-time` | 2123 | 30200-30299 | `cmds_denied=MDTM,MFMT` | 「不支持时间操作」的降级 |
+| `no-epsv` | 2124 | 30300-30399 | `cmds_denied=EPSV` | EPSV 失败后永久回退 PASV |
 
 ### 4.3 vsftpd 的真实能力（实测）
 

@@ -14,10 +14,18 @@
 # Ports (control, then passive range) are fixed so the tests can hardcode them:
 #
 #   profile    control   passive
-#   full        2121     30000-30009
-#   no-mlst     2122     30010-30019
-#   no-time     2123     30020-30029
-#   no-epsv     2124     30030-30039
+#   full        2121     30000-30099
+#   no-mlst     2122     30100-30199
+#   no-time     2123     30200-30299
+#   no-epsv     2124     30300-30399
+#
+# The range is 100 ports wide, not 10, on purpose. `moon test` runs the
+# end-to-end file with every test in parallel, so a dozen sessions hit the same
+# profile at once and each transfer needs its own passive port. With a 10 port
+# range vsftpd exhausts the range and answers
+# `500 OOPS: vsf_sysutil_bind` *and closes the control connection* while the
+# client is waiting for a reply, which surfaces as a confusing
+# `ReaderClosed` failure in unrelated tests.
 #
 # This is the single source of truth for the test server. The CNB pipeline
 # (DinD), the GitHub workflow and the CNB cloud dev environment all call this
@@ -79,10 +87,10 @@ chmod 777 "$FTP_CONF_ROOT/home"
 # Return the control port and passive range of a profile.
 profile_ports() {
   case "$1" in
-    full)    echo "2121 30000 30009" ;;
-    no-mlst) echo "2122 30010 30019" ;;
-    no-time) echo "2123 30020 30029" ;;
-    no-epsv) echo "2124 30030 30039" ;;
+    full)    echo "2121 30000 30099" ;;
+    no-mlst) echo "2122 30100 30199" ;;
+    no-time) echo "2123 30200 30299" ;;
+    no-epsv) echo "2124 30300 30399" ;;
     *) echo "unknown profile: $1" >&2; exit 2 ;;
   esac
 }
