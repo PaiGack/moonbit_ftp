@@ -98,7 +98,7 @@ P4 遍历与兼容性打磨 → P5 示例、文档、发布。估算 12~17 人�
 | [porting/05-testing.md](./porting/05-testing.md) | 测试双轨策略：解析用例搬迁 + mock FTP 服务器 | 写测试的人 |
 | [porting/06-compat-checklist.md](./porting/06-compat-checklist.md) | 9 个协议兼容性要点 + 服务器画像差异的落地清单 | 所有人，验收前必过 |
 | [porting/07-risks-and-estimation.md](./porting/07-risks-and-estimation.md) | 风险清单、应对预案、人日估算 | 排期与决策 |
-| [porting/08-acceptance.md](./porting/08-acceptance.md) | 交付验收清单与 DoD（对照赛事验收 9 条） | 验收 |
+| [porting/08-acceptance.md](./porting/08-acceptance.md) | 交付验收清单与 DoD | 验收 |
 
 ### 一分钟速览
 

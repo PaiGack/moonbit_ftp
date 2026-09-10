@@ -392,7 +392,7 @@ README 中的每一条命令都要能照着跑通。
 - [ ] `moon.mod` 的 `description` / `keywords` / `repository` 最终复核
 - [ ] 跑一次完整验收（见 [08-acceptance.md](./08-acceptance.md)）
 - [ ] 发布 mooncakes.io：`moon publish`（需先在 mooncakes 注册并配置 token）
-- [ ] 打 tag 与 GitHub Release
+- [ ] 打 tag 并发布 Release
 
 ### 验收
 

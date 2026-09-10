@@ -13,19 +13,18 @@
 ## 2. 包结构
 
 ```
-src/
-├── types/        Entry / EntryType / TransferType / ListFormat       纯逻辑
-├── status/       47 个 RFC 959 状态码常量 + status_text()          纯逻辑
-├── error/        FtpError 及其子错误（注入/解析不支持/服务器拒绝）      纯逻辑
-├── scanner/      空白分隔字段扫描器（List 行解析用）                   纯逻辑
-├── parse/        RFC3659 / UNIX ls / DOS DIR / hostedftp 四种解析器    纯逻辑
-└── pathutil/     远端路径 join（对齐 Go path.Join 语义）              纯逻辑
-├── control/      控制通道：命令编码、多行响应、状态码校验              IO
-├── transport/    EPSV / PASV / PRET / REST / 数据连接 / TLS 建立       IO
-├── client/       FTPClient（对齐上游 ServerConn）：公开 API            IO
-├── walker/       目录树遍历器（建在 client 上）                        IO
-└── debug/        控制/数据通道原始流量日志包装                         IO
-cmd/ftp/          CLI 示例：ls / get / put / walk / mkdir / rm
+├── types/        Entry / EntryType / TransferType / ListFormat         纯逻辑
+├── status/       47 个 RFC 959 状态码常量 + status_text()              纯逻辑
+├── error/        FtpError 及其子错误（注入/解析不支持/服务器拒绝）        纯逻辑
+├── scanner/      空白分隔字段扫描器（List 行解析用）                     纯逻辑
+├── parse/        RFC3659 / UNIX ls / DOS DIR / hostedftp 四种解析器      纯逻辑
+├── pathutil/     远端路径 join（对齐 Go path.Join 语义）                纯逻辑
+├── control/      控制通道：命令编码、多行响应、状态码校验                  IO
+├── transport/    EPSV / PASV / PRET / REST / 数据连接 / TLS 建立         IO
+├── client/       FTPClient（对齐上游 ServerConn）：公开 API              IO
+├── walker/       目录树遍历器（建在 client 上）                          IO
+├── debug/        控制/数据通道原始流量日志包装                           IO
+└── cmd/ftp/      CLI 示例：ls / get / put / walk / mkdir / rm
 ```
 
 > 包名不用 `ftp`，因为模块名已经是 `PaiGack/ftp`，再套一层 `@ftp` 会重名。

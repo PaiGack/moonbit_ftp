@@ -7,12 +7,12 @@
 
 | 上游文件 | 行数 | MoonBit 落点 | 备注 |
 | --- | --- | --- | --- |
-| `ftp.go` | 1191 | `src/client/*.mbt` + `src/types/` + `src/error/` | 按职责拆 6 个文件，不整文件照搬 |
-| `parse.go` | 277 | `src/parse/*.mbt` | 四种解析器各一个文件 |
-| `status.go` | 119 | `src/status/status.mbt` | 常量表 + `status_text` |
-| `scanner.go` | 58 | `src/scanner/scanner.mbt` | 逐方法对齐 |
-| `walker.go` | 98 | `src/walker/walker.mbt` | 栈遍历语义完全保留 |
-| `debug.go` | 37 | `src/debug/debug.mbt` | 对齐 `Reader`/`Writer` trait |
+| `ftp.go` | 1191 | `client/*.mbt` + `types/` + `error/` | 按职责拆 6 个文件，不整文件照搬 |
+| `parse.go` | 277 | `parse/*.mbt` | 四种解析器各一个文件 |
+| `status.go` | 119 | `status/status.mbt` | 常量表 + `status_text` |
+| `scanner.go` | 58 | `scanner/scanner.mbt` | 逐方法对齐 |
+| `walker.go` | 98 | `walker/walker.mbt` | 栈遍历语义完全保留 |
+| `debug.go` | 37 | `debug/debug.mbt` | 对齐 `Reader`/`Writer` trait |
 
 ## 2. `ftp.go` 细分落点
 
@@ -20,39 +20,39 @@
 
 | 上游内容 | 落点文件 | 说明 |
 | --- | --- | --- |
-| `EntryType` / `TransferType` / `Entry` | `src/types/entry.mbt` | 纯数据 |
-| `DefaultDialTimeout` / `timeFormat` | `src/types/consts.mbt` | 常量 |
-| `ErrInvalidCommand` | `src/error/error.mbt` | `FtpError::InvalidCommand` |
-| `ServerConn` 结构体字段 | `src/client/client.mbt` | 含 capabilities 缓存 |
-| `DialOption` + 16 个 `DialWith*` 选项函数 | `src/client/options.mbt` | 见 04-api-mapping.md |
-| `Dial` / `Connect` / `DialTimeout` | `src/client/dial.mbt` | |
-| `Login` / `authTLS` / `feat` / `setUTF8` | `src/client/login.mbt` | 能力协商集中一处 |
-| `epsv` / `parseEPSV` / `pasv` / `isBogusDataIP` / `getDataConnPort` / `openDataConn` | `src/transport/*.mbt` | 拆成 `epsv.mbt` / `pasv.mbt` / `dataconn.mbt` |
-| `cmd` / `checkForCommandInjection` | `src/control/command.mbt` | |
-| `cmdDataConnFrom` | `src/transport/dataconn.mbt` | 数据通道开启流程核心 |
-| `Type` / `NameList` / `List` / `GetEntry` | `src/client/list.mbt` | |
-| `IsTimePreciseInList` / `ChangeDir` / `ChangeDirToParent` / `CurrentDir` | `src/client/nav.mbt` | |
-| `FileSize` / `GetTime` / `IsGetTimeSupported` / `SetTime` / `IsSetTimeSupported` | `src/client/time.mbt` | |
-| `Retr` / `RetrFrom` / `Stor` / `StorFrom` / `Append` / `checkDataShut` | `src/client/transfer.mbt` | 最核心、坑最多 |
-| `Rename` / `Delete` / `RemoveDirRecur` / `MakeDir` / `RemoveDir` | `src/client/fsops.mbt` | |
-| `Walk` | `src/client/nav.mbt` | 只做 `Walker` 构造 |
-| `NoOp` / `Logout` / `Quit` | `src/client/lifecycle.mbt` | |
-| `Response` 及其 4 个方法 | `src/client/response.mbt` | |
-| `statusText` map | `src/status/status.mbt` | |
+| `EntryType` / `TransferType` / `Entry` | `types/entry.mbt` | 纯数据 |
+| `DefaultDialTimeout` / `timeFormat` | `types/consts.mbt` | 常量 |
+| `ErrInvalidCommand` | `error/error.mbt` | `FtpError::InvalidCommand` |
+| `ServerConn` 结构体字段 | `client/client.mbt` | 含 capabilities 缓存 |
+| `DialOption` + 16 个 `DialWith*` 选项函数 | `client/options.mbt` | 见 04-api-mapping.md |
+| `Dial` / `Connect` / `DialTimeout` | `client/dial.mbt` | |
+| `Login` / `authTLS` / `feat` / `setUTF8` | `client/login.mbt` | 能力协商集中一处 |
+| `epsv` / `parseEPSV` / `pasv` / `isBogusDataIP` / `getDataConnPort` / `openDataConn` | `transport/*.mbt` | 拆成 `epsv.mbt` / `pasv.mbt` / `dataconn.mbt` |
+| `cmd` / `checkForCommandInjection` | `control/command.mbt` | |
+| `cmdDataConnFrom` | `transport/dataconn.mbt` | 数据通道开启流程核心 |
+| `Type` / `NameList` / `List` / `GetEntry` | `client/list.mbt` | |
+| `IsTimePreciseInList` / `ChangeDir` / `ChangeDirToParent` / `CurrentDir` | `client/nav.mbt` | |
+| `FileSize` / `GetTime` / `IsGetTimeSupported` / `SetTime` / `IsSetTimeSupported` | `client/time.mbt` | |
+| `Retr` / `RetrFrom` / `Stor` / `StorFrom` / `Append` / `checkDataShut` | `client/transfer.mbt` | 最核心、坑最多 |
+| `Rename` / `Delete` / `RemoveDirRecur` / `MakeDir` / `RemoveDir` | `client/fsops.mbt` | |
+| `Walk` | `client/nav.mbt` | 只做 `Walker` 构造 |
+| `NoOp` / `Logout` / `Quit` | `client/lifecycle.mbt` | |
+| `Response` 及其 4 个方法 | `client/response.mbt` | |
+| `statusText` map | `status/status.mbt` | |
 
 ## 3. `parse.go` 细分落点
 
 | 上游函数 | 落点 | 要点 |
 | --- | --- | --- |
-| `listLineParsers` 数组 | `src/parse/parse.mbt` | 回退顺序固定：RFC3659 → ls → DOS → hostedftp |
-| `parseRFC3659ListLine` | `src/parse/rfc3659.mbt` | `;` 与空格位置校验，`iSemicolon > iWhitespace` 即拒绝 |
-| `parseNextRFC3659ListLine` | `src/parse/rfc3659.mbt` | 多行同名合并（MLST 用），名字不一致要报错 |
-| `parseLsListLine` | `src/parse/unix_ls.mbt` | 首字段必须 10 字节，或 11 字节且第 11 位是 `+`（ACL） |
-| `parseDirListLine` | `src/parse/dos_dir.mbt` | 4 种时间格式逐个试 |
-| `parseHostedFTPLine` | `src/parse/hostedftp.mbt` | link count 为 0，换算成 1 后复用 ls 解析 |
-| `parseListLine` | `src/parse/parse.mbt` | 顶层入口，返回 `Format` 标明命中哪种 |
-| `Entry::setSize` | `src/parse/parse.mbt` | `ParseUint(str, 0, 64)` → MoonBit 需支持 `0x` 前缀 |
-| `Entry::setTime` | `src/parse/time.mbt` | **半年规则**在这里 |
+| `listLineParsers` 数组 | `parse/parse.mbt` | 回退顺序固定：RFC3659 → ls → DOS → hostedftp |
+| `parseRFC3659ListLine` | `parse/rfc3659.mbt` | `;` 与空格位置校验，`iSemicolon > iWhitespace` 即拒绝 |
+| `parseNextRFC3659ListLine` | `parse/rfc3659.mbt` | 多行同名合并（MLST 用），名字不一致要报错 |
+| `parseLsListLine` | `parse/unix_ls.mbt` | 首字段必须 10 字节，或 11 字节且第 11 位是 `+`（ACL） |
+| `parseDirListLine` | `parse/dos_dir.mbt` | 4 种时间格式逐个试 |
+| `parseHostedFTPLine` | `parse/hostedftp.mbt` | link count 为 0，换算成 1 后复用 ls 解析 |
+| `parseListLine` | `parse/parse.mbt` | 顶层入口，返回 `Format` 标明命中哪种 |
+| `Entry::setSize` | `parse/parse.mbt` | `ParseUint(str, 0, 64)` → MoonBit 需支持 `0x` 前缀 |
+| `Entry::setTime` | `parse/time.mbt` | **半年规则**在这里 |
 
 `setTime` 的半年规则（上游注释引 `info ls` 10.1.6）：
 
@@ -131,12 +131,12 @@ MoonBit 版：
 
 | 上游测试 | 行数 | MoonBit 落点 | 搬运方式 |
 | --- | --- | --- | --- |
-| `parse_test.go` | 194 | `src/parse/*_test.mbt` | **逐条直搬**（30+ 用例，字符串进结构体出） |
-| `scanner_test.go` | 31 | `src/scanner/*_test.mbt` | 逐条直搬（含空串用例） |
-| `constants_test.go` | 18 | `src/status/*_test.mbt` | 逐条直搬 |
-| `walker_test.go` | 211 | `src/walker/*_test.mbt` | 纯逻辑用例直搬；依赖 mock 的用例改写 |
-| `conn_test.go` | 449 | `src/client/*_test.mbt` | 需用 `TcpServer` 复刻 mock，见 05-testing.md |
-| `client_test.go` | 445 | `src/client/*_test.mbt` | 需用 `TcpServer` 复刻 mock |
+| `parse_test.go` | 194 | `parse/*_test.mbt` | **逐条直搬**（30+ 用例，字符串进结构体出） |
+| `scanner_test.go` | 31 | `scanner/*_test.mbt` | 逐条直搬（含空串用例） |
+| `constants_test.go` | 18 | `status/*_test.mbt` | 逐条直搬 |
+| `walker_test.go` | 211 | `walker/*_test.mbt` | 纯逻辑用例直搬；依赖 mock 的用例改写 |
+| `conn_test.go` | 449 | `client/*_test.mbt` | 需用 `TcpServer` 复刻 mock，见 05-testing.md |
+| `client_test.go` | 445 | `client/*_test.mbt` | 需用 `TcpServer` 复刻 mock |
 | `ftp_test.go` | 62 | 合并进 `client_test` | |
 
 ## 9. 不移植的部分（明确裁剪）
