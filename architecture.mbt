@@ -24,16 +24,14 @@
 /// files still live in the root package, but their contents must not reach
 /// for the async stack; keeping the list explicit makes that reviewable.
 pub let pure_logic_packages : Array[String] = [
-  "entry", "consts", "status", "error", "scanner", "parse", "parse_rfc3659", "parse_unix_ls",
-  "parse_dos_dir", "parse_hostedftp", "parse_time", "pathutil",
+  "entry", "consts", "status", "error", "parse", "parse_time", "scanner", "pathutil",
 ]
 
 ///|
 /// The IO files, as `name.mbt` entries. Kept next to `pure_logic_packages` so
 /// the two halves of the root package are readable at a glance.
 pub let io_sources : Array[String] = [
-  "control.mbt", "command.mbt", "response.mbt", "state.mbt", "transport_dataconn.mbt",
-  "transport_epsv.mbt", "transport_pasv.mbt", "client.mbt", "options.mbt", "dial.mbt",
-  "login.mbt", "nav.mbt", "list.mbt", "client_time.mbt", "transfer.mbt", "fsops.mbt",
-  "lifecycle.mbt", "walker.mbt", "debug.mbt",
+  "control.mbt", "state.mbt", "transport.mbt", "client.mbt", "dial.mbt", "login.mbt",
+  "nav.mbt", "list.mbt", "transfer.mbt", "fsops.mbt", "lifecycle.mbt", "walker.mbt",
+  "debug.mbt",
 ]

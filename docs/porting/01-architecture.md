@@ -6,7 +6,7 @@
 
 理由有三条，都是实打实的：
 
-1. 上游 `parse_test.go` 有 30+ 条 `LIST` 行用例，全部是纯字符串进、结构体出。只要解析层不碰 socket，这些用例可以原样搬过来跑，不用 mock 网络。
+1. 上游 `parse_test.go` 有 30+ 条 `LIST` 行用例，全部是纯字符串进、结构体出。只要解析层不碰 socket，这些用例可以原样搬过来跑，不需要任何服务器。
 2. `moonbitlang/async` 还是 0.x，API 会变。把 socket/TLS 调用收敛到 2 个包内，破坏性变更时只改这两层。
 3. MoonBit 的 `raise` + `suberror` 在纯逻辑层能表达得很干净；混进 IO 之后错误语义会糊。
 
@@ -27,27 +27,17 @@
 ├── status.mbt                        RFC 959 状态码 + status_text()        纯逻辑
 ├── error.mbt                         FtpError / FtpErrors                 纯逻辑
 ├── scanner.mbt                       LIST 行字段扫描器                      纯逻辑
-├── parse.mbt                         四种解析器的入口                       纯逻辑
-├── parse_rfc3659.mbt                 RFC 3659 MLSD/MLST                    纯逻辑
-├── parse_unix_ls.mbt                 ls -l 风格                            纯逻辑
-├── parse_dos_dir.mbt                 MS-DOS DIR 风格                       纯逻辑
-├── parse_hostedftp.mbt               hostedftp.com 风格                    纯逻辑
+├── parse.mbt                         四种解析器 + 回退链 + 数值辅助          纯逻辑
 ├── parse_time.mbt                    LIST 时间字段解析（含半年规则）          纯逻辑
 ├── pathutil.mbt                      Go path.Join 语义的远端路径拼接          纯逻辑
-├── control.mbt                       控制连接（reader/writer/TLS 升级）       IO
-├── command.mbt                       命令编码与状态码校验                    IO
-├── response.mbt                      响应解析（单行 / 多行）                  IO
+├── control.mbt                       控制连接 + 命令编码 + 响应解析           IO
 ├── state.mbt                         client 与 transport 共享的连接状态       IO
-├── transport_epsv.mbt                EPSV                                   IO
-├── transport_pasv.mbt                PASV + 防 SSRF 校验                     IO
-├── transport_dataconn.mbt            数据连接开启流程 + TLS 延迟握手           IO
-├── client.mbt                        FTPClient 结构与能力缓存                 IO
-├── options.mbt                       DialOptions + setter                   IO
+├── transport.mbt                     EPSV / PASV / 数据连接 / TLS 延迟握手    IO
+├── client.mbt                        FTPClient + DialOptions + SIZE/MDTM/MFMT IO
 ├── dial.mbt                          dial / split_addr / parse_decimal      IO
 ├── login.mbt                         USER/PASS/FEAT/AUTH/TYPE/PBSZ/PROT     IO
 ├── nav.mbt                           cwd / cd / cd_up / extract_quoted      IO
 ├── list.mbt                          NLST / LIST / MLSD / MLST / TYPE       IO
-├── client_time.mbt                   SIZE / MDTM / MFMT                     IO
 ├── transfer.mbt                      RETR / STOR / APPE / 226 收尾           IO
 ├── fsops.mbt                         MKD / RMD / DELE / RNFR+RNTO           IO
 ├── lifecycle.mbt                     NOOP / REIN / QUIT                     IO

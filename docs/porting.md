@@ -179,11 +179,13 @@ while w.next() {
 
 1. **纯逻辑单测**：直接搬运上游 `parse_test.go` / `scanner_test.go` / `constants_test.go` 的用例集
    （UNIX ls、`ls -l` 变体、ACL `+` 权限、hostedftp、DOS DIR、RFC3659、符号链接、多空格文件名、非法行、半年时间规则）。
-2. **Mock FTP 服务器**：用 `moonbitlang/async` 的 `TcpServer` 实现上游 `conn_test.go` 的 `ftpMock`
-   （`FEAT` 特性协商、`PASV`/`EPSV` 数据通道、`STOR`/`RETR`/`LIST`/`MLSD`/`MLST`/`MDTM`/`MFMT`、`no-time`/`std-time`/`vsftpd` 三种服务器画像），
-   并断言命令序列为 `USER, PASS, FEAT, TYPE, OPTS, ..., QUIT`。
-3. **边界用例**：命令注入、EPSV 畸形响应、PASV 可疑 IP、二次 `Close`、零字节上传、REST 断点续传、超时。
-4. **端到端（可选）**：CI 中启动 `pyftpdlib`/`vsftpd` 容器做真实服务器冒烟测试（runner 支持时才启用）。
+2. **真实 FTP 服务器端到端**：CI 中通过 `.ci/start-ftp.sh` 起 `bogem/ftp`（vsftpd 3.0.3）
+   的四个能力画像（`full` / `no-mlst` / `no-time` / `no-epsv`），覆盖 `FEAT` 协商、
+   `PASV`/`EPSV` 数据通道、`STOR`/`RETR`/`LIST`/`NLST`/`MDTM`、目录生命周期。
+   **仓库内不保留任何 mock 服务器**；命令序列断言改为副作用断言（见 05-testing.md 3.2）。
+3. **帧解析用例**：用 `@io.MemoryReader` 精确构造畸形响应（畸形状态行、空行续行、两行 MLST），
+   不需要假服务器也不需要 socket。
+4. **边界用例**：命令注入、EPSV 被拒后回退、二次 `Close`、REST 断点续传、超时。
 
 ---
 
@@ -227,7 +229,7 @@ while w.next() {
 | 无阻塞式同步 socket | MoonBit 无 Go 式阻塞 IO；需 async 语法 | 纯逻辑层与 IO 层解耦，核心解析零 IO |
 | TLS 数据连接兼容性 | Go 版有 proftpd/pureftpd 的坑 | 复刻"延迟握手 + 零字节显式 handshake"逻辑 |
 | 时间类型差异 | Go `time.Time` 精度/时区语义丰富 | 用 UTC 内部表示 + 自定义 `parse_time`/`format_time`，严格对齐格式串 |
-| 测试需要真实网络 | 部分用例依赖 socket | 优先 mock 服务器；真实服务器用例放 CI 可选阶段 |
+| 测试需要真实网络 | 部分用例依赖 socket | 全部端到端用例跑真实服务器（CI 起容器），不保留 mock |
 
 ---
 
@@ -254,7 +256,7 @@ while w.next() {
 | [porting/02-upstream-map.md](./porting/02-upstream-map.md) | 上游文件 → MoonBit 落点逐条映射 | 1.2 |
 | [porting/03-workplan.md](./porting/03-workplan.md) | **W0–W8 工作包拆解**（P0–P7 的细化版） | 2.5 |
 | [porting/04-api-mapping.md](./porting/04-api-mapping.md) | Go/MoonBit API 与 16 个 DialWith 选项对照 | 2.4 |
-| [porting/05-testing.md](./porting/05-testing.md) | 解析用例清单 + mock 服务器骨架 | 2.6 |
+| [porting/05-testing.md](./porting/05-testing.md) | 解析用例清单 + 真实服务器四画像测试策略 | 2.6 |
 | [porting/06-compat-checklist.md](./porting/06-compat-checklist.md) | 9 个兼容性要点的落地与验收 | 1.4 |
 | [porting/07-risks-and-estimation.md](./porting/07-risks-and-estimation.md) | 风险、已实测 API 清单、人日估算 | 5 |
 | [porting/08-acceptance.md](./porting/08-acceptance.md) | 验收标准与交付物清单 | 6 |

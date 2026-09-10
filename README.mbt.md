@@ -63,18 +63,17 @@ GitHub Actions、CNB 流水线与 CNB 云原生开发环境都会自动起同一
 ├── status.mbt                        RFC 959 状态码常量 + status_text()             纯逻辑
 ├── error.mbt                         FtpError / FtpErrors                          纯逻辑
 ├── scanner.mbt                       空白分隔字段扫描器（LIST 行解析用）             纯逻辑
-├── parse.mbt / parse_rfc3659.mbt / parse_unix_ls.mbt
-├── parse_dos_dir.mbt / parse_hostedftp.mbt / parse_time.mbt
-│                                     RFC3659 / UNIX ls / DOS DIR / hostedftp 解析器  纯逻辑
+├── parse.mbt                         RFC3659 / UNIX ls / DOS DIR / hostedftp 解析器  纯逻辑
+│                                     与 parse_list_line 回退链
+├── parse_time.mbt                    LIST 时间字段解析（含半年规则）                 纯逻辑
 ├── pathutil.mbt                      远端路径 join（对齐 Go path.Join 语义）        纯逻辑
-├── control.mbt / command.mbt / response.mbt
-│                                     控制通道：命令编码、多行响应、状态码校验        IO
+├── control.mbt                       控制通道：命令编码、多行响应、状态码校验        IO
 ├── state.mbt                         client 与 transport 共享的连接状态               IO
-├── transport_epsv.mbt / transport_pasv.mbt / transport_dataconn.mbt
-│                                     EPSV / PASV / PRET / REST / 数据连接 / TLS 建立   IO
-├── client.mbt / options.mbt / dial.mbt / login.mbt / nav.mbt / list.mbt
-├── client_time.mbt / transfer.mbt / fsops.mbt / lifecycle.mbt
-│                                     FTPClient（对齐上游 ServerConn）公开 API         IO
+├── transport.mbt                     EPSV / PASV / PRET / REST / 数据连接 / TLS 建立   IO
+├── client.mbt                        FTPClient（对齐上游 ServerConn）+ DialOptions   IO
+├── dial.mbt / login.mbt / nav.mbt / list.mbt / transfer.mbt
+├── fsops.mbt / lifecycle.mbt
+│                                     连接、登录、导航、列表、传输、文件操作、生命周期 IO
 ├── walker.mbt                        目录树遍历器（建在 client 上）                   IO
 ├── debug.mbt                         控制 / 数据通道原始流量日志包装                   IO
 ├── architecture.mbt                  纯逻辑 / IO 文件清单（分层登记表）

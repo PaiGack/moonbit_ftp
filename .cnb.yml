@@ -5,12 +5,12 @@
 # 因此所有 moon 命令都显式带 --target native，也不再有 wasm-gc 构建步骤。
 # native 后端需要 C 编译器与 libc 头文件，两者由 .ide/Dockerfile 提供。
 #
-# 测试分两轨（docs/porting/05-testing.md）：
-#   A 轨 纯解析用例，moon test 直接跑；
-#   B 轨 真实 FTP 服务器端到端，靠 FTP_TEST_* 环境变量启用。
-# 这里用 DinD 起 pyftpdlib（.github/ftp-fixture/serve.py），把仓库里固定的
-# fixture 挂进容器，B 轨用例因此每轮 CI 都在真服务器上跑，而不是静默跳过。
-# 同一份服务器也由 `$: vscode:` 在云原生开发环境里起好，账号端口完全一致。
+# 端到端测试跑在真实的 FTP 守护进程上，不用任何 mock：
+# 服务器是 `bogem/ftp`（vsftpd 3.0.3），由 .ci/start-ftp.sh 以 DinD 起四个容器，
+# 每个容器一份 vsftpd 配置，对应一个「能力画像」（full / no-mlst / no-time /
+# no-epsv）。同一份启动脚本也被 GitHub Actions 与云原生开发环境使用，
+# 三处行为完全一致。画像的配置在 testdata/ftp/vsftpd-*.conf，fiixture 在
+# testdata/ftp/fixture。
 #
 # 镜像里只有工具链、没有 mooncakes 索引，首次构建前必须 `moon update` 拉取依赖索引，
 # 否则 `moon check/build/test` 会以
@@ -28,7 +28,12 @@
       versionBy:
         - .ide/Dockerfile
 
-# 真实 FTP 服务器的账号与路径。fixture 内容由 git 固定，容器挂载只读。
+# 真实 FTP 服务器的账号与各画像端口。
+#   full    2121  被动 30000-30009
+#   no-mlst 2122  被动 30010-30019
+#   no-time 2123  被动 30020-30029
+#   no-epsv 2124  被动 30030-30039
+# 客户端在 chroot 内看到的根是 /，fixture 只读挂在 /fixture，可写目录是 /upload。
 .ftp-test-env: &ftp-test-env
   FTP_TEST_HOST: 127.0.0.1
   FTP_TEST_PORT: "2121"
@@ -36,42 +41,26 @@
   FTP_TEST_PASS: test
   FTP_TEST_FIXTURE: /fixture
   FTP_TEST_DIR: /upload
+  FTP_TEST_PORT_NO_MLST: "2122"
+  FTP_TEST_PORT_NO_TIME: "2123"
+  FTP_TEST_PORT_NO_EPSV: "2124"
 
-# 启动 FTP 容器的公共脚本体。
-#   .ci/ftp-root 从仓库拷出（已 gitignore），upload/ 是可写的空目录；
-#   fixture 只读挂在容器内 /srv/fixture；
-#   被动端口固定 30000-30009，与 serve.py 默认值一致。
-# 容器起不来时直接 exit 1：宁可红，也不让 B 轨用例静默跳过。
+# 起 FTP 容器：四个画像一次起好，脚本内部轮询端口，超时直接 exit 1。
+# 容器起不来时宁可红，也不让端到端用例静默跳过。
 .start-ftp-server: &start-ftp-server
   name: start ftp server
   script: |
     set -euo pipefail
-    mkdir -p .ci/ftp-root/upload
-    cp -r .github/ftp-fixture/fixture .ci/ftp-root/
-    docker rm -f moonbit-ftp >/dev/null 2>&1 || true
-    docker run -d --name moonbit-ftp \
-      -p 2121:2121 -p 30000-30009:30000-30009 \
-      -v "$PWD/.ci/ftp-root:/srv" \
-      -v "$PWD/.github/ftp-fixture/serve.py:/srv/serve.py:ro" \
-      python:3.12-slim \
-      sh -c 'pip install --quiet "pyftpdlib==2.2.0" && exec python /srv/serve.py --root /srv/ftp-root --host 0.0.0.0 --port 2121 --pasv-address 127.0.0.1'
-    for i in $(seq 1 60); do
-      if python3 -c "import socket; socket.create_connection(('127.0.0.1', 2121), 1).close()"; then
-        echo "FTP server is up on 127.0.0.1:2121 (user test / pass test)"
-        echo "B 轨用例已启用：moon test --target native --deny-warn"
-        exit 0
-      fi
-      sleep 2
-    done
-    echo "FTP server did not come up" >&2
-    docker logs moonbit-ftp >&2
-    exit 1
+    .ci/start-ftp.sh
 
 .stop-ftp-server: &stop-ftp-server
   name: ftp server log and stop
   script: |
-    docker logs moonbit-ftp || true
-    docker rm -f moonbit-ftp || true
+    for profile in full no-mlst no-time no-epsv; do
+      echo "===== moonbit-ftp-$profile ====="
+      docker logs "moonbit-ftp-$profile" 2>&1 | tail -40 || true
+      docker rm -f "moonbit-ftp-$profile" >/dev/null 2>&1 || true
+    done
 
 # push 与 pull_request 共用同一段构建步骤，避免两处脚本漂移。
 .moon-test: &moon-test
@@ -111,9 +100,9 @@ main:
       endStages:
         - *stop-ftp-server
 
-# 云原生开发环境：进入工作区前把同一个 FTP 服务器起好，
+# 云原生开发环境：进入工作区前把四个 FTP 容器起好，
 # 这样在 IDE 里直接 `moon test --target native` 跑的就是真服务器用例。
-# 账号 / 端口 / fixture 与 CI 完全一致（同一个 serve.py），不再需要手工准备环境。
+# 账号 / 端口 / 画像与 CI 完全一致（同一个启动脚本），不再需要手工准备环境。
 $:
   vscode:
     - docker:

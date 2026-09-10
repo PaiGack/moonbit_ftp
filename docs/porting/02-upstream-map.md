@@ -134,9 +134,9 @@ MoonBit 版：
 | `parse_test.go` | 194 | `parse_test.mbt` | **逐条直搬**（30+ 用例，字符串进结构体出） |
 | `scanner_test.go` | 31 | `scanner_test.mbt` | 逐条直搬（含空串用例） |
 | `constants_test.go` | 18 | `status_test.mbt` | 逐条直搬 |
-| `walker_test.go` | 211 | `walker_test.mbt` | 纯逻辑用例直搬；依赖 mock 的用例改写 |
-| `conn_test.go` | 449 | `*_test.mbt`（根包） | 需用 `TcpServer` 复刻 mock，见 05-testing.md |
-| `client_test.go` | 445 | `*_test.mbt`（根包） | 需用 `TcpServer` 复刻 mock |
+| `walker_test.go` | 211 | `walker_test.mbt` | 纯逻辑用例直搬；端到端部分改写真机断言 |
+| `conn_test.go` | 449 | `ftp_server_test.mbt` | 真机端到端（`bogem/ftp` 四个画像），见 05-testing.md |
+| `client_test.go` | 445 | `ftp_server_test.mbt` | 同上 |
 | `ftp_test.go` | 62 | 合并进 `client_test` | |
 
 ## 9. 不移植的部分（明确裁剪）
@@ -260,7 +260,7 @@ MoonBit 版：
 | `DialWithShutTimeout(d)` | `DialOptions::set_shut_timeout_ms` | `options.mbt` | 同上 |
 | `DialWithDialer(dialer)` | —（合并进 `timeout_ms`） | `dial.mbt` | **未实现**：`net.Dialer` 的字段在 MoonBit 侧无对应物，现在只有超时被保留，见第 12 节 |
 | `DialWithNetConn(conn)` | — | — | **不移植**，上游已 Deprecated，用 `dial_func~` 替代 |
-| `DialWithDialFunc(f)` | `dial_func~`（计划中的 label） | — | **未实现**：mock 服务器要靠它注入连接，随 W2–W6 补，见第 12 节 |
+| `DialWithDialFunc(f)` | `dial_func~`（计划中的 label） | — | **未实现**：用于注入自定义连接，随 W2–W6 补，见第 12 节 |
 | `DialWithDisabledEPSV(b)` | `DialOptions::set_disable_epsv` | `options.mbt` | 改名：`Disabled` → `disable`，与 MoonBit 命名习惯一致 |
 | `DialWithTrustPasvIP(b)` | `DialOptions::set_trust_pasv_ip` | `options.mbt` | |
 | `DialWithDisabledUTF8(b)` | `DialOptions::set_disable_utf8` | `options.mbt` | |
@@ -461,9 +461,9 @@ MoonBit 版在 `client.mbt` 里手写同一把锁，`defer` 语义由显式的 `
 | `parse_test.go` 的时间部分 | 8 | `parse_time` 相关用例（根包） | 半年规则 4 条边界（`22:59` 不减年 / `23:00` 减年）已覆盖 |
 | `scanner_test.go` | 6 | `scanner_test.mbt` | 含空串与中间态断言，逐条搬 |
 | `constants_test.go` | 5 | `status_test.mbt` | 逐条搬 |
-| `walker_test.go` | 10+ | `walker` 用例（待补） | **未覆盖**：需要 mock 服务器，随 W6 补 |
-| `conn_test.go` | 20+ | 根包 `*_test.mbt`（待补） | **未覆盖**：`TcpServer` mock 见 05-testing.md |
-| `client_test.go` | 20+ | 根包 `*_test.mbt`（待补） | **未覆盖**：同上 |
+| `walker_test.go` | 10+ | `walker` 用例（待补） | **部分覆盖**：纯逻辑部分待补，见第 12 节 |
+| `conn_test.go` | 20+ | `ftp_server_test.mbt` | 真机端到端 17 条，见 05-testing.md |
+| `client_test.go` | 20+ | `ftp_server_test.mbt` | 同上 |
 | `ftp_test.go` | 3 | 合并进 client 用例 | **未覆盖**：同上 |
 
 白盒用例：`entry_wbtest.mbt`（entry 内部不变量）、`parse_time` 的字段级用例。
@@ -475,11 +475,11 @@ MoonBit 版在 `client.mbt` 里手写同一把锁，`defer` 语义由显式的 `
 1. **`RemoveDirRecur` 缺失**。上游用它做递归删除，MoonBit 版的 `fsops.mbt` 只有
    `make_dir` / `remove_dir` / `delete` / `rename`。补法是建在已有的 `Walker` 上（下游
    是「先遍历收集，再从深到浅删」），归到 W6。
-2. **`walker_test.go` 的依赖 mock 用例未搬**。纯逻辑部分（`skip_dir`、空栈、`cur` 初始化）
-   可以在没有服务器的情况下断言，随 W6 一起补。
-3. **mock FTP 服务器端到端测试整体未落地**。`conn_test.go` / `client_test.go` 覆盖的
-   命令序列断言（`USER` / `PASS` / `FEAT` / `TYPE` / `OPTS` / `QUIT`）是「协议序列正确」
-   的唯一硬证据，必须在 W2–W6 内补齐，方法见 05-testing.md。
+2. **`walker_test.go` 的纯逻辑用例未搬**。`skip_dir`、空栈、`cur` 初始化可以在没有服务器的
+   情况下断言，随 W6 一起补。
+3. **端到端测试已落地为真机单轨**。`conn_test.go` / `client_test.go` 覆盖的用例现在跑在
+   `bogem/ftp`（vsftpd 3.0.3）上，四个画像区分能力；命令序列断言改为副作用断言，
+   取舍见 05-testing.md 3.2。
 4. **`docs/go-compat.md` 未写**。本文件已经逐条记录了差异（10.9、10.10），但它还没有被
    整理成面向用户的「与 Go 版行为对照表」，归到 W8。
 5. **`LICENSE-THIRD-PARTY` 未落地**。上游是 ISC，源码头部注释已标注，但仓库里还没有
@@ -487,8 +487,8 @@ MoonBit 版在 `client.mbt` 里手写同一把锁，`defer` 语义由显式的 `
 6. **`status.mbt` 的常量名与上游不是一一对应**。上游 47 个常量里有一部分在 MoonBit 侧
    用了更贴近 RFC 名字的写法（重名值散开成多个 `pub let`，见 10.10）。这是有意的，但如果
    后续要「按上游名字查找」，10.10 的表是唯一索引。
-7. **`dial_func~` 未实现**。`dial` 现在只能真的去连地址，测试无法注入一条假连接；这是
-   mock 服务器端到端测试的前置条件，与第 3 条一起在 W2 前补掉。
+7. **`dial_func~` 未实现**。`dial` 现在只能真的去连地址，测试无法注入自定义连接；
+   真机测试不需要它，所以不再阻塞，但仍未实现。
 8. **`DialWithDialer` 只剩超时**。上游允许传入完整的 `net.Dialer`（含 `LocalAddr`、
    `KeepAlive` 等），MoonBit 侧目前只保留了超时；这些字段在 `moonbitlang/async` 里还没有
    对应表达，暂不做。

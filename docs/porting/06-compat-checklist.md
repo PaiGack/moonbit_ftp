@@ -34,7 +34,7 @@ async fn FTPClient::check_data_shut(self : Self) -> Unit raise {
 
 **测试**：
 
-- [ ] `stor` 完成后 mock 的 `commands` 序列以 `[..., "STOR", "QUIT"]` 结束（没有多余命令）
+- [ ] `stor` 完成后控制连接仍可响应命令（没有多发/错发命令）
 - [ ] `stor` 之后紧接一条 `size` 命令，能拿到正确结果（不错位）
 - [ ] `response.close()` 之后再执行任意命令，响应正确
 
@@ -64,7 +64,7 @@ async fn FTPClient::get_data_port(self : Self) -> (String, Int) raise {
 
 **测试**：
 
-- [ ] mock 让 `EPSV` 返回 `500` → 客户端仍能建数据连接（走了 PASV）
+- [ ] `no-epsv` 画像让 `EPSV` 返回 `550` → 客户端仍能建数据连接（走了 PASV，且两次传输都不重试 EPSV）
 - [ ] 连续做两次数据操作，断言 `commands` 里 `"EPSV"` **只出现 1 次**
 
 ---
@@ -114,7 +114,7 @@ async 构造函数，形态与「只包不握手」的需求吻合（实测编�
 
 **测试**：
 
-- [ ] 上传空文件（0 字节）到 TLS 画像 mock → 服务器正常返回 `226`，不报 `425` / `Operation not permitted`
+- [ ] 上传空文件（0 字节）到真实服务器 → 服务器正常返回 `226`，不报 `425` / `Operation not permitted`
 - [ ] 数据连接建立后立即开始读写，无额外握手阻塞
 
 ---
@@ -149,7 +149,7 @@ async fn FTPClient::cmd(self, expected, cmd, args) -> (Int, String) raise {
 **测试**：
 
 - [ ] `rename("a\r\nDELE x", "b")` 抛 `InvalidCommand`
-- [ ] 抛异常后 mock 的 `commands` 数组**没有新增任何条目**（证明一个字节都没发）
+- [ ] 抛异常后会话仍可用（`SIZE` 仍返回 12、`PWD` 正常），证明一个字节都没发
 - [ ] 含 `\n` 的文件名上传/下载同样被拒
 
 ---
@@ -328,7 +328,7 @@ async fn Response::close(self : Self) -> Unit raise {
 **测试**：
 
 - [ ] `close()` 两次，第二次不抛异常
-- [ ] 第一次之后 mock 的 `commands` / 响应序列没有因第二次调用而变化
+- [ ] 第一次之后行为没有因第二次调用而变化（`no-epsv` 画像连做两次 `RETR`）
 
 ---
 
