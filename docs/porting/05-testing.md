@@ -1,22 +1,48 @@
 # 05 测试策略
 
-## 1. 双轨制
+## 1. 单轨制：只有真实服务器
 
-上游测试天然分两层，移植时原样保留这个划分：
+这个仓库里**没有任何 mock**。所有端到端断言都打在一个真实的 FTP 守护进程上。
 
 | 轨道 | 上游来源 | 覆盖对象 | 服务器 | 位置 |
 | --- | --- | --- | --- | --- |
-| **A. 纯解析** | `parse_test.go` / `scanner_test.go` / `constants_test.go` | `types` / `status` / `scanner` / `parse` | 无 | `*_test.mbt` |
-| **B1. Mock 端到端** | `conn_test.go` / `client_test.go` / `walker_test.go` | `control` / `transport` / `client` / `walker` | `@socket.TcpServer` 自建 | `*_test.mbt` |
-| **B2. 真机端到端** | 同上，但换真服务器 | 同上 | `pyftpdlib`（CI 起容器） | `ftp_server_test.mbt` |
+| **A. 纯逻辑** | `parse_test.go` / `scanner_test.go` / `constants_test.go` | `entry` / `status` / `parse` / `parse_time` / `scanner` / `pathutil` | 无 | `*_test.mbt` |
+| **B. 真机端到端** | `conn_test.go` / `client_test.go` / `walker_test.go` | `control` / `transport` / `client` / `walker` | `bogem/ftp`（vsftpd 3.0.3），CI 起容器 | `ftp_server_test.mbt` |
+| **C. 帧与回包解析** | 同上，但需要构造畸形输入 | `read_response` / `parse_features` / `parse_pasv` / `parse_epsv` | 直接调用（无 socket） | `control_test.mbt` / `transport_test.mbt` |
 
-轨道 A 是资产：**字符串进、结构体出**，逐条直搬，零改动成本。轨道 B 必须用 `@socket.TcpServer` 复刻上游 mock。
+轨道 A 与 C 是纯的：**字符串进、结构体出**，或者**字节进、结构体出**，都不需要服务器。
+轨道 B 是真服务器，也正是它的价值所在。
 
-B1 与 B2 是互补的，不是替代关系：B1 能**断言完整命令序列**、能构造各种服务器画像，
-B2 则验证这些序列在真实实现上确实被接受。B2 第一次跑通就在客户端里挖出 5 个 B1
-测不出的 bug，见第 6.4 节。
+### 1.1 为什么没有 mock
 
-## 2. 轨道 A：解析用例直搬
+上游 `conn_test.go` 的 mock 做三件事，我们都不要了：
+
+1. 记录收到的命令以断言**完整命令序列** —— 换成断言**副作用**（见 3.2）；
+2. 用脚本返回三种**服务器画像** —— 换成 vsftpd 的**真实配置开关**（见 4）；
+3. 自建数据连接监听器 —— 真服务器本来就有。
+
+mock 的根本问题不是麻烦，而是**它会配合客户端的错误**：它是照着我们以为的协议写的，
+所以客户端多发一条空命令、把 `150` 判成失败，mock 都会「认可」。第 6.4 节那 5 个 bug
+全是这么漏掉的。删掉 mock 之后，这类错误在下一次 CI 就会被真守护进程打回。
+
+### 1.2 删掉了哪些用例
+
+旧 `control_test.mbt` 里有一批用例**只能是 mock 用例**，因为真守护进程不会发出那种字节：
+
+| 已删除的用例 | 为什么真机做不到 | 现在由谁覆盖 |
+| --- | --- | --- |
+| `200` 单独一行（无分隔符）| vsftpd 不会发畸形状态行 | `control_test.mbt` 内存 Reader |
+| `211-\r\n\r\n211 End` 空行 | 同上 | 同上 |
+| `211 End` 不当作续行 | 同上 | 同上 |
+| MLST 两行被拒 | vsftpd 不支持 MLST | `control_test.mbt` 内存 Reader |
+| 命令注入「一个字节都不发」 | 真服务器无法自证收到了什么 | `ftp_server_test.mbt` 断言副作用（见 3.2）|
+| `FEAT` 不支持时的降级 | vsftpd 一定支持 FEAT | 未覆盖（已在 6.6 记录）|
+| `PASV` 返可疑 IP | 需要能伪造 `pasv_address` 的服务器 | 未覆盖（纯逻辑分支仍有单测）|
+
+「只能是 mock」并不等于「不重要」：前三行与 MLST 两行现在用**内存 Reader** 精确构造，
+所以帧解析这条分支仍然被覆盖，只是不再需要一台假服务器。
+
+## 2. 轨道 A：纯解析用例直搬
 
 ### 2.1 上游 `parse_test.go` 用例清单（必须全绿）
 
@@ -144,157 +170,49 @@ to_string(EntryType::Folder) == "folder"
 to_string(EntryType::Link)   == "link"
 ```
 
-## 3. 轨道 B：Mock FTP 服务器
+## 3. 轨道 B：真实服务器端到端
 
-### 3.1 为什么必须复刻
+### 3.1 为什么必须用真服务器
 
-上游 `conn_test.go` 的 mock 不是随便写个假服务器，它做了三件事，缺一不可：
+真服务器补的正是 mock 补不了的：**命令序列在真实实现上是否被接受**。
+`ftp_server_test.mbt` 第一次跑起来就在客户端里挖出 5 个 mock 永远测不出的 bug（见 6.4）。
 
-1. **记录收到的每条命令**（只记动词），用于断言**完整命令序列**。
-2. **支持三种服务器画像**（`no-time` / `std-time` / `vsftpd`），用 FEAT 响应与 `MDTM`/`MFMT` 行为区分。
-3. **有独立的数据连接监听器**（每次 PASV/EPSV 现开一个临时端口），用于验证数据通道建立。
+### 3.2 命令序列断言 → 副作用断言
 
-其中 1 是最有价值的：它把「协议序列正确」变成可断言的事实，而不是靠连真实服务器碰运气。
+新方案里没有 mock 来记录「服务器收到了什么」。原来那种
 
-### 3.2 MoonBit 实现骨架
-
-已实测可用的形态（`moonbitlang/async` 0.21.3）：
-
-```moonbit
-///|
-struct FtpMock {
-  server : @socket.TcpServer
-  commands : Array[String]     // 收到的命令动词序列
-  modtime : String             // "no-time" | "std-time" | "vsftpd"
-  bogus_pasv_ip : Bool
-  ...
-}
-
-///|
-async fn FtpMock::serve(self : FtpMock) -> Unit raise {
-  let (conn, _) = self.server.accept()
-  conn.write("220 FTP Server ready.\r\n")
-  while true {
-    let line = conn.read_until("\r\n").unwrap()
-    let verb = line.split(" ").head()
-    self.commands.push(verb)
-    match verb {
-      "FEAT" => // 按画像返回多行 FEAT
-      "USER" => conn.write("331 Please send your password\r\n")
-      ...
-      "QUIT" => { conn.write("221 Goodbye.\r\n"); break }
-      _ => conn.write("500 Unknown command.\r\n")
-    }
-  }
-}
+```
+close_conn(mock, client, ["USER", "PASS", "FEAT", "TYPE", "OPTS", "QUIT"])
 ```
 
-实测结论：`@socket.TcpServer` + `@async.with_task_group` + `spawn_bg` 的「服务端后台协程 + 客户端主协程」模式工作正常，`read_until("\r\n")` 能正确处理跨包边界的行。
+式的**精确序列断言被删掉了**，换成**副作用可观察**：
 
-### 3.3 测试辅助函数
+| 想证明的事 | 现在的断言方式 |
+| --- | --- |
+| 没有多发空命令导致会话错位（bug #1/#2）| 连接建立后 `PWD` 必须返回 `/`；传输结束后同一连接仍能响应命令 |
+| 注入的命令没有上线 | 抛 `InvalidCommand` 之后，`SIZE` 仍然返回 12、`PWD` 仍然正常 |
+| `EPSV` 失败后不重试 | `no-epsv` 画像连做两次 `RETR`，第二次也必须成功 |
+| `QUIT` 被正确接受 | 真服务器回 `221`，`quit` 不抛异常 |
 
-对齐上游 `openConn` / `closeConn`：
+代价是丢掉了「精确序列」这个断言，收益是**这个断言不再能被我们自己伪造**。
 
-```moonbit
-///| 起 mock + 连接 + 登录
-async fn open_conn(profile~ : String) -> (FtpMock, @ftp.FTPClient) raise
+### 3.3 服务器画像：用真配置，不用脚本
 
-///| 退出并断言命令序列
-///  期望序列 = ["USER","PASS","FEAT","TYPE", ...中间命令, "QUIT"]
-async fn close_conn(mock, client, middle_commands : Array[String]) -> Unit raise
-```
+画像不再是 mock 的 `no-time` / `std-time` / `vsftpd` 三段脚本，而是 vsftpd 的**真实配置开关**，
+每个画像一个容器（见 4）。客户端因此面对的是「真的被拒绝」，而不是「被脚本拒绝」。
 
-`close_conn` 的断言是轨道 B 的核心断言点，**每条端到端测试都要走一遍**。
+## 4. 真实服务器与 fixture
 
-### 3.4 服务器画像对照
-
-| 画像 | FEAT 返回 | 行为差异 | 用途 |
-| --- | --- | --- | --- |
-| `no-time` | `FEAT PASV EPSV UTF8 SIZE MLST`（无时间相关） | `MDTM` 返回 `500`，`MFMT` 返回 `500` | 验证「不支持时间操作」的降级 |
-| `std-time` | 上面 + `MDTM MFMT` | `MDTM <path>` 读时间；`MFMT <time> <path>` 写时间 | 标准服务器 |
-| `vsftpd` | 上面 + `MDTM`（**无 MFMT**） | `MDTM <time> <path>` 用于**写**时间 | 验证 VsFtpd 怪癖分支 |
-
-### 3.5 mock 支持的命令与响应
-
-| 命令 | 响应 | 备注 |
-| --- | --- | --- |
-| `FEAT` | `211-Features:\r\n ... \r\n211 End` | 多行，按画像拼 |
-| `USER anonymous` | `331 ...` | 其它用户名 → `530` |
-| `PASS` | `230-Hey,\r\nWelcome to my FTP\r\n230 Access granted` | **多行，验证解析器** |
-| `TYPE` | `200 Type set ok` | |
-| `CWD missing-dir` | `550 ...` | 失败分支 |
-| `CWD` 其它 | `250 ...` | |
-| `DELE` / `MKD` / `RMD` | `250` / `257` / `250` | `RMD missing-dir` → `550` |
-| `PWD` | `257 "/incoming"` | 验证引号提取 |
-| `CDUP` | `250 ...` | |
-| `SIZE magic-file` | `213 42` | 其它 → `550` |
-| `PASV` | `227 Entering Passive Mode (127,0,0,1,p1,p2)` | `bogus` 时返回 `127,0,0,2` |
-| `EPSV` | `229 Entering Extended Passive Mode (\|\|\|PORT\|)` | 可配置为报错以测降级 |
-| `LIST` | `150 ...` + 数据 + `226` | 数据含一行非法行（`total 1`）验证跳过 |
-| `MLSD` | `150 ...` + `Type=file;Size=0;Modify=20201213202400; lo` + `226` | |
-| `MLST multiline-dir` | `250-...\r\n Type=dir;...\r\n Modify=...;\r\n250 End` | 验证多行合并 |
-| `NLST` | `150 ...` + `/incoming` + `226` | |
-| `RETR` | 从 `rest` 偏移开始发内容 + `226` | 验证断点续传 |
-| `STOR` / `APPE` | `150` + 收数据 + `226` | |
-| `RNFR` / `RNTO` | `350` / `250` | |
-| `REST n` | `350 ...`，记下 n | 非数字 → `500` |
-| `MDTM` | 读：`213 20201213202400`；写（vsftpd）：`213 UTIME OK` | |
-| `MFMT` | `213 UTIME OK` | 非 `std-time` 画像 → `500` |
-| `NOOP` | `200 NOOP ok.` | |
-| `OPTS UTF8 ON` | `200 ...` | 参数不对 → `500` |
-| `REIN` | `220 Logged out` | |
-| `QUIT` | `221 Goodbye.` + 关闭 | |
-
-### 3.6 数据连接模拟
-
-上游的 mock 每次 `PASV`/`EPSV` 都新开一个临时端口监听，等客户端连上来。MoonBit 版同样做法：
-
-```moonbit
-///| 开一个临时端口，返回端口号；后台协程等待客户端连接
-async fn (self : FtpMock) listen_data_conn() -> Int raise {
-  let srv = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
-  ...
-}
-```
-
-实测确认 `@socket.TcpServer(...)` + `server.addr` 能在回环拿到随机端口，且 `accept` 可与控制通道协程并行运行。
-
-## 4. 断言风格
-
-按项目 `AGENTS.md` 的约定：
-
-- **稳定结果用 `assert_eq`**：状态码、命令序列、解析出的 name/size/type。
-- **结构化调试输出用 `debug_inspect`**：`Entry` 整体比较时，先 `derive(@debug.Debug)`。
-- **时间比较用固定 `now` + UTC**：避免依赖测试运行时的真实时间。上游把 `now` 作为显式参数传入正是为此，移植时保留这个签名。
-
-## 5. 覆盖率目标
-
-| 层 | 目标 | 理由 |
-| --- | --- | --- |
-| `types` / `status` / `error` | ≥ 90% | 简单，容易达 |
-| `scanner` / `parse` / `pathutil` | ≥ 95% | 用例密集，且是纯逻辑 |
-| `control` | ≥ 85% | 多行响应有边界 |
-| `transport` | ≥ 80% | 含降级分支 |
-| `client` | ≥ 75% | 大量方法是一行命令封装 |
-| `walker` | ≥ 90% | 状态机小 |
-
-`moon coverage analyze` 结果里，**`transport` / `client` 的降级分支必须被覆盖**（EPSV 失败、PASV 可疑 IP、时间不支持）。这些是「真实服务器上才会暴露」的路径，mock 里不测就没人测。
-
-## 6. 真实 FTP 服务器端到端测试（轨道 B 的真机部分）
-
-`ftp_server_test.mbt` 跑在一台**真实 FTP 守护进程**上，不是 mock。这一层
-补的正是 mock 补不了的东西：命令序列在真实实现上是否被接受。它第一次跑起来
-就在客户端里挖出了 5 个 mock 永远测不出的 bug（见 6.4）。
-
-### 6.1 服务器与 fixture
+### 4.1 服务器与 fixture
 
 | 项 | 值 |
 | --- | --- |
-| 守护进程 | `pyftpdlib` 2.2.0（纯 Python，支持 MLSD / MDTM / MFMT / EPSV） |
-| 启动脚本 | `.github/ftp-fixture/serve.py`（GitHub CI 与 CNB 共用同一份） |
-| fixture | `.github/ftp-fixture/fixture/`，由 git 固定 |
-| 账号 | `test` / `test` |
-| 端口 | 控制 2121，被动 30000-30009 |
+| 镜像 | `bogem/ftp`，即 **vsftpd 3.0.3**（Ubuntu 16.04 基础镜像）|
+| 启动脚本 | `.ci/start-ftp.sh`（CNB、GitHub Actions、云原生开发环境共用同一份）|
+| 配置模板 | `testdata/ftp/vsftpd-base.conf` + `testdata/ftp/vsftpd-<profile>.conf` |
+| fixture | `testdata/ftp/fixture/`，由 git 固定 |
+| 账号 | 虚拟用户，默认 `test` / `test`（`FTP_USER` / `FTP_PASS` 可覆盖）|
+| 端口 | 见 4.2 |
 
 fixture 目录内容（**内容固定，不用脚本生成**）：
 
@@ -303,44 +221,111 @@ fixture/hello.txt        12 字节，内容 "hello world\n"
 fixture/sub/nested.txt   嵌套目录，验证 Folder 类型
 ```
 
-测试在服务端写入的路径是 `/upload`（容器内为可写目录），读取的固定文件在
-`/fixture`。
+客户端在 chroot 内看到的根是 `/`；fixture 挂在 `/fixture`，可写目录是 `/upload`。
+写用例用完自行清理。
 
-### 6.2 环境变量开关
+容器挂载（`.ci/start-ftp.sh`）：
+
+| 容器内路径 | 宿主机路径 | 说明 |
+| --- | --- | --- |
+| `/srv` | `.ci/ftp-root/` | 服务树，含 `fixture/` 与 `upload/`；也是 `local_root` |
+| `/etc/vsftpd` | `.ci/ftp-conf/<profile>/vsftpd/` | 该画像的 `vsftpd.conf`（镜像 entrypoint 会读这个路径）|
+| `/home/vsftpd` | `.ci/ftp-conf/<profile>/home/` | 镜像 entrypoint 需要的用户目录 |
+
+配置刻意放在 `.ci/ftp-conf/`（**不在** `/srv` 里），否则会被 FTP 用户从 chroot 里看到。
+
+### 4.2 四个画像
+
+每个画像一个容器，因为 vsftpd 只在启动时读一次配置，一个进程没法同时扮演两种能力。
+
+| 画像 | 控制端口 | 被动端口 | 配置开关 | 覆盖的客户端分支 |
+| --- | --- | --- | --- | --- |
+| `full` | 2121 | 30000-30009 | 无 | 基准路径 |
+| `no-mlst` | 2122 | 30010-30019 | `cmds_denied=MLST,MLSD` | `disable_mlsd` / `LIST` 回退 |
+| `no-time` | 2123 | 30020-30029 | `cmds_denied=MDTM,MFMT` | 「不支持时间操作」的降级 |
+| `no-epsv` | 2124 | 30030-30039 | `cmds_denied=EPSV` | EPSV 失败后永久回退 PASV |
+
+### 4.3 vsftpd 的真实能力（实测）
+
+在真机上抓到的 `FEAT` 回应：
+
+```
+211-Features:
+ EPRT
+ EPSV
+ MDTM
+ PASV
+ REST STREAM
+ SIZE
+ TVFS
+211 End
+```
+
+**`MLST` / `MLSD` / `MFMT` / `UTF8` 都不在上面**，且 `MLSD` / `MLST` / `MFMT` 会被回
+`500 Unknown command.`。所以客户端断言的是「识别到不支持并正确降级」，而不是「RFC 3659 可用」——
+后者在真机上永远做不到。
+
+两个实测得到、值得记下来的 vsftpd 行为：
+
+- **`REST STREAM` 会被解析成 `REST`**：`parse_features` 只取行的第一个 token（与上游一致），
+  所以断言要用 `has_feature("REST")`。
+- **`cmds_denied=MDTM` 不会从 `FEAT` 里摘掉 `MDTM`**：服务器仍然宣称支持，直到真的发命令才回
+  `550`。客户端因此 `is_get_time_supported()` 仍为 true，失败只在调用时暴露——这正是
+  `ftp_server_test.mbt` 里那条用例要钉住的。
+
+### 4.4 环境变量开关
 
 测试是**按环境变量启用**的，缺省不跑：
 
 | 变量 | 缺省 | 说明 |
 | --- | --- | --- |
-| `FTP_TEST_HOST` | 未设 | 未设时全部用例直接 return（不算失败） |
-| `FTP_TEST_PORT` | `21` | |
+| `FTP_TEST_HOST` | 未设 | 未设时全部用例直接 return（不算失败）|
+| `FTP_TEST_PORT` | `21` | `full` 画像的控制端口 |
 | `FTP_TEST_USER` / `FTP_TEST_PASS` | `test` / `test` | |
 | `FTP_TEST_FIXTURE` | `/fixture` | 只读 fixture 目录 |
 | `FTP_TEST_DIR` | `/upload` | 可写目录，写用例用完自行清理 |
+| `FTP_TEST_PORT_NO_MLST` | `0` | 为 0 时该画像的用例 return |
+| `FTP_TEST_PORT_NO_TIME` | `0` | 同上 |
+| `FTP_TEST_PORT_NO_EPSV` | `0` | 同上 |
 
 MoonBit 没有 skip API，所以未配置时用例**提前 return**，而不是 fail：
 本机 `moon test --target native` 依旧是绿的。一旦 `FTP_TEST_HOST` 被设上，
 任何断言失败都是硬失败，没有「服务器抽风」的兜底。
 
-### 6.3 用例清单（13 条）
+### 4.5 用例清单
+
+`ftp_server_test.mbt`（17 条）：
 
 ```
-connect, login and PWD                dial → login → PWD == "/"
-FEAT negotiation reports MLST/MDTM    真机 FEAT 被接受且能力位正确
-MLSD listing of the fixture           MLSD 路径，校验 hello.txt 的 size/type
-LIST parsing of the fixture           disable_mlsd 走 LIST，校验 ls -l 解析
-SIZE and MDTM of a fixture file       213 回包解析
-RETR downloads the mounted fixture    内容逐字节比对
-RETR from an offset resumes           REST 偏移生效
-NLST returns bare names               裸名字列表
-MKD, CWD, rename and RMD round trip   目录生命周期
-STOR uploads a file                   上传后 SIZE 一致
-APPE appends to an uploaded file      APPE 后内容 == 两段拼接
-MFMT and MDTM agree on the time       写时间后读回完全一致
-a wrong password is rejected          530 变成 ServerError 而不是挂死
+connect, login and PWD                              dial → login → PWD == "/"
+FEAT reports the real vsftpd capability set         真机能力位：有 EPSV/MDTM/SIZE/REST，无 MLST/MFMT
+LIST parsing of the fixture directory               真机 ls -l 输出，校验 hello.txt 的 size/type
+disable_mlsd falls back to LIST                     no-mlst 画像，强制 LIST
+SIZE and MDTM of a fixture file                     213 回包解析
+RETR downloads the mounted fixture                  内容逐字节比对
+RETR from an offset resumes                         REST 偏移生效
+NLST returns path prefixed names                    真 vsftpd 给的是带路径前缀的名字
+MKD, CWD, rename and RMD round trip                 目录生命周期
+STOR uploads a file                                 上传后 SIZE 一致
+APPE appends to an uploaded file                    APPE 后内容 == 两段拼接
+a wrong password is rejected                        530 变成 ServerError 而不是挂死
+an injected command is refused, session survives   副作用断言：注入被拒且会话仍可用
+no-time profile fails the time commands cleanly     读/写时间都硬失败，会话仍可用
+no-epsv profile falls back to PASV and keeps it     连续两次 RETR 都走 PASV
+rename moves a file                                 RNFR/RNTO
+nested MKD and RMD round trip                       嵌套目录创建与自底向上删除
 ```
 
-### 6.4 真机测试挖出的客户端 bug
+`control_test.mbt`（15 条，无 socket）：单行/多行响应、续行判定、短响应、空消息、
+非数字首行、空行续行、两行 MLST、`FEAT` 解析（含 `REST STREAM` → `REST`）、
+`check_for_command_injection`。
+
+`transport_test.mbt`（15 条，无 socket）：畸形 `PASV` / `EPSV` 回包（缺括号、缺字段、
+非数字、超范围）、`is_bogus_data_ip` 的 SSRF 判定、以及 `is_private` / `is_loopback` /
+`is_multicast` 的 IPv4 与 IPv6 前缀规则。这些分支真守护进程不会触发，所以和畸形帧一样，
+用**直接调用**而不是假服务器来覆盖。
+
+### 4.6 真机测试挖出的客户端 bug
 
 这些 bug 在 mock 下**不可能**被发现（mock 是我们自己写的，会「配合」客户端的
 错误行为），只有真服务器会照协议回包：
@@ -349,52 +334,89 @@ a wrong password is rejected          530 变成 ServerError 而不是挂死
 | --- | --- | --- | --- |
 | 1 | `dial.mbt` 问候语 | 用 `cmd_expect(control, "", [220])` 读问候，**多发了一条空命令**，会话错位 | 改成只 `read_response` 不发送 |
 | 2 | `transfer.mbt` `check_data_shut` | 同样多发空命令读 `226` | 同上 |
-| 3 | `transport_dataconn.mbt` | 用 `is_positive_completion`（2xx）判定传输起始回包，但 `125`/`150` 是 1xx，**每次都误判失败** | 改用 `is_positive_intermediate` |
+| 3 | `transport.mbt` | 用 `is_positive_completion`（2xx）判定传输起始回包，但 `125`/`150` 是 1xx，**每次都误判失败** | 改用 `is_positive_intermediate` |
 | 4 | `login.mbt` | 持锁后再调 `feat`/`set_transfer_type`，非重入互斥锁**自锁死** | 锁分段，嵌套调用放在锁外 |
 | 5 | `lifecycle.mbt` | `QUIT` 只接受 `200`/`220`，真服务器回 `221` | 补 `status_closing_control_connection` |
 
 第 1/2 条的共同教训：**「读一个应答」和「发一条命令再读应答」是两件事**，
 `socket` 上没有「空命令」这回事。
 
-### 6.5 CI 接入
+### 4.7 CI 接入
 
 | 环境 | 怎么起服务器 |
 | --- | --- |
-| GitHub Actions | 步骤内 `pip install pyftpdlib` + `serve.py`，fixture 挂 `${{ github.workspace }}/.github/ftp-fixture` |
-| CNB 流水线 | `services: [docker]`（DinD），`serve.py` 只读挂进 `python:3.12-slim` 容器 |
-| CNB 云原生开发 | `$: vscode:` 流水线在进入工作区前起同一个容器，IDE 里直接 `moon test` 就是真机用例 |
+| GitHub Actions | `.ci/start-ftp.sh`，拉 `bogem/ftp` 并起四个画像容器 |
+| CNB 流水线 | `services: [docker]`（DinD），同一份 `.ci/start-ftp.sh` |
+| CNB 云原生开发 | `$: vscode:` 流水线在进入工作区前起同四个容器，IDE 里直接 `moon test` 就是真机用例 |
 
-本地手工跑：
+本地手工跑（需要 Docker）：
 
 ```bash
-python3 -m pip install "pyftpdlib==2.2.0"
-mkdir -p .ci/ftp-root/upload && cp -r .github/ftp-fixture/fixture .ci/ftp-root/
-python3 .github/ftp-fixture/serve.py --root "$PWD/.ci/ftp-root" --port 2121 &
-
 export PATH="$HOME/.moon/bin:$PATH"
-FTP_TEST_HOST=127.0.0.1 FTP_TEST_PORT=2121   moon test --target native
+.ci/start-ftp.sh
+
+export FTP_TEST_HOST=127.0.0.1 FTP_TEST_PORT=2121 \
+       FTP_TEST_USER=test FTP_TEST_PASS=test \
+       FTP_TEST_FIXTURE=/fixture FTP_TEST_DIR=/upload \
+       FTP_TEST_PORT_NO_MLST=2122 FTP_TEST_PORT_NO_TIME=2123 FTP_TEST_PORT_NO_EPSV=2124
+moon test --target native
 ```
 
-`.ci/ftp-root/` 是启动时拼出来的目录，已进 `.gitignore`。
+`.ci/ftp-root/`（fixture 副本）与 `.ci/ftp-conf/`（每个画像的配置与用户目录）都是启动时
+拼出来的，已进 `.gitignore`。
 
-### 6.6 未覆盖的部分
+`.ci/start-ftp.sh` 直接复用镜像自带的 entrypoint（`/usr/sbin/run-vsftpd.sh`）：
+它用 `db_load` 建虚拟用户库、把 `PASV_ADDRESS` 追加成 `pasv_address`，再执行
+`vsftpd /etc/vsftpd/vsftpd.conf`。所以画像是靠**替换那一个配置文件**做的，
+不用自定义 entrypoint。
+
+## 5. 断言风格
+
+按项目 `AGENTS.md` 的约定：
+
+- **稳定结果用 `assert_eq`**：状态码、解析出的 name/size/type。
+- **结构化调试输出用 `debug_inspect`**：`Entry` 整体比较时，先 `derive(@debug.Debug)`。
+- **时间比较用固定 `now` + UTC**：避免依赖测试运行时的真实时间。上游把 `now` 作为显式参数传入正是为此，移植时保留这个签名。
+
+## 6. 覆盖率目标
+
+| 层 | 目标 | 理由 |
+| --- | --- | --- |
+| `entry` / `status` / `error` | ≥ 90% | 简单，容易达 |
+| `parse` / `parse_time` / `scanner` / `pathutil` | ≥ 95% | 用例密集，且是纯逻辑 |
+| `control` | ≥ 85% | 多行响应有边界 |
+| `transport` | ≥ 80% | 含降级分支 |
+| `client` | ≥ 75% | 大量方法是一行命令封装 |
+| `walker` | ≥ 90% | 状态机小 |
+
+`moon coverage analyze` 结果里，**`transport` / `client` 的降级分支必须被覆盖**
+（EPSV 失败、时间不支持、MLSD 回退）。这些分支现在由 `no-epsv` / `no-time` / `no-mlst`
+三个真实画像覆盖，不再靠 mock。
+
+### 6.1 未覆盖的部分
 
 - **TLS**：`AUTH TLS` / `PBSZ` / `PROT P` 这条路径还没在真机上跑过。
-  pyftpdlib 支持 TLS，但需要一个自签证书 + 客户端信任策略，留到后续工作包。
-- **VsFtpd 画像**：`writing_mdtm`（`MDTM <time> <path>` 写时间）只在 mock 里
-  验证，没有真 VsFtpd 实例。`fauria/vsftpd` 镜像可用，但缺 MLSD，要另配一份
-  fixture。
-- **`LIST -a`**：`force_list_hidden=true` 会发 `LIST -a <path>`，pyftpdlib 把
-  `-a` 当路径的一部分，回 `550`。所以真机 LIST 用例走的是 `disable_mlsd`
-  （纯 `LIST`），`LIST -a` 仍由 mock 覆盖。
+  `bogem/ftp` 的 vsftpd 编译进了 `libssl.so.1.0.0` 且 `FEAT` 里**有** `AUTH SSL` / `AUTH TLS`，
+  但镜像没有配证书，要另开一个挂证书的画像；留到后续工作包。
+- **`FEAT` 不被支持**：vsftpd 一定回 `211`，所以「FEAT 失败 → 无能力」的降级没有真机覆盖。
+  纯逻辑分支（`parse_features`）仍有单测。
+- **`PASV` 返回可疑 IP**：需要一台能伪造 `pasv_address` 的服务器。`is_bogus_data_ip` 的
+  纯逻辑分支有单测（`is_private` / `is_loopback` / `is_multicast`），但「真服务器 + 可疑 IP +
+  客户端拒绝」这条端到端路径未覆盖。
+- **VsFtpd `writing_mdtm` 画像**：`MDTM <time> <path>` 写时间的分支需要 `mdtm_write=YES` 的
+  vsftpd；`bogem/ftp` 的默认配置没有开，暂未覆盖。
+- **`LIST -a`**：`force_list_hidden=true` 会发 `LIST -a <path>`。这个 flag 在 vsftpd 上的行为
+  没有单独画像覆盖。
 
 ## 7. 不该做的事
 
-- **不要为了测试引入 mock 网络库**。`@socket.TcpServer` 已经够用，且能验证真实 TCP 行为（含 `\r\n` 分片）。
+- **不要重新引入 mock 网络库**。要构造畸形字节，用 `@io.MemoryReader` 直接喂 `read_response`
+  （`control_test.mbt` 就是这么做的）；那不需要一台假服务器，也不需要 socket。
 - **不要把解析测试改成 Snapshot**。上游用例是精确断言，改成 snapshot 会掩盖字段级回归。
-- **不要跳过 `close_conn` 的命令序列断言**。省这一步，等于放弃「协议序列正确」这个最有价值的断言。
+- **不要为了「方便」把用例写回相对路径或跳过**。真机用例断了就是客户端断了，
+  第 6.4 节那 5 个 bug 就是这么回来的。
 - **不要在 CI 里静默跳过真机用例**。设了 `FTP_TEST_HOST` 就必须真的跑起来；
-  「服务器没起来所以跳过」等于把第 6.4 节那 5 个 bug 留回去。CNB 的启动步骤
-  会轮询端口并在超时时 `exit 1`，就是为了堵这个口子。
+  「服务器没起来所以跳过」等于把第 6.4 节那 5 个 bug 留回去。`.ci/start-ftp.sh`
+  会轮询每个画像的端口并在超时时 `exit 1`，就是为了堵这个口子。
 - **不要用「客户端的期望」去写真服务器**。第 6.4 节的 5 个 bug 里有 3 个是
   客户端自己**多发/错判**导致的；真机测试的价值就在于它不会配合客户端犯错。

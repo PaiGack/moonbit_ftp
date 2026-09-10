@@ -33,7 +33,7 @@ FTP 看着老，但它今天仍然是设备固件升级、厂商数据拉取、�
   与 `REST` 断点续传，目录与文件操作（`Rename` / `Delete` / `MakeDir` / `RemoveDirRecur` / `FileSize`），
   时间操作（`GetTime` / `SetTime`，兼容 VsFtpd 的 MDTM 写法），`Walk` 目录树遍历，FTPS 显式加密。
 - 一个可运行 CLI 示例（`moon run cmd/ftp`，支持 `ls` / `get` / `put` / `walk`）。
-- 完整测试：解析用例 + 本地 mock FTP 服务器端到端测试，覆盖命令序列、降级路径和边界输入。
+- 完整测试：解析用例 + 真实 FTP 服务器端到端测试，覆盖能力协商、降级路径和边界输入。
 - README、移植说明、上游来源与许可证标注，并发布到 mooncakes.io。
 
 **明确不做的**：主动模式（`PORT`/`EPRT`，上游同样不做）；SFTP/SSH、HTTP 代理；`MODE`/`STRU`/`ALLO`
@@ -68,9 +68,9 @@ FTP 看着老，但它今天仍然是设备固件升级、厂商数据拉取、�
 9. **`Response.Close` 必须幂等**，二次调用返回 nil。
 
 **测试思路**：环回测试比连真实服务器更可复现。上游测试本来就分两层——`parse_test.go` 的纯解析用例
-（覆盖四种格式、ACL 权限、符号链接、多空格文件名、非法行）和 `conn_test.go` 的 mock 服务器端到端
+（覆盖四种格式、ACL 权限、符号链接、多空格文件名、非法行）和 `conn_test.go` 的端到端
 用例（模拟 no-time / std-time / vsftpd 三种服务器画像，断言完整命令序列）。我把这两类都复刻：解析
-用例直接搬，mock 服务器用 `TcpServer` 重写。这样"协议序列正确"是可验证的事实，而不是靠碰运气。
+用例跑到真实的 vsftpd（`bogem/ftp` 镜像）上。这样"协议序列正确"是可验证的事实，而不是靠碰运气。
 
 **分期**：P0 纯逻辑层（零 IO，上游解析用例全绿）→ P1 控制连接 → P2 数据通道 → P3 客户端门面 →
 P4 遍历与兼容性打磨 → P5 示例、文档、发布。估算 12~17 人日。
@@ -79,7 +79,7 @@ P4 遍历与兼容性打磨 → P5 示例、文档、发布。估算 12~17 人�
 
 - 可 `moon add PaiGack/ftp` 使用的 MoonBit 库
 - 一个 CLI 示例（`moon run cmd/ftp`，支持 `ls` / `get` / `put` / `walk`）
-- mock FTP 服务器测试 + 解析测试，覆盖全部核心路径
+- 真实 FTP 服务器测试 + 解析测试，覆盖全部核心路径
 - README、移植说明、上游许可证与来源标注
 - 发布到 mooncakes.io
 
@@ -95,7 +95,7 @@ P4 遍历与兼容性打磨 → P5 示例、文档、发布。估算 12~17 人�
 | [porting/02-upstream-map.md](./porting/02-upstream-map.md) | 上游 6 个文件 → MoonBit 包/文件的逐条落点映射 | 动手写代码的人 |
 | [porting/03-workplan.md](./porting/03-workplan.md) | **核心**：W0–W8 工作包拆解、每包任务清单、验收标准、工作量 | 排期与执行 |
 | [porting/04-api-mapping.md](./porting/04-api-mapping.md) | Go API → MoonBit API 一一对照表（含 16 个 DialWith 选项） | 写公开 API 的人 |
-| [porting/05-testing.md](./porting/05-testing.md) | 测试双轨策略：解析用例搬迁 + mock FTP 服务器 | 写测试的人 |
+| [porting/05-testing.md](./porting/05-testing.md) | 测试策略：解析用例搬迁 + 真实服务器四画像 | 写测试的人 |
 | [porting/06-compat-checklist.md](./porting/06-compat-checklist.md) | 9 个协议兼容性要点 + 服务器画像差异的落地清单 | 所有人，验收前必过 |
 | [porting/07-risks-and-estimation.md](./porting/07-risks-and-estimation.md) | 风险清单、应对预案、人日估算 | 排期与决策 |
 | [porting/08-acceptance.md](./porting/08-acceptance.md) | 交付验收清单与 DoD | 验收 |

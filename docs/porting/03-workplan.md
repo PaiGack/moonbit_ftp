@@ -252,20 +252,15 @@ status_text(430) == "Invalid username or password."
 - [ ] `lifecycle.mbt`：`no_op` / `logout`（`REIN`，期望 `220`）/ `quit`（发 `QUIT` + 关连接，**聚合错误**）
 - [ ] 加 `mutex` 保护：每个公开方法进入时获取
 
-### 验收（命令序列断言，对齐上游 `conn_test.go` 的 `closeConn`）
+### 验收（对齐上游 `conn_test.go` 的 `closeConn`）
 
-```
-登录后正常退出：
-commands == ["USER", "PASS", "FEAT", "TYPE", "OPTS", "QUIT"]
-```
+上游靠 mock 记录命令序列，本方案改为**真机 + 副作用断言**（见
+[05-testing.md](./05-testing.md) 3.2）。落地后的断言是：
 
-（`OPTS` 出现是因为 mock 的 FEAT 里有 `UTF8`。若 FEAT 无 `UTF8`，序列里不应有 `OPTS`。）
-
-其它断言：
-
-- `FEAT` 返回 `500` → 后续不启用 MLSD / MFMT / PRET，也不发 `OPTS`，`login` 仍成功
-- `AUTH TLS` 模式 → 序列为 `USER, PASS, FEAT, TYPE, AUTH... PBSZ, PROT`（按实现顺序）
-- `current_dir` 从 `257 "/incoming"` 解析出 `/incoming`
+- 登录后会话可用：`PWD` 返回 `"/"`（证明没有多发空命令导致错位）
+- `FEAT` 的能力位与真机一致：有 `EPSV` / `MDTM` / `SIZE` / `REST`，无 `MLST` / `MFMT`
+- `AUTH TLS` 模式的手工断言仍未做（见 05-testing.md 6.1）
+- `current_dir` 从 `257 "/home/vsftpd"` 之类的回包解析出引号里的路径
 
 ---
 
@@ -305,14 +300,14 @@ commands == ["USER", "PASS", "FEAT", "TYPE", "OPTS", "QUIT"]
 
 ### 验收
 
-- `list(".")` 对 MLSD 画像 → 解析出 1 个 `lo` 文件，`commands` 含 `MLSD`
-- `list(".")` 对标 `disable_mlsd` → 走 `LIST`，`commands` 含 `LIST`
-- `list(".")` 对 LIST 混合输出（含 `total 1` 垃圾行）→ 只返回能解析的行，不报错
+- `list(".")` 对 `full` 画像 → 走 `LIST`（vsftpd 无 MLSD），解析出 fixture 目录
+- `list(".")` 对 `no-mlst` 画像 + `disable_mlsd=true` → 同样走 `LIST`
+- `list(".")` 对 LIST 输出里的垃圾行 → 只返回能解析的行，不报错
 - `retr("magic-file")` → 能读出内容并在 `close()` 时收尾
 - `response.close()` 调两次 → 第二次不报错
-- `stor` 零字节 + TLS → 命令序列含握手（在 mock 中通过「服务端能收到 FIN 并正常回 226」间接验证）
+- `stor` 零字节 + TLS → 未覆盖（见 05-testing.md 6.1）
 - `retr_from(path, 4)` → 读到的内容是对应偏移之后的字节
-- `set_time` 对 `no-time` 画像 → 报「不支持」；对 `std-time` → 发 `MFMT`；对 `vsftpd` → 发 `MDTM <time> <path>`
+- `set_time` 对 `no-time` 画像 → 硬失败；对 `full` 画像 → vsftpd 无 `MFMT`，走「不支持」分支
 
 ---
 
@@ -327,7 +322,7 @@ commands == ["USER", "PASS", "FEAT", "TYPE", "OPTS", "QUIT"]
   - [ ] `next() -> Bool`：完全复刻 [02-upstream-map.md](./02-upstream-map.md) 第 5 节的 5 步
   - [ ] `skip_dir()` / `err()` / `stat()` / `path()`
   - [ ] `client.walk(root)`：补尾部 `/`，`descend = true`
-- [ ] `fsops.mbt` 补 `remove_dir_recur` 的 mock 覆盖
+- [ ] `fsops.mbt` 补 `remove_dir_recur`（真机覆盖）
 - [ ] **兼容性专项**（逐条对照 [06-compat-checklist.md](./06-compat-checklist.md)）：
 
 | 画像 | 特征 | 必须验证 |
@@ -362,14 +357,13 @@ commands == ["USER", "PASS", "FEAT", "TYPE", "OPTS", "QUIT"]
 - [ ] 全局参数：`--host` / `--port` / `--user` / `--pass` / `--timeout` / `--tls` / `--trust-pasv-ip`
 - [ ] 未给 `--port` 时按 `--tls` 决定默认端口（21 / 990）
 - [ ] 错误输出到 stderr，退出码非 0
-- [ ] README 里给出可复现的示例（含用 `pyftpdlib` 起本地服务器的命令）
+- [ ] README 里给出可复现的示例（含用 `.ci/start-ftp.sh` 起本地真实服务器的命令）
 
 ### 验收
 
 ```bash
-# 起本地 FTP 服务器
-python3 -m pip install pyftpdlib
-python3 -m pyftpdlib -p 2121 -w &
+# 起本地真实 FTP 服务器（需要 Docker）
+.ci/start-ftp.sh
 
 # 示例可跑通
 moon run cmd/ftp -- --host 127.0.0.1 --port 2121 --user anonymous --pass "" ls /
