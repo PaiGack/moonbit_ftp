@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  moonbit:
+    name: MoonBit check & test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install MoonBit toolchain
+        run: |
+          curl -fsSL https://cli.moonbitlang.cn/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: MoonBit version
+        run: moon version --all
+
+      - name: moon check
+        run: |
+          moon fmt --check
+          moon check --deny-warn
+          moon info
+          git diff --exit-code
+          git status
+
+      - name: moon test
+        run: |
+          moon test --deny-warn --enable-coverage
+          moon coverage report -f summary
+
+          moon coverage analyze
+
+      - name: moon build
+        run: |
+          moon build --target wasm-gc
+          moon build --target native
+          moon build --target wasm-gc --release
+          moon build --target native --release
+
+      - name: moon run cmd
+        run: |
+          moon run cmd/main
+
+      - name: Tokei
+        run: docker run --rm -v $(pwd):/src ghcr.io/xampprocky/tokei:latest .
