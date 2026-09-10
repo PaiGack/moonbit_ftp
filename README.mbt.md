@@ -27,24 +27,31 @@ moon fmt            # 格式化
 
 ```
 .
-├── .ide/Dockerfile       # 开发环境（MoonBit 工具链 + VS Code 扩展）
-├── .cnb.yml              # CNB 流水线配置
-├── cmd/main/             # 可执行入口
-├── ftp.mbt               # 库代码
-├── ftp_test.mbt          # 黑盒测试
-├── ftp_wbtest.mbt        # 白盒测试
-├── moon.mod              # 模块配置
-└── moon.pkg              # 包配置
+├── .ide/Dockerfile         # 开发环境（MoonBit 工具链 + VS Code 扩展）
+├── .cnb.yml                # CNB 流水线（开发用）
+├── .github/workflows/ci.yml # GitHub Actions 流水线（申报仓库公开 CI）
+├── cmd/main/               # 可执行入口
+├── ftp.mbt                 # 库代码
+├── ftp_test.mbt            # 黑盒测试
+├── ftp_wbtest.mbt          # 白盒测试
+├── moon.mod                # 模块配置
+└── moon.pkg                # 包配置
 ```
 
-## 开发环境与 CI 共用镜像
+## 仓库地址
 
-`.ide/Dockerfile` 同时作为云原生开发环境与 CI 构建环境：
+本项目以 GitHub 作为公开申报仓库：<https://github.com/PaiGack/moonbit_ftp>
 
-- 本地/云端 IDE：`.ide/Dockerfile`（MoonBit 工具链 + VS Code 扩展）
-- CI 流水线：`.cnb.yml` 通过 `docker.build` 复用同一 Dockerfile，镜像按 `versionBy` 哈希缓存，Dockerfile 未变更时不重复构建
+CNB（`cnb.cool`）上的仓库为镜像开发环境，仅用于日常协作，不属于申报地址。
 
-修改 `.ide/Dockerfile` 后，CI 与开发环境会自动使用新镜像。
+## CI
+
+- **GitHub Actions**（`.github/workflows/ci.yml`）：申报仓库的公开 CI，覆盖 `moon fmt --check`、
+  `moon check --deny-warn`、`moon info` 一致性检查、`moon test --enable-coverage`、多后端构建与示例运行。
+- **CNB 流水线**（`.cnb.yml`）：开发侧流水线，通过 `docker.build` 复用 `.ide/Dockerfile` 构建的镜像，
+  镜像按 `versionBy` 哈希缓存，Dockerfile 未变更时不重复构建。
+
+两者目标不同：GitHub Actions 面向验收与外部可见性，CNB 面向开发效率。代码以 GitHub 仓库为准。
 
 ## 文档
 

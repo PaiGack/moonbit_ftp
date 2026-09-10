@@ -15,12 +15,14 @@ version = "0.1.0"
 
 readme = "README.mbt.md"
 
-repository = ""
+repository = "https://github.com/PaiGack/moonbit_ftp"
 
 license = "Apache-2.0"
 
-keywords = []
+keywords = [ "ftp", "network", "client", "protocol", "async" ]
 
-preferred_target = "wasm"
+// FTP 需要真实网络栈（TCP + TLS），wasm/wasm-gc 后端无法提供，故声明为 native。
 
-description = ""
+preferred_target = "native"
+
+description = "A pure MoonBit FTP client library ported from jlaffaye/ftp, supporting passive mode, MLSD/LIST parsing, resume and FTPS."
