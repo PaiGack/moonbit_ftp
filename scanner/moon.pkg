@@ -1,0 +1,3 @@
+import {
+  "PaiGack/ftp/scanner",
+} for "test"

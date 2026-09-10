@@ -1,0 +1,53 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "PaiGack/ftp/transport"
+
+import {
+  "PaiGack/ftp/error",
+  "PaiGack/ftp/state",
+  "moonbitlang/async/io",
+}
+
+// Values
+pub async fn cmd_data_conn_from(@state.Session, Int64, String, Array[String]) -> DataConn
+
+pub async fn epsv(@state.Session) -> Int
+
+pub async fn get_data_port(@state.Session) -> (String, Int)
+
+pub fn is_all_digits(String) -> Bool
+
+pub fn is_bogus_data_ip(String, String) -> Bool
+
+pub fn is_loopback(String) -> Bool
+
+pub fn is_multicast(String) -> Bool
+
+pub fn is_private(String) -> Bool
+
+pub async fn open_data_conn(@state.Session) -> DataConn
+
+pub fn parse_epsv(String) -> Int raise @error.FtpError
+
+pub fn parse_octet(String) -> Int?
+
+pub fn parse_pasv(String) -> (String, Int) raise @error.FtpError
+
+pub fn parse_port(String) -> Int?
+
+pub async fn pasv(@state.Session) -> (String, Int)
+
+// Errors
+
+// Types and methods
+pub struct DataConn {
+  reader : &@io.Reader
+  writer : &@io.Writer
+  closer : () -> Unit
+}
+pub fn DataConn::close(Self) -> Unit
+pub fn DataConn::reader(Self) -> &@io.Reader
+pub fn DataConn::writer(Self) -> &@io.Writer
+
+// Type aliases
+
+// Traits

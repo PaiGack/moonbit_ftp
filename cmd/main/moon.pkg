@@ -1,5 +1,0 @@
-// import {
-//   "PaiGack/ftp" @lib,
-// }
-
-pkgtype(kind: "executable")

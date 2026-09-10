@@ -2,7 +2,7 @@
 
 FROM cnbcool/default-dev-env:latest
 
-RUN apt-get update && apt-get install -y gcc libssl-dev strace
+RUN apt-get update && apt-get install -y gcc libc6-dev libssl-dev strace
 
 RUN curl -fsSL https://cli.moonbitlang.cn/install/unix.sh | bash \
      && code-server --install-extension moonbit.moonbit-lang

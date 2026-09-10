@@ -1,0 +1,12 @@
+import {
+  "moonbitlang/core/debug",
+  "moonbitlang/x/time",
+}
+
+import {
+  "PaiGack/ftp/types",
+} for "test"
+
+import {
+  "moonbitlang/x/time",
+} for "wbtest"

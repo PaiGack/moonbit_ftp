@@ -1,11 +1,16 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "PaiGack/ftp/cmd/main"
+package "PaiGack/ftp/cmd/ftp"
+
+import {
+  "moonbitlang/core/debug",
+}
 
 // Values
 
 // Errors
 
 // Types and methods
+type CliArgs derive(@debug.Debug)
 
 // Type aliases
 
