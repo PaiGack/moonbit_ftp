@@ -135,7 +135,7 @@ MoonBit 版：
 | `scanner_test.go` | 31 | `scanner_test.mbt` | 逐条直搬（含空串用例） |
 | `constants_test.go` | 18 | `status_test.mbt` | 逐条直搬 |
 | `walker_test.go` | 211 | `walker_test.mbt` | 纯逻辑用例直搬；端到端部分改写真机断言 |
-| `conn_test.go` | 449 | `ftp_server_test.mbt` | 真机端到端（`bogem/ftp` 四个画像），见 05-testing.md |
+| `conn_test.go` | 449 | `ftp_server_test.mbt` | 真机端到端（`jmoyer/vsftpd` 四个画像），见 05-testing.md |
 | `client_test.go` | 445 | `ftp_server_test.mbt` | 同上 |
 | `ftp_test.go` | 62 | 合并进 `client_test` | |
 
@@ -478,7 +478,7 @@ MoonBit 版在 `client.mbt` 里手写同一把锁，`defer` 语义由显式的 `
 2. **`walker_test.go` 的纯逻辑用例未搬**。`skip_dir`、空栈、`cur` 初始化可以在没有服务器的
    情况下断言，随 W6 一起补。
 3. **端到端测试已落地为真机单轨**。`conn_test.go` / `client_test.go` 覆盖的用例现在跑在
-   `bogem/ftp`（vsftpd 3.0.3）上，四个画像区分能力；命令序列断言改为副作用断言，
+   `jmoyer/vsftpd`（vsftpd 3.0.5）上，四个画像区分能力；命令序列断言改为副作用断言，
    取舍见 05-testing.md 3.2。
 4. **`docs/go-compat.md` 未写**。本文件已经逐条记录了差异（10.9、10.10），但它还没有被
    整理成面向用户的「与 Go 版行为对照表」，归到 W8。

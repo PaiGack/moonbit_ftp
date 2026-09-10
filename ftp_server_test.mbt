@@ -7,8 +7,8 @@
 // Real FTP server end-to-end tests. There is no mock anywhere in this
 // repository: every end-to-end assertion below runs against a real vsftpd.
 //
-// The server is the `bogem/ftp` image, i.e. **vsftpd 3.0.3**, started by
-// `.ci/start-ftp.sh` from CI (GitHub Actions / CNB DinD) and from the CNB
+// The server is the `jmoyer/vsftpd` image, i.e. **vsftpd 3.0.5**, started by
+// `scripts/start-ftp.sh` from CI (GitHub Actions / CNB DinD) and from the CNB
 // cloud dev environment. Four containers run side by side, one per capability
 // profile, so the client's fallback paths are exercised against a daemon that
 // really refuses the command:
@@ -19,7 +19,7 @@
 //   no-time    2123   MDTM refused -> no modification time is available
 //   no-epsv    2124   EPSV refused -> PASV is used and kept for the session
 //
-// What vsftpd advertises (captured from a live 3.0.3 handshake, and the reason
+// What vsftpd advertises (captured from a live 3.0.5 handshake, and the reason
 // the MLST / MFMT assertions look the way they do):
 //
 //   211-Features:
@@ -37,6 +37,12 @@
 // detects the absence and degrades correctly is more valuable than pretending
 // RFC 3659 is available: it pins `disable_mlsd`, the `LIST` parser and the
 // "no time support" branch, which is exactly what a real deployment meets.
+//
+// Where a profile uses `cmds_denied` (the `no-mlst` / `no-time` / `no-epsv`
+// containers) the refusal is `550 Permission denied.` instead of `500 Unknown
+// command.`, because the command exists but is denied at runtime. Both are
+// server errors the client must degrade from, so the assertions only rely on
+// "the server refused the command", never on the exact code.
 //
 // The tests are opt in through `FTP_TEST_*`. MoonBit has no skip API, so a
 // runner without a server makes them *return early*; a bare
@@ -235,7 +241,7 @@ async test "real server: connect, login and PWD" {
 async test "real server: FEAT reports the real vsftpd capability set" {
   guard test_server() is Some(server) else { return }
   let client = connect(server)
-  // The capabilities vsftpd 3.0.3 really advertises.
+  // The capabilities vsftpd 3.0.5 really advertises.
   assert_true(client.has_feature("EPSV"))
   assert_true(client.has_feature("MDTM"))
   assert_true(client.has_feature("SIZE"))
@@ -443,7 +449,9 @@ async test "real server: an injected command is refused and the session survives
 
 ///|
 /// When the server refuses `MDTM` at the command level, reading a time is a
-/// hard `550` and writing one raises `502`.
+/// hard `550 Permission denied.` and writing one is refused the same way.
+/// (`MFMT` is not implemented by vsftpd at all, so without `cmds_denied` it
+/// answers `500 Unknown command.`; with it, both commands come back `550`.)
 ///
 /// This replaces the old mock's `no-time` profile with a real configuration
 /// switch (`cmds_denied=MDTM,MFMT`). A notable real-server finding is pinned
@@ -490,8 +498,10 @@ async test "real server: no-time profile fails the time commands cleanly" {
 /// `PASV` — and keep using it for every later transfer in the same session.
 ///
 /// This is the real server counterpart of the old mock's "EPSV returns 500"
-/// case. Two transfers run back to back to prove `skip_epsv` sticks: a client
-/// that retried `EPSV` on the second transfer would fail here.
+/// case: `cmds_denied=EPSV` makes the daemon answer `550 Permission denied.`
+/// to `EPSV` while `PASV` keeps working. Two transfers run back to back to
+/// prove `skip_epsv` sticks: a client that retried `EPSV` on the second
+/// transfer would fail here.
 async test "real server: no-epsv profile falls back to PASV and keeps it" {
   guard test_server() is Some(server) else { return }
   guard server.port_no_epsv != 0 else { return }

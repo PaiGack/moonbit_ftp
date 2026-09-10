@@ -7,7 +7,7 @@
 | 轨道 | 上游来源 | 覆盖对象 | 服务器 | 位置 |
 | --- | --- | --- | --- | --- |
 | **A. 纯逻辑** | `parse_test.go` / `scanner_test.go` / `constants_test.go` | `entry` / `status` / `parse` / `parse_time` / `scanner` / `pathutil` | 无 | `*_test.mbt` |
-| **B. 真机端到端** | `conn_test.go` / `client_test.go` / `walker_test.go` | `control` / `transport` / `client` / `walker` | `bogem/ftp`（vsftpd 3.0.3），CI 起容器 | `ftp_server_test.mbt` |
+| **B. 真机端到端** | `conn_test.go` / `client_test.go` / `walker_test.go` | `control` / `transport` / `client` / `walker` | `jmoyer/vsftpd`（vsftpd 3.0.5），CI 起容器 | `ftp_server_test.mbt` |
 | **C. 帧与回包解析** | 同上，但需要构造畸形输入 | `read_response` / `parse_features` / `parse_pasv` / `parse_epsv` | 直接调用（无 socket） | `control_test.mbt` / `transport_test.mbt` |
 
 轨道 A 与 C 是纯的：**字符串进、结构体出**，或者**字节进、结构体出**，都不需要服务器。
@@ -207,8 +207,8 @@ close_conn(mock, client, ["USER", "PASS", "FEAT", "TYPE", "OPTS", "QUIT"])
 
 | 项 | 值 |
 | --- | --- |
-| 镜像 | `bogem/ftp`，即 **vsftpd 3.0.3**（Ubuntu 16.04 基础镜像）|
-| 启动脚本 | `.ci/start-ftp.sh`（CNB、GitHub Actions、云原生开发环境共用同一份）|
+| 镜像 | `jmoyer/vsftpd`，即 **vsftpd 3.0.5**（Debian Trixie 基础镜像）|
+| 启动脚本 | `scripts/start-ftp.sh`（CNB、GitHub Actions、云原生开发环境共用同一份）|
 | 配置模板 | `testdata/ftp/vsftpd-base.conf` + `testdata/ftp/vsftpd-<profile>.conf` |
 | fixture | `testdata/ftp/fixture/`，由 git 固定 |
 | 账号 | 虚拟用户，默认 `test` / `test`（`FTP_USER` / `FTP_PASS` 可覆盖）|
@@ -224,15 +224,23 @@ fixture/sub/nested.txt   嵌套目录，验证 Folder 类型
 客户端在 chroot 内看到的根是 `/`；fixture 挂在 `/fixture`，可写目录是 `/upload`。
 写用例用完自行清理。
 
-容器挂载（`.ci/start-ftp.sh`）：
+容器挂载（`scripts/start-ftp.sh`）：
 
 | 容器内路径 | 宿主机路径 | 说明 |
 | --- | --- | --- |
-| `/srv` | `.ci/ftp-root/` | 服务树，含 `fixture/` 与 `upload/`；也是 `local_root` |
-| `/etc/vsftpd` | `.ci/ftp-conf/<profile>/vsftpd/` | 该画像的 `vsftpd.conf`（镜像 entrypoint 会读这个路径）|
-| `/home/vsftpd` | `.ci/ftp-conf/<profile>/home/` | 镜像 entrypoint 需要的用户目录 |
+| `/home/vsftpd/$FTP_USER` | `.tmp/ftp-root/` | 服务树，含 `fixture/` 与 `upload/`；也是 `local_root` |
+| `/etc/vsftpd` | `.tmp/ftp-conf/<profile>/vsftpd/` | 该画像的 `vsftpd.conf`（镜像 entrypoint 会读这个路径）|
+| `/home/vsftpd` | `.tmp/ftp-conf/home/` | 镜像 entrypoint 创建用户目录的位置（`$USER` 子目录）|
 
-配置刻意放在 `.ci/ftp-conf/`（**不在** `/srv` 里），否则会被 FTP 用户从 chroot 里看到。
+注意服务树挂的是 `local_root`（`/home/vsftpd/$FTP_USER`），不是 `/srv` —— 这是
+`jmoyer/vsftpd` 与旧镜像最大的差异。配置刻意放在 `.tmp/ftp-conf/`（**不在**服务树里），
+否则会被 FTP 用户从 chroot 里看到。
+
+镜像 entrypoint（`/usr/sbin/run-vsftpd.sh`）会**强制**追加
+`pasv_address` / `pasv_min_port` / `pasv_max_port` 等被动参数，其中三个 `PASV_*`
+环境变量必须非空：空的 `pasv_min_port=` 会让 vsftpd 直接 exit 2 且没有任何输出。
+因此 `scripts/start-ftp.sh` 总是显式传 `PASV_ADDRESS` / `PASV_MIN_PORT` /
+`PASV_MAX_PORT`，而 base 配置里**不能**再写这几个指令（重复指令同样会让 vsftpd 拒绝启动）。
 
 ### 4.2 四个画像
 
@@ -263,7 +271,7 @@ fixture/sub/nested.txt   嵌套目录，验证 Folder 类型
 
 **`MLST` / `MLSD` / `MFMT` / `UTF8` 都不在上面**，且 `MLSD` / `MLST` / `MFMT` 会被回
 `500 Unknown command.`。所以客户端断言的是「识别到不支持并正确降级」，而不是「RFC 3659 可用」——
-后者在真机上永远做不到。
+后者在真机上永远做不到。vsftpd 3.0.5 的 `FEAT` 与 3.0.3 完全一致，换镜像不改变这组断言。
 
 两个实测得到、值得记下来的 vsftpd 行为：
 
@@ -272,6 +280,9 @@ fixture/sub/nested.txt   嵌套目录，验证 Folder 类型
 - **`cmds_denied=MDTM` 不会从 `FEAT` 里摘掉 `MDTM`**：服务器仍然宣称支持，直到真的发命令才回
   `550`。客户端因此 `is_get_time_supported()` 仍为 true，失败只在调用时暴露——这正是
   `ftp_server_test.mbt` 里那条用例要钉住的。
+- **`cmds_denied` 回的是 `550 Permission denied.`**，不是未编译进命令时的
+  `500 Unknown command.`。两者都是服务器错误（`FtpError::ServerError`），客户端降级路径一致；
+  `no-mlst` 画像因此钉的是「被拒绝后回退 `LIST`」，而不是「命令不存在」。
 
 ### 4.4 环境变量开关
 
@@ -343,17 +354,23 @@ nested MKD and RMD round trip                       嵌套目录创建与自底�
 
 ### 4.7 CI 接入
 
+所有平台调的都是 `scripts/` 下的**同一份**脚本，不存在 per-CI 的副本：
+
 | 环境 | 怎么起服务器 |
 | --- | --- |
-| GitHub Actions | `.ci/start-ftp.sh`，拉 `bogem/ftp` 并起四个画像容器 |
-| CNB 流水线 | `services: [docker]`（DinD），同一份 `.ci/start-ftp.sh` |
+| GitHub Actions | `scripts/start-ftp.sh`，拉 `jmoyer/vsftpd` 并起四个画像容器；结束 `scripts/stop-ftp.sh` |
+| CNB 流水线 | `services: [docker]`（DinD），同一份 `scripts/start-ftp.sh` / `stop-ftp.sh` |
 | CNB 云原生开发 | `$: vscode:` 流水线在进入工作区前起同四个容器，IDE 里直接 `moon test` 就是真机用例 |
+
+`scripts/` 的约定：跨 CI 复用、与平台无关的 shell 脚本放这里，流水线只负责「调用」，
+不复制命令。`FTP_IMAGE` / `FTP_IMAGE_TAG` 由 CI 的环境变量传入，本地缺省即
+`jmoyer/vsftpd:latest`。
 
 本地手工跑（需要 Docker）：
 
 ```bash
 export PATH="$HOME/.moon/bin:$PATH"
-.ci/start-ftp.sh
+scripts/start-ftp.sh
 
 export FTP_TEST_HOST=127.0.0.1 FTP_TEST_PORT=2121 \
        FTP_TEST_USER=test FTP_TEST_PASS=test \
@@ -362,10 +379,10 @@ export FTP_TEST_HOST=127.0.0.1 FTP_TEST_PORT=2121 \
 moon test --target native
 ```
 
-`.ci/ftp-root/`（fixture 副本）与 `.ci/ftp-conf/`（每个画像的配置与用户目录）都是启动时
+`.tmp/ftp-root/`（fixture 副本）与 `.tmp/ftp-conf/`（每个画像的配置与用户目录）都是启动时
 拼出来的，已进 `.gitignore`。
 
-`.ci/start-ftp.sh` 直接复用镜像自带的 entrypoint（`/usr/sbin/run-vsftpd.sh`）：
+`scripts/start-ftp.sh` 直接复用镜像自带的 entrypoint（`/usr/sbin/run-vsftpd.sh`）：
 它用 `db_load` 建虚拟用户库、把 `PASV_ADDRESS` 追加成 `pasv_address`，再执行
 `vsftpd /etc/vsftpd/vsftpd.conf`。所以画像是靠**替换那一个配置文件**做的，
 不用自定义 entrypoint。
@@ -396,15 +413,17 @@ moon test --target native
 ### 6.1 未覆盖的部分
 
 - **TLS**：`AUTH TLS` / `PBSZ` / `PROT P` 这条路径还没在真机上跑过。
-  `bogem/ftp` 的 vsftpd 编译进了 `libssl.so.1.0.0` 且 `FEAT` 里**有** `AUTH SSL` / `AUTH TLS`，
-  但镜像没有配证书，要另开一个挂证书的画像；留到后续工作包。
+  `jmoyer/vsftpd` 的 vsftpd 3.0.5 链的是 OpenSSL 3（`libssl.so.3`）且编译进了 `ssl_enable` /
+  `rsa_cert_file` 等指令，但镜像**默认没有开**（`ssl_enable` 未设置，配置里也没有证书），
+  `FEAT` 里没有 `AUTH TLS`，`AUTH TLS` 回 `530`。要覆盖必须另开一个挂自签证书、
+  `ssl_enable=YES` 的画像；留到后续工作包。
 - **`FEAT` 不被支持**：vsftpd 一定回 `211`，所以「FEAT 失败 → 无能力」的降级没有真机覆盖。
   纯逻辑分支（`parse_features`）仍有单测。
 - **`PASV` 返回可疑 IP**：需要一台能伪造 `pasv_address` 的服务器。`is_bogus_data_ip` 的
   纯逻辑分支有单测（`is_private` / `is_loopback` / `is_multicast`），但「真服务器 + 可疑 IP +
   客户端拒绝」这条端到端路径未覆盖。
 - **VsFtpd `writing_mdtm` 画像**：`MDTM <time> <path>` 写时间的分支需要 `mdtm_write=YES` 的
-  vsftpd；`bogem/ftp` 的默认配置没有开，暂未覆盖。
+  vsftpd；`jmoyer/vsftpd` 的默认配置没有开，暂未覆盖。
 - **`LIST -a`**：`force_list_hidden=true` 会发 `LIST -a <path>`。这个 flag 在 vsftpd 上的行为
   没有单独画像覆盖。
 
@@ -416,7 +435,7 @@ moon test --target native
 - **不要为了「方便」把用例写回相对路径或跳过**。真机用例断了就是客户端断了，
   第 6.4 节那 5 个 bug 就是这么回来的。
 - **不要在 CI 里静默跳过真机用例**。设了 `FTP_TEST_HOST` 就必须真的跑起来；
-  「服务器没起来所以跳过」等于把第 6.4 节那 5 个 bug 留回去。`.ci/start-ftp.sh`
+  「服务器没起来所以跳过」等于把第 6.4 节那 5 个 bug 留回去。`scripts/start-ftp.sh`
   会轮询每个画像的端口并在超时时 `exit 1`，就是为了堵这个口子。
 - **不要用「客户端的期望」去写真服务器**。第 6.4 节的 5 个 bug 里有 3 个是
   客户端自己**多发/错判**导致的；真机测试的价值就在于它不会配合客户端犯错。
