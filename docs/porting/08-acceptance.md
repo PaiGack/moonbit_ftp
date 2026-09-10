@@ -128,7 +128,7 @@ moon info && git diff --exit-code       # 接口文件无未提交变更
 文档
 ├── README.mbt.md                     目标 / 安装 / 用法 / 示例
 ├── docs/README.md                    文档索引
-├── docs/porting-jlaffaye-ftp.md      总体方案
+├── docs/porting.md                    总体方案
 ├── docs/porting/*.md                 本实施文档集（8 篇）
 ├── docs/go-compat.md                 Go 版行为对照表
 └── LICENSE-THIRD-PARTY               上游 ISC 原文与署名
