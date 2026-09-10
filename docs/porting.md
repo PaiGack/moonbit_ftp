@@ -114,26 +114,35 @@
 
 ### 2.3 包结构设计
 
-所有包直接平铺在仓库根目录，不引入 `src/` 中间层（包引用写 `@client` 而非 `@src.client`）。
+源码全部平铺在仓库根目录，只有一个包 `PaiGack/ftp`，没有子目录，也没有 `src/` 中间层。
+引用直接写裸符号（`Entry` / `parse_list_line`），不再有 `@types.` / `@parse.` 前缀。
 
 ```
 .
-├── types/        Entry / EntryType / TransferType          纯逻辑
-├── status/       RFC 959 状态码常量与文本                    纯逻辑
-├── error/        FtpError 及其子错误                        纯逻辑
-├── scanner/      空白字段扫描器（List line 解析用）            纯逻辑
-├── parse/        RFC3659 / ls / DIR / hostedftp 列表解析     纯逻辑
-├── pathutil/     远端路径 join                              纯逻辑
-├── control/      控制通道：命令编码、多行响应、状态码校验        IO
-├── transport/    EPSV / PASV / PRET / REST / 数据连接 / TLS   IO
-├── client/       ServerConn 等价物：Dial/Login/Retr/Stor/... IO
-├── walker/       目录树遍历                                   IO
-├── debug/        调试输出包装（对齐 io.Reader/Writer）          IO
-└── cmd/          CLI 示例
+├── entry.mbt / consts.mbt    Entry / EntryType / TransferType / 常量     纯逻辑
+├── status.mbt                RFC 959 状态码常量与文本                     纯逻辑
+├── error.mbt                 FtpError 及其子错误                         纯逻辑
+├── scanner.mbt               空白字段扫描器（List line 解析用）             纯逻辑
+├── parse*.mbt                RFC3659 / ls / DIR / hostedftp 列表解析      纯逻辑
+├── pathutil.mbt              远端路径 join                               纯逻辑
+├── control.mbt / command.mbt / response.mbt
+│                             控制通道：命令编码、多行响应、状态码校验        IO
+├── state.mbt                 client 与 transport 共享连接状态              IO
+├── transport_*.mbt           EPSV / PASV / PRET / REST / 数据连接 / TLS   IO
+├── client*.mbt / options.mbt / dial.mbt / login.mbt
+├── list.mbt / transfer.mbt / fsops.mbt / lifecycle.mbt
+│                             ServerConn 等价物：Dial/Login/Retr/Stor/... IO
+├── walker.mbt                目录树遍历                                   IO
+├── debug.mbt                 调试输出包装（对齐 io.Reader/Writer）          IO
+└── cmd/                      CLI 示例
 ```
 
-分层依赖：`types` ← `scanner`/`parse`/`control` ← `transport` ← `client` ← `walker`。
-`parse` / `scanner` / `walker` 为纯逻辑包，可独立单测，不依赖网络。
+分层依赖（文件级）：纯逻辑（`entry` / `consts` / `status` / `error` / `scanner` /
+`parse*` / `pathutil`）← `control*` ← `transport_*` ← `client*` ← `walker`。
+`parse*` / `scanner` / `walker` / `pathutil` 不碰网络，可独立单测。
+
+平铺之后编译器不再按包隔离，架构约束改由 `architecture/` 对真实 `moon.pkg` 做断言守住：
+async 依赖只能出现在根包的普通 import 块里，且该块不能被拆成第二份。
 
 ### 2.4 API 映射示例
 

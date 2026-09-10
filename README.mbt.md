@@ -36,27 +36,41 @@ moon info                                # 更新生成接口（.mbti）
 
 ## 目录结构
 
-所有包**直接平铺在仓库根目录**，不套 `src/` 中间层。包路径由目录决定，多一层只会让
-`@src.client` 这类冗余前缀出现在所有引用处。
+所有源码**直接平铺在仓库根目录**，没有包目录层级。原先的 `types/` `client/` `parse/`
+这些目录全部展开成了同级的 `.mbt` 文件，引用也从 `@types.Entry` 变成直接的 `Entry`
+（都在同一个包 `PaiGack/ftp` 里）。
 
 ```
 .
-├── types/          Entry / EntryType / TransferType                 纯逻辑
-├── status/         RFC 959 状态码常量 + status_text()                纯逻辑
-├── error/          FtpError / FtpErrors                             纯逻辑
-├── scanner/        空白分隔字段扫描器（LIST 行解析用）                 纯逻辑
-├── parse/          RFC3659 / UNIX ls / DOS DIR / hostedftp 四种解析器  纯逻辑
-├── pathutil/       远端路径 join（对齐 Go path.Join 语义）            纯逻辑
-├── architecture/   架构守卫：纯逻辑包不得依赖 moonbitlang/async
-├── control/        控制通道：命令编码、多行响应、状态码校验             IO
-├── state/          client 与 transport 共享的连接状态（打破循环依赖）   IO
-├── transport/      EPSV / PASV / PRET / REST / 数据连接 / TLS 建立     IO
-├── client/         FTPClient（对齐上游 ServerConn）公开 API            IO
-├── walker/         目录树遍历器（建在 client 上）                      IO
-├── debug/          控制 / 数据通道原始流量日志包装                      IO
-├── cmd/ftp/        CLI 示例：ls / get / put / walk / mkdir / rm
-└── moon.mod        模块根（根目录本身也是包的宿主）
+├── entry.mbt / consts.mbt            Entry / EntryType / TransferType / 常量        纯逻辑
+├── status.mbt                        RFC 959 状态码常量 + status_text()             纯逻辑
+├── error.mbt                         FtpError / FtpErrors                          纯逻辑
+├── scanner.mbt                       空白分隔字段扫描器（LIST 行解析用）             纯逻辑
+├── parse.mbt / parse_rfc3659.mbt / parse_unix_ls.mbt
+├── parse_dos_dir.mbt / parse_hostedftp.mbt / parse_time.mbt
+│                                     RFC3659 / UNIX ls / DOS DIR / hostedftp 解析器  纯逻辑
+├── pathutil.mbt                      远端路径 join（对齐 Go path.Join 语义）        纯逻辑
+├── control.mbt / command.mbt / response.mbt
+│                                     控制通道：命令编码、多行响应、状态码校验        IO
+├── state.mbt                         client 与 transport 共享的连接状态               IO
+├── transport_epsv.mbt / transport_pasv.mbt / transport_dataconn.mbt
+│                                     EPSV / PASV / PRET / REST / 数据连接 / TLS 建立   IO
+├── client.mbt / options.mbt / dial.mbt / login.mbt / nav.mbt / list.mbt
+├── client_time.mbt / transfer.mbt / fsops.mbt / lifecycle.mbt
+│                                     FTPClient（对齐上游 ServerConn）公开 API         IO
+├── walker.mbt                        目录树遍历器（建在 client 上）                   IO
+├── debug.mbt                         控制 / 数据通道原始流量日志包装                   IO
+├── architecture.mbt                  架构守卫检查器
+├── architecture/                     架构守卫的消费者（跑真实 moon.pkg 断言）
+├── cmd/ftp/                          CLI 示例：ls / get / put / walk / mkdir / rm
+├── moon.pkg                          根包清单（唯一的源码包）
+└── moon.mod                          模块根
 ```
+
+根包只有一个 `moon.pkg`，它的普通 import 块里带着 `moonbitlang/async`：纯逻辑与 IO
+源码同属一个包，MoonBit 目前也没有「按文件限定 import」的语法。作为补偿，
+`architecture/` 会读取真实的 `moon.pkg` 并断言 async 依赖只出现在普通块里、
+没有被偷偷复制成第二个块，把这条架构约束继续变成可执行检查。
 
 依赖方向单向、禁止反向，详见 [docs/porting/01-architecture.md](docs/porting/01-architecture.md)。
 

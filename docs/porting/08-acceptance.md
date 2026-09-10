@@ -89,19 +89,25 @@ moon info && git diff --exit-code       # 接口文件无未提交变更
 ## 3. 交付物清单
 
 ```
-代码（各包平铺在仓库根目录，无 src/ 中间层）
-├── types/               Entry / EntryType / TransferType
-├── status/              ~50 状态码 + status_text
-├── error/               FtpError / FtpErrors
-├── scanner/             空白字段扫描器
-├── parse/               四种 LIST 解析器 + 半年规则
-├── pathutil/            远端路径 join
-├── control/             命令编码 + 多行响应 + 状态校验
-├── transport/           EPSV / PASV / PRET / REST / 数据连接 / TLS
-├── client/              FTPClient 公开 API
-├── walker/              目录树遍历
-├── debug/               流量日志
-└── cmd/ftp/             CLI 示例
+代码（单一根包，源码全部平铺在仓库根目录，无子目录、无 src/ 中间层）
+├── entry.mbt / consts.mbt        Entry / EntryType / TransferType / 常量
+├── status.mbt                    ~50 状态码 + status_text
+├── error.mbt                     FtpError / FtpErrors
+├── scanner.mbt                   空白字段扫描器
+├── parse*.mbt                    四种 LIST 解析器 + 半年规则
+├── pathutil.mbt                  远端路径 join
+├── control.mbt / command.mbt / response.mbt
+│                                 命令编码 + 多行响应 + 状态校验
+├── state.mbt                     client 与 transport 共享连接状态
+├── transport_*.mbt               EPSV / PASV / PRET / REST / 数据连接 / TLS
+├── client*.mbt / options.mbt / dial.mbt / login.mbt
+├── list.mbt / transfer.mbt / fsops.mbt / lifecycle.mbt
+│                                 FTPClient 公开 API
+├── walker.mbt                    目录树遍历
+├── debug.mbt                     流量日志
+├── architecture.mbt / architecture/
+│                                 架构守卫
+└── cmd/ftp/                      CLI 示例
 
 测试
 ├── 轨道 A：解析/scanner/常量用例（搬运上游，30+ 条）

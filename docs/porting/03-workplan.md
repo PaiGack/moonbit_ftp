@@ -153,19 +153,19 @@ status_text(430) == "Invalid username or password."
 
 ### 任务
 
-- [ ] `control/reader.mbt`：带行缓冲的读取器
+- [ ] `control.mbt`：带行缓冲的读取器
   - 从 `@io.Reader` 按行读（`\r\n` 分隔），支持跨包边界的行拼接
-- [ ] `control/response.mbt`：FTP 响应解析
+- [ ] `response.mbt`：FTP 响应解析
   - 单行：`220 Server ready`
   - 多行：`211-Features:` 开头，中间行以空格开头，结束行为 `211 End`（**结束行以 `211 ` 开头且不含 `-`**）
   - 返回 `{code : Int, message : String}`，`message` 为多行正文（**不含首尾的状态行**，与 Go `textproto.ReadResponse` 语义一致）
-- [ ] `control/command.mbt`：
+- [ ] `command.mbt`：
   - `send(client, cmd : String) -> Unit`（追加 `\r\n` 写出）
   - `cmd(client, expected~ : Int, format~ : String, args~ : Array[String]) -> (Int, String)`
     - `expected == -1` 表示接受任意码
     - 不匹配则返回 `FtpError::ServerError`
   - `check_for_command_injection(arg)`：含 `\r` 或 `\n` → `FtpError::InvalidCommand`
-- [ ] `control/debug.mbt`：可选流量日志装饰（对齐上游 `debug.go`）
+- [ ] `debug.mbt`：可选流量日志装饰（对齐上游 `debug.go`）
 
 ### 验收
 
@@ -189,15 +189,15 @@ status_text(430) == "Invalid username or password."
 
 ### 任务
 
-- [ ] `transport/epsv.mbt`
+- [ ] `transport_epsv.mbt`
   - [ ] `epsv(client) -> Int`：发 `EPSV`，期望 `229`
   - [ ] `parse_epsv(line) -> Int`：找 `|||` 与最后一个 `|`，位置非法报 `ParseError`
-- [ ] `transport/pasv.mbt`
+- [ ] `transport_pasv.mbt`
   - [ ] `pasv(client) -> (String, Int)`：发 `PASV`，期望 `227`
   - [ ] 解析 `(h1,h2,h3,h4,p1,p2)`，端口 = `p1*256 + p2`，6 段不足报错
   - [ ] **防 SSRF**：默认用控制连接的 IP；只有显式 `trust_pasv_ip=true` 且数据 IP 不是「可疑 IP」时才用服务器给的 IP
   - [ ] `is_bogus_data_ip(cmd_ip, data_ip)`：`data_ip` 是组播，或两者私网性不同，或两者回环性不同 → 可疑
-- [ ] `transport/dataconn.mbt`
+- [ ] `transport_dataconn.mbt`
   - [ ] `get_data_port(client) -> (String, Int)`：EPSV 优先；**失败一次后置 `skip_epsv = true`**，后续直接 PASV
   - [ ] `open_data_conn(client) -> @io.Reader + @io.Writer`：
     - 无 TLS → 直接连
@@ -208,7 +208,7 @@ status_text(430) == "Invalid username or password."
     3. `offset != 0` → 发 `REST <offset>`，期望 `350`；失败则关数据连接并抛
     4. 发传输命令，期望 `125` 或 `150`
     5. 非 `2xx` → 关数据连接并抛 `ServerError`
-- [ ] `transport/pret.mbt`：`use_pret` 状态维护
+- [ ] `transport_dataconn.mbt`：`use_pret` 状态维护
 
 ### 验收
 
@@ -232,24 +232,24 @@ status_text(430) == "Invalid username or password."
 
 ### 任务
 
-- [ ] `client/options.mbt`：`DialOptions` 结构体 + 16 个构造（见 [04-api-mapping.md](./04-api-mapping.md)）
-- [ ] `client/client.mbt`：`FTPClient` 结构体
+- [ ] `options.mbt`：`DialOptions` 结构体 + 16 个构造（见 [04-api-mapping.md](./04-api-mapping.md)）
+- [ ] `client.mbt`：`FTPClient` 结构体
   - 字段：`options` / `control` / `net_conn` / `host` / `features : Map` / `skip_epsv` / `mlst_supported` / `mfmt_supported` / `mdtm_supported` / `mdtm_can_write` / `use_pret` / `mutex`
-- [ ] `client/dial.mbt`：`dial(addr, options)` 流程
+- [ ] `dial.mbt`：`dial(addr, options)` 流程
   1. 应用 options，`location` 默认 UTC
   2. 建连（超时默认 30s），**取 socket 的对端 IP 作为 `host`**（不用域名，避免解析到不同 IP）
   3. 读首行响应，期望 `220`
   4. `explicit_tls` → 发 `AUTH TLS`，期望 `234`，然后把连接升级为 TLS，重建控制通道
-- [ ] `client/login.mbt`
+- [ ] `login.mbt`
   - [ ] `login(user, password)`：`USER` → `331` → `PASS` → `230`
   - [ ] `feat()`：`FEAT`，非 `211` 视为「不支持特性」（**不算错误**）；解析 `xxx-` 多行，格式 ` COMMAND DESC`
   - [ ] 按 FEAT 结果设置：`mlst_supported`（有 `MLST` 且未禁用 MLSD）、`use_pret`（有 `PRET`）、`mfmt_supported`、`mdtm_supported`、`mdtm_can_write`
   - [ ] 切二进制：`TYPE I`，期望 `200`
   - [ ] `set_utf8()`：**仅当 FEAT 里有 `UTF8` 才发**；`501` / `504` / `202` 视为可接受
   - [ ] 隐式 TLS → 发 `PBSZ 0` 和 `PROT P`，期望均 `200`
-- [ ] `client/nav.mbt`：`change_dir` / `change_dir_to_parent` / `current_dir`（`PWD` 取引号内内容）
-- [ ] `client/fsops.mbt`：`make_dir` / `remove_dir` / `delete` / `rename`（`RNFR` → `350` → `RNTO` → `250`）
-- [ ] `client/lifecycle.mbt`：`no_op` / `logout`（`REIN`，期望 `220`）/ `quit`（发 `QUIT` + 关连接，**聚合错误**）
+- [ ] `nav.mbt`：`change_dir` / `change_dir_to_parent` / `current_dir`（`PWD` 取引号内内容）
+- [ ] `fsops.mbt`：`make_dir` / `remove_dir` / `delete` / `rename`（`RNFR` → `350` → `RNTO` → `250`）
+- [ ] `lifecycle.mbt`：`no_op` / `logout`（`REIN`，期望 `220`）/ `quit`（发 `QUIT` + 关连接，**聚合错误**）
 - [ ] 加 `mutex` 保护：每个公开方法进入时获取
 
 ### 验收（命令序列断言，对齐上游 `conn_test.go` 的 `closeConn`）
@@ -275,10 +275,10 @@ commands == ["USER", "PASS", "FEAT", "TYPE", "OPTS", "QUIT"]
 
 ### 任务
 
-- [ ] `client/response.mbt`：`Response` 结构体
+- [ ] `response.mbt`：`Response` 结构体
   - [ ] 实现 `@io.Reader`
   - [ ] `close()`：**幂等**（二次调用返回 Unit，不报错）；内部等价 `errors.Join`：关数据连接错误 + 226 收尾错误
-- [ ] `client/transfer.mbt`
+- [ ] `transfer.mbt`
   - [ ] `check_data_shut()`：读控制通道期望 `226`；若配置了 `shut_timeout`，先**推一下控制连接 deadline**再读
   - [ ] `retr(path)` / `retr_from(path, offset)` → `Response`
   - [ ] `stor(path, reader)` / `stor_from(path, reader, offset)`
@@ -287,7 +287,7 @@ commands == ["USER", "PASS", "FEAT", "TYPE", "OPTS", "QUIT"]
     - `check_data_shut`
     - 聚合三个阶段的错误
   - [ ] `append(path, reader)` 同 `stor`，命令为 `APPE`
-- [ ] `client/list.mbt`
+- [ ] `list.mbt`
   - [ ] `name_list(path)`：`NLST`，按行收集，关连接收尾
   - [ ] `list(path)`：
     - `mlst_supported && !force_list_hidden` → `MLSD`，用 RFC3659 解析器
@@ -296,12 +296,12 @@ commands == ["USER", "PASS", "FEAT", "TYPE", "OPTS", "QUIT"]
     - 聚合 scanner 错误 + close 错误
   - [ ] `get_entry(path)`：`MLST`，期望 `250`，只取中间行（1 到 n-1），多行合并；不足 3 行报错
   - [ ] `type_(transfer_type)`：`TYPE I` / `TYPE A`
-- [ ] `client/time.mbt`
+- [ ] `client_time.mbt`
   - [ ] `file_size(path)`：`SIZE`，期望 `213`，解析整数
   - [ ] `get_time(path)`：`MDTM`，期望 `213`，按 `yyyyMMddHHmmss` 解析（UTC）；不支持时报错
   - [ ] `set_time(path, t)`：优先 `MFMT`，退化 `MDTM <time> <path>`（VsFtpd 怪癖），都不支持则报错
   - [ ] `is_get_time_supported()` / `is_set_time_supported()` / `is_time_precise_in_list()`
-- [ ] `client/fsops.mbt` 补 `remove_dir_recur(path)`：`CWD` → `PWD` → `LIST` → 递归；跳过 `.` 和 `..`
+- [ ] `fsops.mbt` 补 `remove_dir_recur(path)`：`CWD` → `PWD` → `LIST` → 递归；跳过 `.` 和 `..`
 
 ### 验收
 
@@ -322,12 +322,12 @@ commands == ["USER", "PASS", "FEAT", "TYPE", "OPTS", "QUIT"]
 
 ### 任务
 
-- [ ] `walker/walker.mbt`
+- [ ] `walker.mbt`
   - [ ] `Walker` 结构（`cur` / `stack` / `descend` / `root`）
   - [ ] `next() -> Bool`：完全复刻 [02-upstream-map.md](./02-upstream-map.md) 第 5 节的 5 步
   - [ ] `skip_dir()` / `err()` / `stat()` / `path()`
   - [ ] `client.walk(root)`：补尾部 `/`，`descend = true`
-- [ ] `client/fsops.mbt` 补 `remove_dir_recur` 的 mock 覆盖
+- [ ] `fsops.mbt` 补 `remove_dir_recur` 的 mock 覆盖
 - [ ] **兼容性专项**（逐条对照 [06-compat-checklist.md](./06-compat-checklist.md)）：
 
 | 画像 | 特征 | 必须验证 |

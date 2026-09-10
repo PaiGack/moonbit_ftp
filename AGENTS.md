@@ -7,10 +7,24 @@ You can browse and install extra skills here:
 
 ## Project Structure
 
-- MoonBit packages are organized per directory; each directory contains a
-  `moon.pkg` file listing its dependencies. Each package has its files and
-  blackbox test files (ending in `_test.mbt`) and whitebox test files (ending in
-  `_wbtest.mbt`).
+- This repository uses a **single flat package**: every `.mbt` source file lives
+  directly in the repository root and `moon.pkg` there declares the only source
+  package (`PaiGack/ftp`). There are no per-directory layer packages any more,
+  so symbols are referenced by bare name (`Entry`, `parse_list_line`) instead of
+  `@types.Entry` / `@parse.parse_list_line`.
+
+- Only `cmd/ftp/` and `architecture/` are separate packages. `cmd/ftp/` is the
+  CLI executable; `architecture/` is the consumer that runs the architecture
+  guard against the real `moon.pkg` files.
+
+- Test files keep the usual naming: `*_test.mbt` (blackbox) and `*_wbtest.mbt`
+  (whitebox). They live in the same root package as the code.
+
+- The root `moon.pkg` has one plain import block (shared by the pure logic
+  files, the IO files and the in-package tests, because MoonBit 0.1.20260904 has
+  no per-file imports) plus a `for "wbtest"` block. The async packages therefore
+  sit in the plain block on purpose; `architecture/` asserts the block is never
+  split into a second plain block.
 
 - In the toplevel directory, there is a `moon.mod` file listing module
   metadata.
