@@ -34,7 +34,7 @@
 
 ### 1.3 功能矩阵
 
-**连接与选项（Dial + 19 个 DialOption）**
+**连接与选项（Dial + 16 个 `DialWith*` 选项函数）**
 
 - `Dial` / `Connect` / `DialTimeout`，默认 30s 超时
 - 超时、上下文、自定义 dialer、自定义 dial 函数
@@ -240,3 +240,23 @@ while w.next() {
 - [ ] 完整测试覆盖核心路径（解析 + 协议序列 + 边界）
 - [ ] 发布到 mooncakes.io
 - [ ] OSI 许可证 + 上游来源注明
+
+---
+
+## 附：实施文档集
+
+本文档是总体方案（范围与阶段划分）。**具体实施步骤**见 `docs/porting/` 文档集：
+
+| 文档 | 内容 | 对应本文档 |
+| --- | --- | --- |
+| [porting/README.md](./porting/README.md) | 文档地图与速览 | 全文 |
+| [porting/01-architecture.md](./porting/01-architecture.md) | 包结构、依赖方向、错误模型、超时与生命周期、`moon.mod` 配置 | 2.2 / 2.3 |
+| [porting/02-upstream-map.md](./porting/02-upstream-map.md) | 上游文件 → MoonBit 落点逐条映射 | 1.2 |
+| [porting/03-workplan.md](./porting/03-workplan.md) | **W0–W8 工作包拆解**（P0–P7 的细化版） | 2.5 |
+| [porting/04-api-mapping.md](./porting/04-api-mapping.md) | Go/MoonBit API 与 16 个 DialWith 选项对照 | 2.4 |
+| [porting/05-testing.md](./porting/05-testing.md) | 解析用例清单 + mock 服务器骨架 | 2.6 |
+| [porting/06-compat-checklist.md](./porting/06-compat-checklist.md) | 9 个兼容性要点的落地与验收 | 1.4 |
+| [porting/07-risks-and-estimation.md](./porting/07-risks-and-estimation.md) | 风险、已实测 API 清单、人日估算 | 5 |
+| [porting/08-acceptance.md](./porting/08-acceptance.md) | 验收标准与交付物清单 | 6 |
+
+> 冲突处理：阶段划分上本文档是 P0–P7，`porting/03-workplan.md` 是 W0–W8 工作包。**以 `porting/` 为准**（更细）。

@@ -74,3 +74,19 @@ FTP 看着老，但它今天仍然是设备固件升级、厂商数据拉取、�
 
 **分期**：P0 纯逻辑层（零 IO，上游解析用例全绿）→ P1 控制连接 → P2 数据通道 → P3 客户端门面 →
 P4 遍历与兼容性打磨 → P5 示例、文档、发布。估算 12~17 人日。
+
+**预期交付物**
+
+- 可 `moon add PaiGack/ftp` 使用的 MoonBit 库
+- 一个 CLI 示例（`moon run cmd/ftp`，支持 `ls` / `get` / `put` / `walk`）
+- mock FTP 服务器测试 + 解析测试，覆盖全部核心路径
+- README、移植说明、上游许可证与来源标注
+- 发布到 mooncakes.io
+
+---
+
+## 实施步骤
+
+本章的 P0–P5 是阶段划分；具体执行步骤（W0–W8 工作包拆解、上游落点映射、测试策略、
+兼容性清单、验收标准）见 [porting/](./porting/) 文档集，入口：[porting/README.md](./porting/README.md)。
+两者有冲突时以 `porting/` 为准（粒度更细）。

@@ -1,0 +1,146 @@
+# 08 验收标准
+
+## 1. 工作包级 DoD
+
+每个工作包都要满足的基础 DoD：
+
+```bash
+export PATH="$HOME/.moon/bin:$PATH"
+
+moon fmt --check                        # 格式干净
+moon check --target native --deny-warn  # 0 warning 0 error
+moon test  --target native              # 全绿
+moon info && git diff --exit-code       # 接口文件无未提交变更
+```
+
+额外要求：
+
+- [ ] 每个工作包一个独立 PR，PR 描述里写清「做了哪个工作包、验收怎么跑」
+- [ ] 新增公开 API 必须有黑盒测试（`_test.mbt`）
+- [ ] 内部不变量必须有白盒测试（`_wbtest.mbt`）
+- [ ] `.mbti` 接口变更在 PR 里显式说明
+
+## 2. 阶段级验收
+
+### W1 完成
+
+- [ ] 上游 `parse_test.go` 30+ 条用例**逐条通过**（含 8 条失败用例的错误类型）
+- [ ] 上游 `scanner_test.go` 用例逐条通过（含中间态断言）
+- [ ] 上游 `constants_test.go` 用例通过
+- [ ] `parse` / `scanner` / `types` / `status` 包内**无** `moonbitlang/async` 引用
+- [ ] 半年规则 4 条边界用例通过（`22:59` 不减年 / `23:00` 减年）
+
+### W2 完成
+
+- [ ] 单行响应解析正确
+- [ ] 多行响应（`211-...211 End`）解析出正确正文与状态码
+- [ ] 状态码不匹配 → `ServerError` 且携带原始 message
+- [ ] 参数含 `\r`/`\n` → `InvalidCommand`，且**未发出任何字节**
+
+### W3 完成
+
+- [ ] EPSV 正常路径通过
+- [ ] EPSV 失败 → 降级 PASV，且 `EPSV` 只发一次
+- [ ] PASV 可疑 IP 默认不信任；`trust_pasv_ip=true` 时跟随
+- [ ] `REST` 偏移生效
+- [ ] TLS 模式建连不阻塞
+
+### W4 完成
+
+- [ ] 命令序列断言通过：
+
+```
+["USER", "PASS", "FEAT", "TYPE", "OPTS", "QUIT"]
+```
+
+- [ ] FEAT 不支持（返回 `500`）时 `login` 仍成功，且不发 `OPTS`
+- [ ] `pwd` 能从 `257 "/incoming"` 提取路径
+- [ ] `AUTH TLS` 模式能升级控制连接
+
+### W5 完成
+
+- [ ] `list` 对 MLSD 画像走 `MLSD`，对 `disable_mlsd` 走 `LIST`
+- [ ] `list` 遇到无法解析的行**跳过不报错**
+- [ ] `retr` / `retr_from` / `stor` / `stor_from` / `append` 均通过 mock 端到端
+- [ ] `response.close()` 调两次不报错
+- [ ] 零字节 TLS 上传不报 `425`
+- [ ] `set_time` 对三种画像分别走 `MFMT` / `MDTM 写` / 报不支持
+
+### W6 完成
+
+- [ ] [06-compat-checklist.md](./06-compat-checklist.md) 的 9 条验收勾选表**全部打勾**
+- [ ] `walker` 语义对齐上游 `walker_test.go`（`skip_dir`、空栈、`cur` 初始化）
+- [ ] 6 个服务器画像各至少 1 条测试
+
+### W7 完成
+
+- [ ] CLI 六个子命令（`ls` / `get` / `put` / `walk` / `mkdir` / `rm`）在本地 `pyftpdlib` 上跑通
+- [ ] README 里每条命令都能照着复现
+- [ ] 错误输出到 stderr，退出码非 0
+
+### W8 完成
+
+- [ ] `moon add PaiGack/ftp` 在干净项目里可用
+- [ ] mooncakes.io 上能访问项目页
+- [ ] `LICENSE-THIRD-PARTY` 含上游 ISC 原文 + 署名 + 来源链接
+- [ ] 「与 Go 版行为对照表」写入文档，覆盖全部有意差异
+- [ ] 打 tag + GitHub Release
+
+## 3. 赛事验收对照（9 条）
+
+参照赛事「阶段三：项目验收」要求，逐条对照本项目：
+
+| # | 赛事要求 | 本项目落点 | 状态 |
+| --- | --- | --- | --- |
+| 1 | 以 MoonBit 为主要实现语言 | 全部生产代码与测试为 MoonBit | ✅ 达成（W1 起） |
+| 2 | 仓库公开可访问，提交记录清晰 | GitHub `PaiGack/moonbit_ftp`；W0–W8 对应小步提交 | ⚠️ 需推送 |
+| 3 | 源码结构清晰，能完成声明的核心功能 | 11 包分层，见 [01-architecture.md](./01-architecture.md) | ⬜ W1–W6 |
+| 4 | README 说明目标、安装、用法、示例，可复现 | W8 产出 | ⬜ W8 |
+| 5 | 使用 CI 覆盖检查、构建、测试 | `.github/workflows/ci.yml` + `.cnb.yml`，W0 修正 native | ⬜ W0 |
+| 6 | 至少一个可运行示例 | `cmd/ftp`，六个子命令 | ⬜ W7 |
+| 7 | 完整测试，覆盖核心功能路径 | 双轨测试 + 9 条兼容清单 | ⬜ W1–W6 |
+| 8 | 发布到 mooncakes.io | W8 | ⬜ W8 |
+| 9 | OSI 许可证；移植需注明来源与许可证 | Apache-2.0 + `LICENSE-THIRD-PARTY`（上游 ISC） | ⚠️ 部分达成 |
+
+**结论**：第 1、9 条基本达成或接近；第 2 条取决于代码是否推到 GitHub；3–8 全部依赖 W0–W8 实施。
+
+## 4. 交付物清单
+
+```
+代码
+├── src/types/           Entry / EntryType / TransferType
+├── src/status/          ~50 状态码 + status_text
+├── src/error/           FtpError / FtpErrors
+├── src/scanner/         空白字段扫描器
+├── src/parse/           四种 LIST 解析器 + 半年规则
+├── src/pathutil/        远端路径 join
+├── src/control/         命令编码 + 多行响应 + 状态校验
+├── src/transport/       EPSV / PASV / PRET / REST / 数据连接 / TLS
+├── src/client/          FTPClient 公开 API
+├── src/walker/          目录树遍历
+├── src/debug/           流量日志
+└── cmd/ftp/             CLI 示例
+
+测试
+├── 轨道 A：解析/scanner/常量用例（搬运上游，30+ 条）
+└── 轨道 B：mock FTP 服务器端到端（6 种画像，命令序列断言）
+
+文档
+├── README.mbt.md                     目标 / 安装 / 用法 / 示例
+├── docs/README.md                    文档索引
+├── docs/porting-jlaffaye-ftp.md      总体方案
+├── docs/porting/*.md                 本实施文档集（8 篇）
+├── docs/go-compat.md                 Go 版行为对照表
+└── LICENSE-THIRD-PARTY               上游 ISC 原文与署名
+
+发布
+├── mooncakes.io 上的 PaiGack/ftp
+└── GitHub Release tag
+```
+
+## 5. 未达成时的处理原则
+
+- **不声称未验证的能力**：TLS 数据连接、真实服务器兼容性若未实测，文档里标注「未验证」，不用「已支持」措辞。
+- **不跳过兼容清单**：9 条里任何一条没打勾，就不算 W6 完成。
+- **不用空提交充数**：提交粒度按 [03-workplan.md](./03-workplan.md)「提交节奏建议」执行，每个提交对应真实产出。
+- **不隐藏行为差异**：与 Go 版不同的地方（超时 API 形状、`Mutex`、`Response` 边界）全部写进对照表。
