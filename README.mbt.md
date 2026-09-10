@@ -48,7 +48,7 @@ moon fmt            # 格式化
 
 ## 文档
 
-- [移植方案（docs/porting-plan.md）](docs/porting-plan.md) —— `jlaffaye/ftp` 源码分析、包结构设计、API 映射与分阶段计划
+- [移植方案（docs/porting-jlaffaye-ftp.md）](docs/porting-jlaffaye-ftp.md) —— `jlaffaye/ftp` 源码分析、包结构设计、API 映射与分阶段计划
 - [项目申报书（docs/proposal.md）](docs/proposal.md) —— MoonBit 开源赛事申报材料
 
 ## 致谢与来源
