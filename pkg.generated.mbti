@@ -1,0 +1,526 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "PaiGack/ftp"
+
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/io",
+  "moonbitlang/async/tls",
+  "moonbitlang/core/debug",
+  "moonbitlang/x/time",
+}
+
+// Values
+pub async fn append(FTPClient, String, &@io.Reader) -> Unit
+
+pub fn apply_list_time(Entry, Int, Int, Int, Bool, Int, Int, @time.ZonedDateTime) -> Unit raise FtpError
+
+pub async fn change_dir(FTPClient, String) -> Unit
+
+pub async fn change_dir_to_parent(FTPClient) -> Unit
+
+pub async fn check_data_shut(Session) -> Unit
+
+pub fn check_for_command_injection(String) -> Unit raise FtpError
+
+pub async fn cmd(Control, String) -> Response
+
+pub async fn cmd_data_conn_from(Session, Int64, String, Array[String]) -> DataConn
+
+pub async fn cmd_expect(Control, String, Array[Int]) -> Response
+
+pub async fn cmd_format(Control, String, Array[String], Array[Int]) -> Response
+
+pub async fn current_dir(FTPClient) -> String
+
+pub let default_dial_timeout_ms : Int
+
+pub async fn delete(FTPClient, String) -> Unit
+
+pub async fn dial(String, timeout_ms? : Int, shut_timeout_ms? : Int, tls? : Bool, explicit_tls? : Bool, trust? : @tls.TrustedRoot, disable_epsv? : Bool, trust_pasv_ip? : Bool, disable_utf8? : Bool, disable_mlsd? : Bool, writing_mdtm? : Bool, force_list_hidden? : Bool, location? : @time.Zone, debug_log? : &@io.Writer?) -> FTPClient
+
+pub let epoch : @time.ZonedDateTime
+
+pub async fn epsv(Session) -> Int
+
+pub fn extract_quoted(String) -> String?
+
+pub async fn feat(FTPClient) -> Unit
+
+pub async fn file_size(FTPClient, String) -> UInt64
+
+pub fn find_date_start_pub(String, Int) -> Int?
+
+pub fn flatten_errors(Error) -> Array[Error]
+
+pub let forbidden_imports : Array[String]
+
+pub fn format_mdtm(@time.ZonedDateTime) -> String
+
+pub async fn get_data_port(Session) -> (String, Int)
+
+pub async fn get_entry(FTPClient, String) -> Entry
+
+pub async fn get_time(FTPClient, String) -> @time.ZonedDateTime
+
+pub let io_sources : Array[String]
+
+pub fn is_all_digits(String) -> Bool
+
+pub fn is_bogus_data_ip(String, String) -> Bool
+
+pub fn is_continuation(String) -> Bool
+
+pub fn is_loopback(String) -> Bool
+
+pub fn is_multicast(String) -> Bool
+
+pub fn is_positive_completion(Int) -> Bool
+
+pub fn is_positive_intermediate(Int) -> Bool
+
+pub fn is_private(String) -> Bool
+
+pub fn join(String, String) -> String
+
+pub fn join_all(Array[String]) -> String
+
+pub fn join_errors(Array[Error]) -> Error?
+
+pub async fn list(FTPClient, String) -> Array[Entry]
+
+pub async fn login(FTPClient, String, String) -> Unit
+
+pub async fn logout(FTPClient) -> Unit
+
+pub async fn make_dir(FTPClient, String) -> Unit
+
+pub fn make_entry(String, EntryType, time? : @time.ZonedDateTime) -> Entry
+
+pub fn make_file(String, time? : @time.ZonedDateTime) -> Entry
+
+pub fn make_folder(String, time? : @time.ZonedDateTime) -> Entry
+
+pub fn make_link(String, String, time? : @time.ZonedDateTime) -> Entry
+
+pub fn manifest_imports(String, String) -> Bool
+
+pub let month_names : Array[String]
+
+pub async fn name_list(FTPClient, String) -> Array[String]
+
+pub fn new_datetime(Int, Int, Int, Int, Int, @time.Zone) -> @time.ZonedDateTime raise FtpError
+
+pub async fn no_op(FTPClient) -> Unit
+
+pub async fn open_data_conn(Session) -> DataConn
+
+pub fn parse_code(String) -> Int?
+
+pub fn parse_decimal(String) -> Int?
+
+pub fn parse_dos_dir_line(String, @time.ZonedDateTime) -> Entry? raise FtpError
+
+pub fn parse_epsv(String) -> Int raise FtpError
+
+pub fn parse_features(String) -> Map[String, Bool]
+
+pub fn parse_hostedftp_line(String, @time.ZonedDateTime) -> Entry? raise FtpError
+
+pub fn parse_list_date_field(String, Int) -> ListDateField?
+
+pub fn parse_list_line(String, @time.ZonedDateTime) -> (Entry, ListFormat) raise FtpError
+
+pub fn parse_ls_line(String, @time.ZonedDateTime) -> Entry? raise FtpError
+
+pub fn parse_ls_time(String, Int, @time.ZonedDateTime) -> (@time.ZonedDateTime, Int)? raise FtpError
+
+pub fn parse_mdtm(String) -> @time.ZonedDateTime raise FtpError
+
+pub fn parse_month(String) -> Int?
+
+pub fn parse_next_rfc3659_line(Entry, String) -> Entry raise FtpError
+
+pub fn parse_octet(String) -> Int?
+
+pub fn parse_pasv(String) -> (String, Int) raise FtpError
+
+pub fn parse_port(String) -> Int?
+
+pub fn parse_rfc3659_line(String) -> Entry? raise FtpError
+
+pub fn parse_uint(String, Int) -> UInt64 raise FtpError
+
+pub async fn pasv(Session) -> (String, Int)
+
+pub fn plain_imports(String) -> String
+
+pub let pure_logic_packages : Array[String]
+
+pub async fn quit(FTPClient) -> Unit
+
+pub async fn read_response(Control) -> Response
+
+pub async fn remove_dir(FTPClient, String) -> Unit
+
+pub async fn rename(FTPClient, String, String) -> Unit
+
+pub async fn retr(FTPClient, String) -> DataResponse
+
+pub async fn retr_from(FTPClient, String, offset? : Int64) -> DataResponse
+
+pub async fn set_file_time(FTPClient, String, @time.ZonedDateTime) -> Unit
+
+pub fn set_size(String) -> UInt64 raise FtpError
+
+pub async fn set_transfer_type(FTPClient, TransferType) -> Unit
+
+pub fn split_addr(String, Int) -> (String, Int)
+
+pub let status_action_not_taken : Int
+
+pub let status_auth_ok : Int
+
+pub let status_bad_filename : Int
+
+pub let status_cannot_open_data_connection : Int
+
+pub let status_closing_data_connection : Int
+
+pub let status_cmd_not_implemented_superfluous : Int
+
+pub let status_cmd_ok : Int
+
+pub let status_data_conn_already_in_use : Int
+
+pub let status_data_connection_already_open : Int
+
+pub let status_data_connection_open_no_transfer : Int
+
+pub let status_dir_create : Int
+
+pub let status_dir_status : Int
+
+pub let status_enter_extended_passive_mode : Int
+
+pub let status_enter_extended_port : Int
+
+pub let status_enter_passive_mode : Int
+
+pub let status_enter_port : Int
+
+pub let status_entering_passive_mode_from_ip : Int
+
+pub let status_exceeded_storage_allocation : Int
+
+pub let status_file_action_aborted : Int
+
+pub let status_file_action_aborted_local_error : Int
+
+pub let status_file_action_not_taken : Int
+
+pub let status_file_action_ok : Int
+
+pub let status_file_action_pending_further_info : Int
+
+pub let status_file_status : Int
+
+pub let status_help_message : Int
+
+pub let status_name_status : Int
+
+pub let status_need_account : Int
+
+pub let status_need_account_for_login : Int
+
+pub let status_not_implemented : Int
+
+pub let status_not_implemented_for_param : Int
+
+pub let status_not_logged_in : Int
+
+pub let status_page_type_unknown : Int
+
+pub let status_request_denied : Int
+
+pub let status_restart_marker_answer : Int
+
+pub let status_restart_marker_not_understood : Int
+
+pub let status_restart_marker_reply : Int
+
+pub let status_service_ready_for_new_user : Int
+
+pub let status_service_ready_soon : Int
+
+pub let status_service_unavailable : Int
+
+pub let status_session_opened_data_connection : Int
+
+pub let status_syntax_error_unknown_cmd : Int
+
+pub let status_syntax_error_unknown_params : Int
+
+pub let status_system_status : Int
+
+pub fn status_text(Int) -> String
+
+pub let status_transfer_aborted : Int
+
+pub let status_user_logged_in_proceed : Int
+
+pub let status_username_ok : Int
+
+pub let status_username_ok_need_password : Int
+
+pub async fn stor(FTPClient, String, &@io.Reader) -> Unit
+
+pub async fn stor_from(FTPClient, String, &@io.Reader, offset? : Int64) -> Unit
+
+pub let time_format : String
+
+pub let utc_offset_seconds : Int
+
+pub fn violations(String, String) -> Array[String]
+
+pub fn walk(FTPClient, String) -> Walker
+
+// Errors
+pub(all) suberror FtpError {
+  ServerError(code~ : Int, msg~ : String)
+  InvalidCommand(arg~ : String)
+  UnsupportedListLine(line~ : String)
+  UnsupportedListDate(field~ : String)
+  ParseError(msg~ : String)
+} derive(@debug.Debug)
+
+pub(all) suberror FtpErrors {
+  MultipleErrors(errors~ : Array[Error])
+} derive(@debug.Debug)
+
+// Types and methods
+pub struct Control {
+  mut reader : &@io.Reader
+  mut writer : &@io.Writer
+  host : String
+  debug : &@io.Writer?
+}
+pub fn Control::host(Self) -> String
+pub fn Control::new(&@io.Reader, &@io.Writer, String, debug~ : &@io.Writer?) -> Self
+pub async fn Control::read_line(Self) -> String
+pub async fn Control::send_line(Self, String) -> Unit
+pub fn Control::upgrade(Self, &@io.Reader, &@io.Writer) -> Unit
+pub fn Control::without_debug(&@io.Reader, &@io.Writer, String) -> Self
+
+pub struct DataConn {
+  reader : &@io.Reader
+  writer : &@io.Writer
+  closer : () -> Unit
+}
+pub fn DataConn::close(Self) -> Unit
+pub fn DataConn::reader(Self) -> &@io.Reader
+pub fn DataConn::writer(Self) -> &@io.Writer
+
+pub struct DataResponse {
+  reader : &@io.Reader
+  mut closed : Bool
+  session : Session
+  shut_timeout_ms : Int
+}
+pub async fn DataResponse::close(Self) -> Unit
+pub async fn DataResponse::read(Self, FixedArray[Byte], offset? : Int, max_len? : Int) -> Int
+
+pub struct DialOptions {
+  mut timeout_ms : Int
+  mut shut_timeout_ms : Int
+  mut tls : Bool
+  mut explicit_tls : Bool
+  mut trust : @tls.TrustedRoot
+  mut disable_epsv : Bool
+  mut trust_pasv_ip : Bool
+  mut disable_utf8 : Bool
+  mut disable_mlsd : Bool
+  mut writing_mdtm : Bool
+  mut force_list_hidden : Bool
+  mut location : @time.Zone
+  mut debug_log : &@io.Writer?
+}
+pub fn DialOptions::default() -> Self
+pub fn DialOptions::set_debug_log(Self, &@io.Writer?) -> Unit
+pub fn DialOptions::set_disable_epsv(Self, Bool) -> Unit
+pub fn DialOptions::set_disable_mlsd(Self, Bool) -> Unit
+pub fn DialOptions::set_disable_utf8(Self, Bool) -> Unit
+pub fn DialOptions::set_explicit_tls(Self, Bool) -> Unit
+pub fn DialOptions::set_force_list_hidden(Self, Bool) -> Unit
+pub fn DialOptions::set_location(Self, @time.Zone) -> Unit
+pub fn DialOptions::set_shut_timeout_ms(Self, Int) -> Unit
+pub fn DialOptions::set_timeout_ms(Self, Int) -> Unit
+pub fn DialOptions::set_tls(Self, Bool) -> Unit
+pub fn DialOptions::set_trust(Self, @tls.TrustedRoot) -> Unit
+pub fn DialOptions::set_trust_pasv_ip(Self, Bool) -> Unit
+pub fn DialOptions::set_writing_mdtm(Self, Bool) -> Unit
+pub fn DialOptions::to_state_options(Self) -> Options
+
+pub struct Entry {
+  mut name : String
+  mut target : String
+  mut type_ : EntryType
+  mut size : UInt64
+  mut time : @time.ZonedDateTime
+} derive(@debug.Debug)
+pub fn Entry::set_name(Self, String) -> Unit
+pub fn Entry::set_size(Self, UInt64) -> Unit
+pub fn Entry::set_target(Self, String) -> Unit
+pub fn Entry::set_time(Self, @time.ZonedDateTime) -> Unit
+pub fn Entry::set_type(Self, EntryType) -> Unit
+
+pub(all) enum EntryType {
+  File
+  Folder
+  Link
+} derive(Eq, @debug.Debug)
+pub fn EntryType::to_string(Self) -> String
+
+pub struct FTPClient {
+  options : DialOptions
+  state_options : Options
+  session : Session
+  mut closed : Bool
+  host : String
+  mutex : @async.Mutex
+  mut mlst_supported : Bool
+  mut mfmt_supported : Bool
+  mut mdtm_supported : Bool
+  mut mdtm_can_write : Bool
+  mut location : @time.Zone
+  mut features : Map[String, Bool]
+}
+pub fn FTPClient::has_feature(Self, String) -> Bool
+pub fn FTPClient::is_closed(Self) -> Bool
+pub fn FTPClient::is_get_time_supported(Self) -> Bool
+pub fn FTPClient::is_mfmt_supported(Self) -> Bool
+pub fn FTPClient::is_mlst_supported(Self) -> Bool
+pub fn FTPClient::is_set_time_supported(Self) -> Bool
+pub fn FTPClient::is_time_precise_in_list(Self) -> Bool
+pub fn FTPClient::location(Self) -> @time.Zone
+pub async fn FTPClient::lock(Self) -> Unit
+pub fn FTPClient::options(Self) -> DialOptions
+pub fn FTPClient::session(Self) -> Session
+pub fn FTPClient::set_closed(Self, Bool) -> Unit
+pub fn FTPClient::set_features(Self, Map[String, Bool]) -> Unit
+pub fn FTPClient::set_location(Self, @time.Zone) -> Unit
+pub fn FTPClient::set_mdtm_can_write(Self, Bool) -> Unit
+pub fn FTPClient::set_mdtm_supported(Self, Bool) -> Unit
+pub fn FTPClient::set_mfmt_supported(Self, Bool) -> Unit
+pub fn FTPClient::set_mlst_supported(Self, Bool) -> Unit
+pub fn FTPClient::state_options(Self) -> Options
+pub fn FTPClient::unlock(Self) -> Unit
+
+type ListDateField
+pub fn ListDateField::day(Self) -> Int
+pub fn ListDateField::has_time(Self) -> Bool
+pub fn ListDateField::hour(Self) -> Int
+pub fn ListDateField::minute(Self) -> Int
+pub fn ListDateField::next(Self) -> Int
+pub fn ListDateField::year(Self) -> Int
+
+pub(all) enum ListFormat {
+  Rfc3659
+  UnixLs
+  DosDir
+  HostedFtp
+} derive(Eq, @debug.Debug)
+
+pub struct Options {
+  disable_epsv : Bool
+  trust_pasv_ip : Bool
+  tls : Bool
+  timeout_ms : Int
+  shut_timeout_ms : Int
+  trust : @tls.TrustedRoot
+}
+pub fn Options::default() -> Self
+pub fn Options::disable_epsv(Self) -> Bool
+pub fn Options::new(Bool, Bool, Bool, Int, Int, @tls.TrustedRoot) -> Self
+pub fn Options::shut_timeout_ms(Self) -> Int
+pub fn Options::timeout_ms(Self) -> Int
+pub fn Options::tls(Self) -> Bool
+pub fn Options::trust(Self) -> @tls.TrustedRoot
+pub fn Options::trust_pasv_ip(Self) -> Bool
+
+pub struct Response {
+  code : Int
+  message : String
+} derive(@debug.Debug)
+pub fn Response::code(Self) -> Int
+pub fn Response::message(Self) -> String
+pub fn Response::new(Int, String) -> Self
+
+pub struct Scanner {
+  src : String
+  mut offset : Int
+}
+pub fn Scanner::at_end(Self) -> Bool
+pub fn Scanner::new(String) -> Self
+pub fn Scanner::next(Self) -> String
+pub fn Scanner::next_fields(Self, Int) -> Array[String]
+pub fn Scanner::remaining(Self) -> String
+
+pub struct Session {
+  options : Options
+  control : Control
+  mut skip_epsv : Bool
+  mut use_pret : Bool
+}
+pub fn Session::control(Self) -> Control
+pub fn Session::new(Control, options? : Options) -> Self
+pub fn Session::options(Self) -> Options
+pub fn Session::set_skip_epsv(Self, Bool) -> Unit
+pub fn Session::set_use_pret(Self, Bool) -> Unit
+pub fn Session::skip_epsv(Self) -> Bool
+pub fn Session::use_pret(Self) -> Bool
+
+pub struct TeeReader {
+  inner : &@io.Reader
+  log : &@io.Writer
+}
+pub fn TeeReader::new(&@io.Reader, &@io.Writer) -> Self
+pub async fn TeeReader::read(Self, FixedArray[Byte], offset? : Int, max_len? : Int) -> Int
+
+pub struct TeeWriter {
+  inner : &@io.Writer
+  log : &@io.Writer
+}
+pub fn TeeWriter::new(&@io.Writer, &@io.Writer) -> Self
+pub async fn TeeWriter::write(Self, &@io.Data) -> Unit
+
+pub(all) enum TransferType {
+  Binary
+  ASCII
+} derive(Eq, @debug.Debug)
+pub fn TransferType::argument(Self) -> String
+pub fn TransferType::from_string(String) -> Self?
+pub fn TransferType::to_string(Self) -> String
+
+pub struct Walker {
+  client : FTPClient
+  mut cur : Entry?
+  mut cur_path : String
+  mut stack : Array[(Entry, String)]
+  mut descend : Bool
+  root : String
+  mut walker_err : Error?
+}
+pub fn Walker::entries(Self) -> Array[(Entry, String)]
+pub fn Walker::err(Self) -> Error?
+pub async fn Walker::next(Self) -> Bool
+pub fn Walker::path(Self) -> String
+pub fn Walker::pending(Self) -> Int
+pub fn Walker::pop(Self) -> (Entry, String)?
+pub fn Walker::push(Self, Entry, String) -> Unit
+pub fn Walker::set_stack(Self, Array[(Entry, String)]) -> Unit
+pub fn Walker::skip_dir(Self) -> Unit
+pub fn Walker::stat(Self) -> Entry?
+
+// Type aliases
+
+// Traits

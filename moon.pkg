@@ -1,0 +1,22 @@
+// Root package: every source file lives flat here, no `src/` intermediate
+// layer. See docs/porting/01-architecture.md section 2.
+//
+// The plain import block is shared by the pure logic files, the IO files and
+// the in-package tests, because MoonBit 0.1.20260904 has no per-file imports.
+// `architecture/architecture_test.mbt` keeps the old architecture rule
+// executable: it asserts the manifest never gains a second plain import block
+// that would let the async stack leak into the parsers.
+
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/io",
+  "moonbitlang/async/socket",
+  "moonbitlang/async/tls",
+  "moonbitlang/x/time",
+  "moonbitlang/core/debug",
+}
+
+import {
+  "moonbitlang/x/time",
+  "moonbitlang/core/debug",
+} for "wbtest"

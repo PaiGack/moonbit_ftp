@@ -12,37 +12,72 @@
 
 ## 2. 包结构
 
-所有包**直接平铺在仓库根目录**，不额外套一层 `src/`。MoonBit 的包路径由目录决定，
-多套一层只会让 `@src.client` 这种冗余前缀出现在所有引用处，没有收益。
+所有源码**直接平铺在仓库根目录**，没有包目录层级。`moon.mod` 声明的模块是 `PaiGack/ftp`，
+根目录就是唯一的源码包，包引用写 `Entry` / `parse_list_line` 这样的裸名字，而不是
+`@types.Entry` / `@parse.parse_list_line`。
+
+> 2026-09 的调整：最初的设计是「包平铺在根目录、但每个领域一个包」（`types/`、`parse/`、
+> `client/` …）。实现完成后发现这些包加起来只有约 4.4k 行，绝大多数跨越包边界的引用
+> （`@types.` 78 处、`@error.` 67 处、`@status.` 41 处）只换来了一层前缀，没有换来任何
+> 可见的封装收益。于是把 12 个包全部展开成根目录下的 `.mbt` 文件。
 
 ```
 .
-├── types/        Entry / EntryType / TransferType / ListFormat       纯逻辑
-├── status/       47 个 RFC 959 状态码常量 + status_text()          纯逻辑
-├── error/        FtpError 及其子错误（注入/解析不支持/服务器拒绝）      纯逻辑
-├── scanner/      空白分隔字段扫描器（List 行解析用）                   纯逻辑
-├── parse/        RFC3659 / UNIX ls / DOS DIR / hostedftp 四种解析器    纯逻辑
-├── pathutil/     远端路径 join（对齐 Go path.Join 语义）              纯逻辑
-├── control/      控制通道：命令编码、多行响应、状态码校验              IO
-├── transport/    EPSV / PASV / PRET / REST / 数据连接 / TLS 建立       IO
-├── client/       FTPClient（对齐上游 ServerConn）：公开 API            IO
-├── walker/       目录树遍历器（建在 client 上）                        IO
-├── debug/        控制/数据通道原始流量日志包装                         IO
-├── cmd/ftp/      CLI 示例：ls / get / put / walk / mkdir / rm
-└── moon.mod     模块根（根目录本身也是包的宿主）
+├── entry.mbt / consts.mbt            数据模型与常量                        纯逻辑
+├── status.mbt                        RFC 959 状态码 + status_text()        纯逻辑
+├── error.mbt                         FtpError / FtpErrors                 纯逻辑
+├── scanner.mbt                       LIST 行字段扫描器                      纯逻辑
+├── parse.mbt                         四种解析器的入口                       纯逻辑
+├── parse_rfc3659.mbt                 RFC 3659 MLSD/MLST                    纯逻辑
+├── parse_unix_ls.mbt                 ls -l 风格                            纯逻辑
+├── parse_dos_dir.mbt                 MS-DOS DIR 风格                       纯逻辑
+├── parse_hostedftp.mbt               hostedftp.com 风格                    纯逻辑
+├── parse_time.mbt                    LIST 时间字段解析（含半年规则）          纯逻辑
+├── pathutil.mbt                      Go path.Join 语义的远端路径拼接          纯逻辑
+├── control.mbt                       控制连接（reader/writer/TLS 升级）       IO
+├── command.mbt                       命令编码与状态码校验                    IO
+├── response.mbt                      响应解析（单行 / 多行）                  IO
+├── state.mbt                         client 与 transport 共享的连接状态       IO
+├── transport_epsv.mbt                EPSV                                   IO
+├── transport_pasv.mbt                PASV + 防 SSRF 校验                     IO
+├── transport_dataconn.mbt            数据连接开启流程 + TLS 延迟握手           IO
+├── client.mbt                        FTPClient 结构与能力缓存                 IO
+├── options.mbt                       DialOptions + setter                   IO
+├── dial.mbt                          dial / split_addr / parse_decimal      IO
+├── login.mbt                         USER/PASS/FEAT/AUTH/TYPE/PBSZ/PROT     IO
+├── nav.mbt                           cwd / cd / cd_up / extract_quoted      IO
+├── list.mbt                          NLST / LIST / MLSD / MLST / TYPE       IO
+├── client_time.mbt                   SIZE / MDTM / MFMT                     IO
+├── transfer.mbt                      RETR / STOR / APPE / 226 收尾           IO
+├── fsops.mbt                         MKD / RMD / DELE / RNFR+RNTO           IO
+├── lifecycle.mbt                     NOOP / REIN / QUIT                     IO
+├── walker.mbt                        目录树遍历器                            IO
+├── debug.mbt                         控制/数据通道原始流量日志包装             IO
+├── architecture.mbt                  架构守卫检查器
+├── architecture/                     架构守卫的消费者（对真实 moon.pkg 断言）
+├── cmd/ftp/                          CLI 示例
+├── moon.pkg                          根包清单
+└── moon.mod                          模块根
 ```
 
-> 包名不用 `ftp`，因为模块名已经是 `PaiGack/ftp`，再套一层 `@ftp` 会重名。
-> 同理，也不引入 `src/` 中间层：包引用写 `@client` / `@parse`，而不是 `@src.client`。
+文件名的前缀不是随意的：同名函数在平铺之后会互相遮蔽，所以 IO 侧与纯逻辑侧撞名的
+符号带了前缀，保持「一眼能看出属于哪一层」：
 
-## 3. 依赖方向（单向，禁止反向）
+| 符号 | 位置 | 重命名原因 |
+| --- | --- | --- |
+| `set_time` | `parse_time.mbt`（纯逻辑） | 与 `client_time.mbt` 的公开 `set_time` 同名 |
+| `set_file_time` | `client_time.mbt`（IO） | 上条的 IO 侧新名字，语义更明确 |
+| `DateResponse` | `response.mbt`（控制通道响应） | 与 `transfer.mbt` 的 `DataResponse` 区分：一个是控制通道应答，一个是数据传输句柄 |
+| `Response::code()` / `Response::message()` | `response.mbt` | 平铺后字段名与包名不再隔离，改成方法调用避免 `.message` 歧义 |
+
+## 3. 依赖方向
 
 ```
-types ─┬─> status ──> error
+entry ─┬─> status ──> error
        ├─> scanner ─> parse
        └─> pathutil
                        │
-                (以下可依赖上面全部纯逻辑包)
+                (以下可依赖上面全部纯逻辑符号)
                        ▼
                   control ──> transport ──> client ──> walker
                                    │            │
@@ -51,12 +86,19 @@ types ─┬─> status ──> error
 
 硬性约束：
 
-- `types` / `status` / `error` / `scanner` / `parse` / `pathutil` **不得** import `moonbitlang/async`。
-- `parse` 只接 `String` 和 `@types.Entry`，绝不接 `Reader`。
-- `client` 不直接调 socket，所有连接建立走 `transport`。
-- `walker` 只依赖 `client`。
+- 纯逻辑文件（`entry` / `consts` / `status` / `error` / `scanner` / `parse*` /
+  `pathutil`）**不得**依赖 `moonbitlang/async`。
+- `parse*` 只接 `String` 和 `Entry`，绝不接 `Reader`。
+- `client*` 不直接调 socket，所有连接建立走 `transport_*`。
+- `walker` 只依赖 `client` 的公开符号。
 
-CI 可加一条守卫：对纯逻辑包做 `grep moonbitlang/async`，命中即失败。这条守卫能把架构约束变成可执行检查，而不是口头约定。
+平铺之后这些文件同属一个包，编译器不再帮忙拦跨层引用，所以改用**两个手段**保住约束：
+
+1. 每个文件顶部的引用注释标明它属于纯逻辑还是 IO，review 时按注释核对；
+2. `architecture/` 读取真实的 `moon.pkg` 并断言 `moonbitlang/async` 没有被复制出
+   第二个普通 import 块 —— 一旦有人为了绕开依赖而拆块，测试立刻失败。
+
+纯逻辑文件清单在 `architecture.mbt` 的 `pure_logic_packages` 里，也是可执行的。
 
 ## 4. 数据模型
 
