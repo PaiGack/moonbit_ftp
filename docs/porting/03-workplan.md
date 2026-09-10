@@ -387,12 +387,12 @@ README 中的每一条命令都要能照着跑通。
 
 - [ ] `README.mbt.md` 补全：项目目标、安装（`moon add PaiGack/ftp`）、快速开始（可复现的 API 示例）、CLI 用法、致谢与来源
 - [ ] 新增 `LICENSE-THIRD-PARTY`，保留上游 ISC 原文 + 版权署名 + 来源链接 + 参考范围说明
-- [ ] `docs/` 补齐：把本目录文档集接进 `docs/README.md` 索引
+- [ ] `docs/` 补齐：把本目录文档集接进 `docs/proposal.md` 末尾的「移植方案文档集」索引
 - [ ] 写「与 Go 版行为对照表」：逐条列出有意差异（超时 API 形状、`Mutex`、`Response` 边界）
 - [ ] `moon.mod` 的 `description` / `keywords` / `repository` 最终复核
 - [ ] 跑一次完整验收（见 [08-acceptance.md](./08-acceptance.md)）
 - [ ] 发布 mooncakes.io：`moon publish`（需先在 mooncakes 注册并配置 token）
-- [ ] 打 tag 与 GitHub Release
+- [ ] 打 tag 并发布 Release
 
 ### 验收
 

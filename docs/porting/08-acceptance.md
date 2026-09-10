@@ -84,27 +84,9 @@ moon info && git diff --exit-code       # 接口文件无未提交变更
 - [ ] mooncakes.io 上能访问项目页
 - [ ] `LICENSE-THIRD-PARTY` 含上游 ISC 原文 + 署名 + 来源链接
 - [ ] 「与 Go 版行为对照表」写入文档，覆盖全部有意差异
-- [ ] 打 tag + GitHub Release
+- [ ] 打 tag 并发布 Release
 
-## 3. 赛事验收对照（9 条）
-
-参照赛事「阶段三：项目验收」要求，逐条对照本项目：
-
-| # | 赛事要求 | 本项目落点 | 状态 |
-| --- | --- | --- | --- |
-| 1 | 以 MoonBit 为主要实现语言 | 全部生产代码与测试为 MoonBit | ✅ 达成（W1 起） |
-| 2 | 仓库公开可访问，提交记录清晰 | GitHub `PaiGack/moonbit_ftp`；W0–W8 对应小步提交 | ⚠️ 需推送 |
-| 3 | 源码结构清晰，能完成声明的核心功能 | 11 包分层，见 [01-architecture.md](./01-architecture.md) | ⬜ W1–W6 |
-| 4 | README 说明目标、安装、用法、示例，可复现 | W8 产出 | ⬜ W8 |
-| 5 | 使用 CI 覆盖检查、构建、测试 | `.github/workflows/ci.yml` + `.cnb.yml`，W0 修正 native | ⬜ W0 |
-| 6 | 至少一个可运行示例 | `cmd/ftp`，六个子命令 | ⬜ W7 |
-| 7 | 完整测试，覆盖核心功能路径 | 双轨测试 + 9 条兼容清单 | ⬜ W1–W6 |
-| 8 | 发布到 mooncakes.io | W8 | ⬜ W8 |
-| 9 | OSI 许可证；移植需注明来源与许可证 | Apache-2.0 + `LICENSE-THIRD-PARTY`（上游 ISC） | ⚠️ 部分达成 |
-
-**结论**：第 1、9 条基本达成或接近；第 2 条取决于代码是否推到 GitHub；3–8 全部依赖 W0–W8 实施。
-
-## 4. 交付物清单
+## 3. 交付物清单
 
 ```
 代码（各包平铺在仓库根目录，无 src/ 中间层）
@@ -127,18 +109,17 @@ moon info && git diff --exit-code       # 接口文件无未提交变更
 
 文档
 ├── README.mbt.md                     目标 / 安装 / 用法 / 示例
-├── docs/README.md                    文档索引
 ├── docs/porting.md                    总体方案
-├── docs/porting/*.md                 本实施文档集（8 篇）
-├── docs/go-compat.md                 Go 版行为对照表
-└── LICENSE-THIRD-PARTY               上游 ISC 原文与署名
+├── docs/porting/*.md                  本实施文档集（8 篇）
+├── docs/go-compat.md                  Go 版行为对照表
+└── LICENSE-THIRD-PARTY                上游 ISC 原文与署名
 
 发布
 ├── mooncakes.io 上的 PaiGack/ftp
-└── GitHub Release tag
+└── Release tag
 ```
 
-## 5. 未达成时的处理原则
+## 4. 未达成时的处理原则
 
 - **不声称未验证的能力**：TLS 数据连接、真实服务器兼容性若未实测，文档里标注「未验证」，不用「已支持」措辞。
 - **不跳过兼容清单**：9 条里任何一条没打勾，就不算 W6 完成。

@@ -118,16 +118,18 @@
 
 ```
 .
-├── types/                     # Entry / EntryType / TransferType / Status 常量
-├── error/                     # 错误类型：InvalidCommand / UnsupportedListLine / ServerError ...
-├── control/                   # 控制通道：命令编码、多行响应、状态码解析、状态码表
-├── scanner/                   # 空白字段扫描器（List line 解析用）
-├── parse/                     # RFC3659 / ls / DIR / hostedftp 四种列表解析
-├── transport/                 # EPSV / PASV / 数据连接 / TLS / PRET / REST 统一入口
-├── client/                    # ServerConn 等价物：Dial/Login/Retr/Stor/List/...
-├── walker/                    # 目录树遍历
-├── debug/                     # 调试输出包装（对齐 io.Reader/Writer）
-└── cmd/                       # CLI 入口
+├── types/        Entry / EntryType / TransferType          纯逻辑
+├── status/       RFC 959 状态码常量与文本                    纯逻辑
+├── error/        FtpError 及其子错误                        纯逻辑
+├── scanner/      空白字段扫描器（List line 解析用）            纯逻辑
+├── parse/        RFC3659 / ls / DIR / hostedftp 列表解析     纯逻辑
+├── pathutil/     远端路径 join                              纯逻辑
+├── control/      控制通道：命令编码、多行响应、状态码校验        IO
+├── transport/    EPSV / PASV / PRET / REST / 数据连接 / TLS   IO
+├── client/       ServerConn 等价物：Dial/Login/Retr/Stor/... IO
+├── walker/       目录树遍历                                   IO
+├── debug/        调试输出包装（对齐 io.Reader/Writer）          IO
+└── cmd/          CLI 示例
 ```
 
 分层依赖：`types` ← `scanner`/`parse`/`control` ← `transport` ← `client` ← `walker`。
@@ -162,19 +164,6 @@ while w.next() {
 - 所有可能失败的调用 `raise`，错误类型统一继承 `FtpError`。
 - 可选参数一律用 `label~`（如 `timeout~`、`location~`、`disable_epsv~`），避免 Go 的 `...DialOption` 变参。
 - `DialOption` 语义用 `DialOptions` 结构体承载，内部字段私有、通过 `with_*` 构造函数生成，保持可读性。
-
-### 2.5 分阶段实施计划
-
-| 阶段 | 内容 | 产物 |
-| --- | --- | --- |
-| P0 | 工程初始化：native target、依赖、CI、目录骨架 | 可编译空框架 |
-| P1 | 纯逻辑层：`types` / `status` / `scanner` / `parse`（含 4 种解析器） | 单测全覆盖，对齐上游 `parse_test.go` 用例 |
-| P2 | `control`：命令编码、多行响应、状态码校验、注入防护 | 纯内存单测 |
-| P3 | `transport`：EPSV/PASV/PRET/REST/数据连接/TLS | mock 服务器联调 |
-| P4 | `client`：Dial/Login/Quit/List/Retr/Stor/目录操作/时间操作 | mock 服务器端到端 |
-| P5 | `walker`：目录树遍历 + `SkipDir` | 与上游 `walker_test.go` 对齐 |
-| P6 | 兼容性：VsFtpd `MDTM` 写、`LIST -a`、hostedftp、DOS DIR、IIS | 差异化测试用例 |
-| P7 | 示例 + README + 发布 mooncakes.io | 可运行示例、`moon add PaiGack/ftp` |
 
 ### 2.6 测试策略
 
@@ -232,7 +221,7 @@ while w.next() {
 
 ---
 
-## 6. 验收清单（对齐赛事要求）
+## 6. 验收清单
 
 - [ ] MoonBit 为主要实现语言
 - [ ] 源码结构清晰，可完成声明的核心功能
@@ -251,7 +240,6 @@ while w.next() {
 
 | 文档 | 内容 | 对应本文档 |
 | --- | --- | --- |
-| [porting/README.md](./porting/README.md) | 文档地图与速览 | 全文 |
 | [porting/01-architecture.md](./porting/01-architecture.md) | 包结构、依赖方向、错误模型、超时与生命周期、`moon.mod` 配置 | 2.2 / 2.3 |
 | [porting/02-upstream-map.md](./porting/02-upstream-map.md) | 上游文件 → MoonBit 落点逐条映射 | 1.2 |
 | [porting/03-workplan.md](./porting/03-workplan.md) | **W0–W8 工作包拆解**（P0–P7 的细化版） | 2.5 |
@@ -261,4 +249,3 @@ while w.next() {
 | [porting/07-risks-and-estimation.md](./porting/07-risks-and-estimation.md) | 风险、已实测 API 清单、人日估算 | 5 |
 | [porting/08-acceptance.md](./porting/08-acceptance.md) | 验收标准与交付物清单 | 6 |
 
-> 冲突处理：阶段划分上本文档是 P0–P7，`porting/03-workplan.md` 是 W0–W8 工作包。**以 `porting/` 为准**（更细）。
