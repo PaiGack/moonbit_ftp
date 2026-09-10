@@ -29,10 +29,14 @@
         - .ide/Dockerfile
 
 # 真实 FTP 服务器的账号与各画像端口。
-#   full    2121  被动 30000-30009
-#   no-mlst 2122  被动 30010-30019
-#   no-time 2123  被动 30020-30029
-#   no-epsv 2124  被动 30030-30039
+#   full    2121  被动 30000-30099
+#   no-mlst 2122  被动 30100-30199
+#   no-time 2123  被动 30200-30299
+#   no-epsv 2124  被动 30300-30399
+# 被动区间每个画像 100 个端口（不是 10 个）：moon test 对同一个测试文件并行执行，
+# 同一画像上会同时有十几个会话各占一个被动端口。区间过窄时 vsftpd 会耗尽端口并向
+# 「正在等回包」的客户端回 `500 OOPS: vsf_sysutil_bind` 后直接关连接，表现为其他
+# 用例莫名其妙的 ReaderClosed 失败。
 # 客户端在 chroot 内看到的根是 /，fixture 只读挂在 /fixture，可写目录是 /upload。
 # FTP_IMAGE 显式指定测试服务器镜像，scripts/start-ftp.sh 也接受同名环境变量。
 .ftp-test-env: &ftp-test-env
