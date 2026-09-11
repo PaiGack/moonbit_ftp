@@ -1,20 +1,26 @@
+.ftp-ci-env: &ftp-ci-env
+  docker:
+    build:
+      dockerfile: .ide/Dockerfile
+      versionBy:
+        - .ide/Dockerfile
+
+# push 与 pull_request 共用同一段构建步骤，避免两处脚本漂移。
+.moon-test: &moon-test
+  name: moon test
 main:
   push:
-    - docker:
-        build: .ide/Dockerfile
+    - <<: *ftp-ci-env
+      services:
+        - docker
       stages:
-        - moon update
-        - moon check --target native --deny-warn
-        - moon build --target native
-        - moon test  --target native --deny-warn
+        - *moon-test
   pull_request:
-    - docker:
-        build: .ide/Dockerfile
+    - <<: *ftp-ci-env
+      services:
+        - docker
       stages:
-        - moon update
-        - moon check --target native --deny-warn
-        - moon build --target native
-        - moon test  --target native --deny-warn
+        - *moon-test
 
 $:
   vscode:
