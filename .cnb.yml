@@ -11,6 +11,7 @@
 .moon-test: &moon-test
   name: moon test
   script: |
+    moon update
     moon check --target native --deny-warn
     moon build --target native
     moon test  --target native --deny-warn

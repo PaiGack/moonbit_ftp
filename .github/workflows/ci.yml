@@ -26,7 +26,9 @@ jobs:
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
 
       - name: MoonBit version
-        run: moon version --all
+        run: |
+          moon version --all
+          moon update
 
       - name: moon check
         run: |
