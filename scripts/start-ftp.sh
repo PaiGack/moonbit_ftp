@@ -52,10 +52,24 @@
 #   1. it writes the virtual user db into `/etc/vsftpd/`, so `/etc/vsftpd`
 #      must be writable and the profile config must sit at exactly
 #      `/etc/vsftpd/vsftpd.conf`;
-#   2. it appends `pasv_address`, `pasv_max_port`, `pasv_min_port`, ... from
-#      `PASV_ADDRESS` / `PASV_MIN_PORT` / `PASV_MAX_PORT` and friends. All
-#      three are required: an empty `pasv_min_port=` makes vsftpd exit 2 with
-#      no message at all. They are always passed below;
+#   2. it appends a fixed list of directives to `/etc/vsftpd/vsftpd.conf`,
+#      each interpolated from one environment variable:
+#
+#        PASV_ADDRESS  PASV_MAX_PORT  PASV_MIN_PORT  PASV_ADDR_RESOLVE
+#        PASV_ENABLE   FILE_OPEN_MODE  LOCAL_UMASK   XFERLOG_STD_FORMAT
+#        PASV_PROMISCUOUS  PORT_PROMISCUOUS
+#
+#      Every one of them must be passed below with a *non-empty* value.
+#      vsftpd rejects an empty value for any non-string directive
+#      (`parseconf.c`: `missing value in config file for: <name>`) and exits
+#      2. That message is written to fd 0 (`VSFTP_COMMAND_FD`), which in a
+#      container is not the log stream, so the container dies with `docker
+#      logs` showing nothing past "Starting vsftpd...". This is the failure
+#      that looks like "the FTP server never came up".
+#
+#      Duplicated directives are *not* a problem: the parser lets the last
+#      occurrence win. The comment above the `docker run` call used to blame
+#      duplicates; the real trap is the empty value.
 #   3. it creates `/home/vsftpd/$USER` and runs `db_load`, so the mounted home
 #      directory must be writable by the container.
 
@@ -109,10 +123,12 @@ start_profile() {
   read_profile_ports "$profile"
   name="moonbit-ftp-$profile"
 
-  # One config per profile: the base file with the overlay appended. The image
-  # entrypoint appends the passive settings itself from the environment, so
-  # they must NOT be written here (a duplicate directive makes vsftpd refuse
-  # to start).
+  # One config per profile: the base file with the overlay appended. The
+  # passive settings are not written here: the image entrypoint appends them
+  # itself from the environment. (A duplicate directive is harmless -- the
+  # parser keeps the last one -- but see the header comment: an *empty* value
+  # is fatal, which is why every variable the entrypoint interpolates is
+  # passed below.)
   conf_dir="$FTP_CONF_ROOT/$profile"
   mkdir -p "$conf_dir/vsftpd"
   cat testdata/ftp/vsftpd-base.conf > "$conf_dir/vsftpd/vsftpd.conf"
@@ -135,6 +151,11 @@ start_profile() {
     -e "PASV_MAX_PORT=$pasv_max" \
     -e "PASV_ENABLE=YES" \
     -e "PASV_ADDR_RESOLVE=NO" \
+    -e "FILE_OPEN_MODE=0666" \
+    -e "LOCAL_UMASK=022" \
+    -e "XFERLOG_STD_FORMAT=NO" \
+    -e "PASV_PROMISCUOUS=NO" \
+    -e "PORT_PROMISCUOUS=NO" \
     "$FTP_IMAGE:$FTP_IMAGE_TAG" >/dev/null
 }
 
@@ -209,19 +230,48 @@ except OSError as exc:
 PY
 }
 
+# Explain why a profile container is unusable. `docker logs` alone is not
+# enough: when vsftpd rejects the config it writes the reason to fd 0 and exits
+# 2, so the container stops with logs that end at "Starting vsftpd..." and say
+# nothing else. The exit code is the only loud signal in that case, so it is
+# part of the report.
+dump_container() {
+  profile="$1"
+  name="moonbit-ftp-$profile"
+  status="$(docker inspect -f '{{.State.Status}}' "$name" 2>/dev/null || echo unknown)"
+  code="$(docker inspect -f '{{.State.ExitCode}}' "$name" 2>/dev/null || echo '?')"
+  echo "  container '$name': status=$status exitCode=$code" >&2
+  if [ "$status" != "running" ] && [ "$code" = "2" ]; then
+    echo "  exit code 2 means vsftpd refused the config. The error goes to fd 0," >&2
+    echo "  so it is missing from 'docker logs'; the usual cause is an empty" >&2
+    echo "  value for one of the variables the image entrypoint interpolates" >&2
+    echo "  (FILE_OPEN_MODE / LOCAL_UMASK / XFERLOG_STD_FORMAT / PASV_PROMISCUOUS" >&2
+    echo "  / PORT_PROMISCUOUS). All of them are set in start_profile()." >&2
+  fi
+  docker logs "$name" >&2 || true
+}
+
 for profile in $PROFILES; do
   echo "starting FTP profile '$profile'"
   start_profile "$profile"
+  # The container may have already exited by the time the port probe runs (a
+  # rejected config is a silent exit 2), which is why this is checked first:
+  # otherwise a racing port probe produces a misleading "login failed".
+  if [ "$(docker inspect -f '{{.State.Running}}' "moonbit-ftp-$profile" 2>/dev/null)" != "true" ]; then
+    echo "FTP profile '$profile' exited before it served anything on port $port" >&2
+    dump_container "$profile"
+    exit 1
+  fi
   if ! wait_for_port "$port"; then
     echo "FTP profile '$profile' did not come up on port $port" >&2
-    docker logs "moonbit-ftp-$profile" >&2 || true
+    dump_container "$profile"
     exit 1
   fi
   if ! probe_login "$port"; then
     echo "FTP profile '$profile' accepted the connection but the login failed on port $port" >&2
     echo "  A bare '500 OOPS: ' banner means the login child died before it could answer;" >&2
     echo "  check that testdata/ftp/vsftpd-base.conf still sets seccomp_sandbox=NO." >&2
-    docker logs "moonbit-ftp-$profile" >&2 || true
+    dump_container "$profile"
     exit 1
   fi
   echo "  profile '$profile' is up on 127.0.0.1:$port (user $FTP_USER)"
