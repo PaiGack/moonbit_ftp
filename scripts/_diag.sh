@@ -1,19 +1,33 @@
 #!/bin/sh
 set -x
-run() {
+mk() {
   name="$1"; shift
-  d="/tmp/diag/$name"; mkdir -p "$d"
+  d="/tmp/diag/$name"; rm -rf "$d"; mkdir -p "$d"
   cp testdata/ftp/vsftpd-base.conf "$d/vsftpd.conf"
+  if [ "$1" != "-" ]; then
+    for line in "$@"; do printf '%s\n' "$line" >> "$d/vsftpd.conf"; done
+  fi
   printf 'listen_port=2122\n' >> "$d/vsftpd.conf"
-  printf 'pasv_address=127.0.0.1\npasv_max_port=30199\npasv_min_port=30100\npasv_enable=YES\n' >> "$d/vsftpd.conf"
-  for line in "$@"; do printf '%s\n' "$line" >> "$d/vsftpd.conf"; done
-  docker run --rm -v "$d:/c" --entrypoint /bin/sh jmoyer/vsftpd:latest -c "/usr/sbin/vsftpd /c/vsftpd.conf </dev/null 1>/tmp/o 2>/tmp/e; echo RC=\$? OUT=\$(cat /tmp/o) ERR=\$(cat /tmp/e)" 2>/dev/null
+  chmod -R a+rwX "$d"
+  docker rm -f "c-$name" >/dev/null 2>&1
+  id=$(docker run -d --name "c-$name" -v "$d:/etc/vsftpd" \
+    -e FTP_USER=test -e FTP_PASS=test \
+    -e PASV_ADDRESS=127.0.0.1 -e PASV_MIN_PORT=30100 -e PASV_MAX_PORT=30199 \
+    -e PASV_ENABLE=YES -e PASV_ADDR_RESOLVE=NO \
+    -e FILE_OPEN_MODE=0666 -e LOCAL_UMASK=022 -e XFERLOG_STD_FORMAT=NO \
+    -e PASV_PROMISCUOUS=NO -e PORT_PROMISCUOUS=NO \
+    jmoyer/vsftpd:latest)
+  sleep 4
+  st=$(docker inspect -f '{{.State.Status}}' "c-$name" 2>/dev/null)
+  ec=$(docker inspect -f '{{.State.ExitCode}}' "c-$name" 2>/dev/null)
+  echo "RESULT $name status=$st exit=$ec"
+  docker rm -f "c-$name" >/dev/null 2>&1
 }
-echo "baseline:            $(run base)"
-echo "cmds_denied=MLST,MLSD:  $(run mlst_mlsd 'cmds_denied=MLST,MLSD')"
-echo "cmds_denied=MLST:       $(run mlst 'cmds_denied=MLST')"
-echo "cmds_denied=MLSD:       $(run mlsd 'cmds_denied=MLSD')"
-echo "cmds_denied=DELE:       $(run dele 'cmds_denied=DELE')"
-echo "cmds_denied=EPSV:       $(run epsv 'cmds_denied=EPSV')"
-echo "cmds_denied=MDTM:       $(run mdtm 'cmds_denied=MDTM')"
-echo "cmds_denied=MDTM,MFMT:  $(run mdtm_mfmt 'cmds_denied=MDTM,MFMT')"
+echo "run base (no overlay directive)"
+mk base -
+echo "run mlsd"
+mk mlsd 'cmds_denied=MLST,MLSD'
+echo "run dele"
+mk dele 'cmds_denied=DELE'
+echo "run emptycmds"
+mk emptycmds 'cmds_denied='
