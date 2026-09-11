@@ -10,14 +10,12 @@
 main:
   push:
     - docker:
-        build:
-          dockerfile: .ide/Dockerfile
+        build: .ide/Dockerfile
       stages:
         - *moon-test
   pull_request:
     - docker:
-        build:
-          dockerfile: .ide/Dockerfile
+        build: .ide/Dockerfile
       stages:
         - *moon-test
 
