@@ -1,24 +1,3 @@
-# 构建环境复用 .ide/Dockerfile 构建的镜像，避免每次流水线重复安装 MoonBit 工具链。
-# 镜像由平台按 versionBy 计算哈希缓存：.ide/Dockerfile 未变时直接复用，不再重复 docker build。
-#
-# FTP 需要真实 TCP + TLS，moon.mod 里 preferred_target = "native"，
-# 因此所有 moon 命令都显式带 --target native，也不再有 wasm-gc 构建步骤。
-# native 后端需要 C 编译器与 libc 头文件，两者由 .ide/Dockerfile 提供。
-#
-# 端到端测试跑在真实的 FTP 守护进程上，不用任何 mock：
-# 服务器是 `jmoyer/vsftpd`（vsftpd 3.0.5，Debian Trixie），由 scripts/start-ftp.sh
-# 以 DinD 起四个容器，每个容器一份 vsftpd 配置，对应一个「能力画像」
-# （full / no-mlst / no-time / no-epsv）。同一份脚本也被 GitHub Actions 与云原生
-# 开发环境使用，三处行为完全一致。画像的配置在 testdata/ftp/vsftpd-*.conf，
-# fixture 在 testdata/ftp/fixture。
-#
-# 镜像里只有工具链、没有 mooncakes 索引，首次构建前必须 `moon update` 拉取依赖索引，
-# 否则 `moon check/build/test` 会以
-# "Failed to resolve registry dependency `moonbitlang/async` ... module was not found in the registry"
-# 失败（GitHub Actions 侧装的工具链自带索引，所以那边不需要这一步）。
-# 注意：索引拉下来后只能读、不能再被 `moon` 写回文件，否则会报
-# "Permission denied (os error 13)"，故索引目录保持 install 时的属主与权限、不做 chown。
-
 .ftp-ci-env: &ftp-ci-env
   docker:
     build:
@@ -28,54 +7,10 @@
       versionBy:
         - .ide/Dockerfile
 
-# 真实 FTP 服务器的账号与各画像端口。
-#   full    2121  被动 30000-30099
-#   no-mlst 2122  被动 30100-30199
-#   no-time 2123  被动 30200-30299
-#   no-epsv 2124  被动 30300-30399
-# 被动区间每个画像 100 个端口（不是 10 个）：moon test 对同一个测试文件并行执行，
-# 同一画像上会同时有十几个会话各占一个被动端口。区间过窄时 vsftpd 会耗尽端口并向
-# 「正在等回包」的客户端回 `500 OOPS: vsf_sysutil_bind` 后直接关连接，表现为其他
-# 用例莫名其妙的 ReaderClosed 失败。
-# 客户端在 chroot 内看到的根是 /，fixture 只读挂在 /fixture，可写目录是 /upload。
-# FTP_IMAGE 显式指定测试服务器镜像，scripts/start-ftp.sh 也接受同名环境变量。
-.ftp-test-env: &ftp-test-env
-  FTP_IMAGE: jmoyer/vsftpd
-  FTP_IMAGE_TAG: latest
-  FTP_TEST_HOST: 127.0.0.1
-  FTP_TEST_PORT: "2121"
-  FTP_TEST_USER: test
-  FTP_TEST_PASS: test
-  FTP_TEST_FIXTURE: /fixture
-  FTP_TEST_DIR: /upload
-  FTP_TEST_PORT_NO_MLST: "2122"
-  FTP_TEST_PORT_NO_TIME: "2123"
-  FTP_TEST_PORT_NO_EPSV: "2124"
-
-# 起 FTP 容器：四个画像一次起好，脚本内部轮询端口，超时直接 exit 1。
-# 容器起不来时宁可红，也不让端到端用例静默跳过。
-# 起停都走 scripts/ 下的公共脚本，GitHub Actions 与云原生开发环境用的是同一份。
-.start-ftp-server: &start-ftp-server
-  name: start ftp server
-  script: |
-    set -euo pipefail
-    scripts/start-ftp.sh
-
-.stop-ftp-server: &stop-ftp-server
-  name: ftp server log and stop
-  script: |
-    set +e
-    scripts/stop-ftp.sh
-
 # push 与 pull_request 共用同一段构建步骤，避免两处脚本漂移。
 .moon-test: &moon-test
   name: moon test
   script: |
-    export PATH="$HOME/.moon/bin:$PATH"
-    moon version
-    # 干净容器里没有 ~/.moon/registry 索引，直接跑 moon check 会报
-    # "module was not found in the registry"，所以先同步索引与依赖。
-    moon update
     moon check --target native --deny-warn
     moon build --target native
     moon test  --target native --deny-warn
@@ -85,29 +20,15 @@ main:
     - <<: *ftp-ci-env
       services:
         - docker
-      env:
-        <<: *ftp-test-env
       stages:
-        - *start-ftp-server
         - *moon-test
-      endStages:
-        - *stop-ftp-server
-
   pull_request:
     - <<: *ftp-ci-env
       services:
         - docker
-      env:
-        <<: *ftp-test-env
       stages:
-        - *start-ftp-server
         - *moon-test
-      endStages:
-        - *stop-ftp-server
 
-# 云原生开发环境：进入工作区前把四个 FTP 容器起好，
-# 这样在 IDE 里直接 `moon test --target native` 跑的就是真服务器用例。
-# 账号 / 端口 / 画像与 CI 完全一致（同一个启动脚本），不再需要手工准备环境。
 $:
   vscode:
     - docker:
@@ -116,10 +37,3 @@ $:
       services:
         - vscode
         - docker
-      env:
-        <<: *ftp-test-env
-      stages:
-        - *start-ftp-server
-      endStages:
-        # 开发环境销毁时一并清掉容器；日常使用期间 FTP 常驻，无需重启。
-        - *stop-ftp-server

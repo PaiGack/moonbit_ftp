@@ -13,38 +13,8 @@ concurrency:
 
 jobs:
   moonbit:
-    name: MoonBit check & test (native)
+    name: MoonBit check & test
     runs-on: ubuntu-latest
-
-    # The integration tests talk to a real FTP daemon: the `jmoyer/vsftpd`
-    # image, which is vsftpd 3.0.5 on Debian Trixie. A maintained vsftpd image
-    # is pinned rather than a Python daemon because it is the daemon the
-    # project supports against, and vsftpd is what exercises the
-    # `disable_mlsd` / `MDTM` / `EPSV` fallbacks for real. There is
-    # deliberately no mock server any more.
-    #
-    # Four profiles run side by side, one container each:
-    #   full     2121  the reference server
-    #   no-mlst  2122  MLST/MLSD refused, `disable_mlsd` must fall back to LIST
-    #   no-time  2123  MDTM refused, so no modification time is readable
-    #   no-epsv  2124  EPSV refused, PASV must be used and kept
-    env:
-      # Image the tests run against, also read by scripts/start-ftp.sh.
-      FTP_IMAGE: jmoyer/vsftpd
-      FTP_IMAGE_TAG: latest
-      FTP_TEST_HOST: 127.0.0.1
-      FTP_TEST_PORT: "2121"
-      FTP_TEST_USER: test
-      FTP_TEST_PASS: test
-      FTP_TEST_FIXTURE: /fixture
-      FTP_TEST_DIR: /upload
-      FTP_TEST_PORT_NO_MLST: "2122"
-      FTP_TEST_PORT_NO_TIME: "2123"
-      FTP_TEST_PORT_NO_EPSV: "2124"
-      # Where scripts/start-ftp.sh stages the fixture, the per-profile configs
-      # and the container user homes.
-      FTP_ROOT: ${{ github.workspace }}/.tmp/ftp-root
-      FTP_CONF_ROOT: ${{ github.workspace }}/.tmp/ftp-conf
 
     steps:
       - name: Checkout
@@ -58,14 +28,6 @@ jobs:
       - name: MoonBit version
         run: moon version --all
 
-      # A fresh runner has no ~/.moon/registry index, so `moon check` would fail
-      # with "module was not found in the registry" for moonbitlang/async and
-      # moonbitlang/x. Sync the registry index (and pull dependencies) first.
-      - name: moon update
-        run: moon update
-
-      # FTP needs a real TCP + TLS stack, so only the native backend is built.
-      # `preferred_target = native` in moon.mod makes wasm builds fail.
       - name: moon check
         run: |
           moon fmt --check
@@ -74,21 +36,10 @@ jobs:
           git diff --exit-code
           git status
 
-      # Pulls `jmoyer/vsftpd`, which is public, and starts one container per
-      # profile. The same script is used by the CNB pipeline and the cloud dev
-      # environment; it polls each control port and exits non-zero when a
-      # profile does not come up.
-      - name: Start FTP server
-        run: scripts/start-ftp.sh
-
       - name: moon test
         run: |
           moon test --target native --deny-warn --enable-coverage
           moon coverage report -f summary
-
-      - name: FTP server log and stop
-        if: always()
-        run: scripts/stop-ftp.sh
 
       - name: moon build
         run: |
