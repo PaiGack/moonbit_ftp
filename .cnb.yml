@@ -1,23 +1,20 @@
-# push 与 pull_request 共用同一段构建步骤，避免两处脚本漂移。
-.moon-test: &moon-test
-  name: moon test
-  script: |
-    moon update
-    moon check --target native --deny-warn
-    moon build --target native
-    moon test  --target native --deny-warn
-
 main:
   push:
     - docker:
         build: .ide/Dockerfile
       stages:
-        - *moon-test
+        - moon update
+        - moon check --target native --deny-warn
+        - moon build --target native
+        - moon test  --target native --deny-warn
   pull_request:
     - docker:
         build: .ide/Dockerfile
       stages:
-        - *moon-test
+        - moon update
+        - moon check --target native --deny-warn
+        - moon build --target native
+        - moon test  --target native --deny-warn
 
 $:
   vscode:
