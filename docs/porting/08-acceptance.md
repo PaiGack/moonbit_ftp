@@ -83,7 +83,7 @@ moon info && git diff --exit-code       # 接口文件无未提交变更
 
 - [ ] `moon add PaiGack/ftp` 在干净项目里可用
 - [ ] mooncakes.io 上能访问项目页
-- [ ] `LICENSE-THIRD-PARTY` 含上游 ISC 原文 + 署名 + 来源链接
+- [x] `LICENSE-THIRD-PARTY` 含上游 ISC 原文 + 署名 + 来源链接
 - [ ] 「与 Go 版行为对照表」写入文档，覆盖全部有意差异
 - [ ] 打 tag 并发布 Release
 

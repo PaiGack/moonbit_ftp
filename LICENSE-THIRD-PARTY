@@ -1,0 +1,72 @@
+THIRD-PARTY LICENSES
+====================
+
+This project (PaiGack/ftp) is a MoonBit port of the Go library
+`jlaffaye/ftp`. The upstream project is licensed under the ISC License,
+which is reproduced in full below together with the required copyright
+notice and attribution.
+
+--------------------------------------------------------------------------------
+1. jlaffaye/ftp (ISC License)
+--------------------------------------------------------------------------------
+
+Upstream project name: jlaffaye/ftp
+Upstream repository:   https://github.com/jlaffaye/ftp
+Upstream license:      ISC License
+Copyright holder:      Copyright (c) 2011-2013, Julien Laffaye <jlaffaye@FreeBSD.org>
+Used by:               this repository's MoonBit sources (see note below)
+
+The ISC License text is reproduced verbatim:
+
+    Copyright (c) 2011-2013, Julien Laffaye <jlaffaye@FreeBSD.org>
+
+    Permission to use, copy, modify, and/or distribute this software for any
+    purpose with or without fee is hereby granted, provided that the above
+    copyright notice and this permission notice appear in all copies.
+
+    THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+    WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+    MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+    ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+    WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+    ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+--------------------------------------------------------------------------------
+2. Scope of reference
+--------------------------------------------------------------------------------
+
+The MoonBit sources in this repository are a port of, and are derived from,
+jlaffaye/ftp. The following upstream artifacts were used as the reference
+basis:
+
+- ftp.go, parse.go, status.go, scanner.go, walker.go, debug.go (implementation)
+  and the matching *_test.go files (test cases and expectations), as mapped
+  file-by-file in docs/porting/02-upstream-map.md.
+- The LIST / MLSD line parsers and the "half-year rule" for timestamps in
+  parse.go are behavior ports; the FTP response status table in status.go is
+  ported into status.mbt.
+- Test expectations were adapted from the upstream test suite. End-to-end
+  tests run against a real server and are declared in ftp_server_test.mbt.
+
+The port is not a mechanical translation: files were reorganized by
+responsibility, the async I/O layer was rebuilt on `moonbitlang/async`, and
+Go-specific types, error values and concurrency constraints were rewritten
+using MoonBit idioms. The deliberate behavioral differences from the upstream
+Go implementation are enumerated in docs/porting/02-upstream-map.md and
+docs/porting/06-compat-checklist.md.
+
+Per-file provenance: every file carrying ported code starts with a header of
+the form
+
+    // Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.
+
+so the ISC terms above apply to those files.
+
+--------------------------------------------------------------------------------
+3. This repository's own license
+--------------------------------------------------------------------------------
+
+Original code of this repository is licensed under the Apache License 2.0;
+see the root LICENSE file. The ISC terms above are compatible with
+Apache-2.0 and apply only to the portions derived from jlaffaye/ftp.
