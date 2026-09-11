@@ -152,11 +152,75 @@ wait_for_port() {
   return 1
 }
 
+# Log in for real on a control port, using the same handshake the tests do,
+# and return non-zero unless every reply arrives.
+#
+# A bare TCP connect is not enough to prove a profile works. The daemon's
+# post-login child can die after it accepted the connection and after it
+# started writing its banner: the client then reads a truncated `500 OOPS: `
+# and the tests fail with an error that looks like a protocol bug in the
+# library. `seccomp_sandbox=NO` in testdata/ftp/vsftpd-base.conf exists to
+# keep that from happening, so this probe makes its absence loud here rather
+# than as thirty confusing test failures later.
+probe_login() {
+  port="$1"
+  python3 - "$port" "$FTP_USER" "$FTP_PASS" <<'PY'
+import socket, sys
+
+port, user, password = sys.argv[1], sys.argv[2], sys.argv[3]
+
+
+def read_reply(sock):
+    data = b""
+    while b"\r\n" not in data:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+        if len(data) > 4096:
+            break
+    return data
+
+
+try:
+    sock = socket.create_connection(("127.0.0.1", int(port)), 5)
+    sock.settimeout(5)
+    banner = read_reply(sock)
+    # A bare `500 OOPS: ` banner means the login child died mid-write, which
+    # is exactly what a killing seccomp filter looks like on the wire.
+    if not banner.startswith(b"220"):
+        print("  control connection did not send a 220 banner: %r" % banner, file=sys.stderr)
+        sys.exit(1)
+    for command, expected in (
+        ("USER %s" % user, b"331"),
+        ("PASS %s" % password, b"230"),
+        ("PWD", b"257"),
+    ):
+        sock.sendall(command.encode() + b"\r\n")
+        reply = read_reply(sock)
+        if not reply.startswith(expected):
+            print("  %s got %r, expected a %s reply" % (command.split()[0], reply, expected.decode()), file=sys.stderr)
+            sys.exit(1)
+    sock.sendall(b"QUIT\r\n")
+    sock.close()
+except OSError as exc:
+    print("  login probe failed: %s" % exc, file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
 for profile in $PROFILES; do
   echo "starting FTP profile '$profile'"
   start_profile "$profile"
   if ! wait_for_port "$port"; then
     echo "FTP profile '$profile' did not come up on port $port" >&2
+    docker logs "moonbit-ftp-$profile" >&2 || true
+    exit 1
+  fi
+  if ! probe_login "$port"; then
+    echo "FTP profile '$profile' accepted the connection but the login failed on port $port" >&2
+    echo "  A bare '500 OOPS: ' banner means the login child died before it could answer;" >&2
+    echo "  check that testdata/ftp/vsftpd-base.conf still sets seccomp_sandbox=NO." >&2
     docker logs "moonbit-ftp-$profile" >&2 || true
     exit 1
   fi
