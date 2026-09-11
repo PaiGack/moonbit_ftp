@@ -107,12 +107,20 @@ GitHub Actions、CNB 流水线与 CNB 云原生开发环境调用的都是**同�
 
 - [docs/porting.md](docs/porting.md) — 移植总体方案
 - [docs/porting/](docs/porting/) — 实施文档集（架构、上游映射、工作包、API 映射、测试、兼容清单、风险、验收）
+- [LICENSE-THIRD-PARTY](LICENSE-THIRD-PARTY) — 上游 jlaffaye/ftp 的 ISC 许可证原文与署名
 
 ## 致谢与来源
 
 本项目为 [jlaffaye/ftp](https://github.com/jlaffaye/ftp)（ISC License）的 MoonBit 移植，
 参考其协议实现与测试用例。原项目版权归 Julien Laffaye 所有。
 
+上游 ISC 许可证原文、版权署名、来源链接与参考范围说明见
+[LICENSE-THIRD-PARTY](LICENSE-THIRD-PARTY)；逐文件的上游落点映射见
+[docs/porting/02-upstream-map.md](docs/porting/02-upstream-map.md)。所有包含移植代码的
+源文件头部均标注 `Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.`。
+
 ## 许可证
 
-Apache-2.0，见 [LICENSE](LICENSE)。
+本项目自身代码采用 Apache-2.0，见 [LICENSE](LICENSE)。
+移植自 [jlaffaye/ftp](https://github.com/jlaffaye/ftp) 的部分同时受其 ISC 许可约束，
+原文见 [LICENSE-THIRD-PARTY](LICENSE-THIRD-PARTY)。
