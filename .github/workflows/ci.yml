@@ -58,16 +58,14 @@ jobs:
       - name: Start vsftpd container
         run: scripts/start-ftp.sh
 
+      # Both demo steps go through the directory wrappers, so the server
+      # address / credentials and the moon invocation live in one place per
+      # package instead of being inlined here (and again in .cnb.yml).
       - name: Run cmd/example against the running server
-        run: |
-          export FTP_TEST_HOST=127.0.0.1 FTP_TEST_PORT=21 \
-                 FTP_TEST_USER=test FTP_TEST_PASS=test
-          moon run cmd/example --target native
+        run: cmd/example/run.sh --target native
 
       - name: Smoke-test cmd/ftp
-        run: |
-          moon run cmd/ftp --target native -- \
-            --host 127.0.0.1 --port 21 --user test --pass test ls /
+        run: cmd/ftp/run.sh ls /
 
       - name: Stop vsftpd container
         if: always()

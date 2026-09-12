@@ -29,8 +29,8 @@ else
   cmd_args=($FTP_COMMAND)
 fi
 
-moon run cmd/ftp --target native -- \
-  --host "$FTP_HOST" \
+# All flags are quoted, so an empty command list stays an empty argument list.
+./scripts/run-ftp.sh --host "$FTP_HOST" \
   --port "$FTP_PORT" \
   --user "$FTP_USER" \
   --pass "$FTP_PASS" \

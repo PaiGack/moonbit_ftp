@@ -5,21 +5,41 @@
       versionBy:
         - .ide/Dockerfile
 
-# 真实 FTP 服务器演示：起 vsftpd 容器，跑 cmd/example，然后清理容器。
+# 打容器日志并清理，挂到 Pipeline 的 endStages。
+.stop-ftp: &stop-ftp
+  name: ftp server log and stop
+  script: scripts/stop-ftp.sh || true
+
+# 真实 FTP 服务器演示：起 vsftpd 容器，跑 cmd/example 与 cmd/ftp，然后清理容器。
 # 与 moon-test 共用 docker service（DinD），端口通过 --network host 暴露。
+#
+# 两个客户端都走各自目录下的 run.sh（cmd/*/run.sh），不要再把
+# export FTP_TEST_* + moon run 内联到这里：账号 / 端口 / target 只在脚本里出现一次，
+# 与 GitHub Actions 调的是同一份脚本，避免两处流水线漂移。
+# 起停容器同样复用公共脚本 scripts/start-ftp.sh 与 scripts/stop-ftp.sh。
 .ftp-demo: &ftp-demo
   name: ftp-demo
-  scripts:
-    - shell: scripts/start-ftp.sh
-    - shell: |
-        export FTP_TEST_HOST=127.0.0.1 FTP_TEST_PORT=21 \
-               FTP_TEST_USER=test FTP_TEST_PASS=test
-        moon run cmd/example --target native
-    - shell: scripts/stop-ftp.sh || true
+  jobs:
+    - name: start ftp server
+      script: scripts/start-ftp.sh
+    - name: cmd/example against the running server
+      script: cmd/example/run.sh --target native
+    - name: smoke-test cmd/ftp
+      script: cmd/ftp/run.sh ls /
 
 # push 与 pull_request 共用同一段构建步骤，避免两处脚本漂移。
 .moon-test: &moon-test
   name: moon test
+  script: |
+    export PATH="$HOME/.moon/bin:$PATH"
+    moon version
+    # 干净容器里没有 ~/.moon/registry 索引，直接跑 moon check 会报
+    # "module was not found in the registry"，所以先同步索引与依赖。
+    moon update
+    moon fmt --check
+    moon check --target native --deny-warn
+    moon build --target native
+    moon test --target native --deny-warn
 main:
   push:
     - <<: *ftp-ci-env
@@ -28,6 +48,10 @@ main:
       stages:
         - *moon-test
         - *ftp-demo
+      # 清理放在 Pipeline 的 endStages 而不是 ftp-demo 里：无论 stages 成功还是
+      # 失败都会执行，且不影响流水线最终状态（演示挂了也能收到容器日志）。
+      endStages:
+        - *stop-ftp
   pull_request:
     - <<: *ftp-ci-env
       services:
@@ -35,6 +59,8 @@ main:
       stages:
         - *moon-test
         - *ftp-demo
+      endStages:
+        - *stop-ftp
 
 $:
   vscode:
