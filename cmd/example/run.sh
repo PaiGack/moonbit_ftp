@@ -2,9 +2,7 @@
 # Run cmd/example against the vsftpd container started by scripts/start-ftp.sh.
 #
 # Reads configuration from a .env file (auto-created from .env.example) and
-# exports it to the child process. Takes no arguments: the server address, the
-# credentials and the moon invocation are fixed here so the same command works
-# locally and in CI.
+# exports it to the child process.
 #
 # Usage:
 #   scripts/start-ftp.sh
@@ -27,4 +25,4 @@ set +a
 
 # Build/run from the repo root so `moon run cmd/example` resolves the package.
 cd "$SCRIPT_DIR/../.."
-exec moon run cmd/example --target native
+moon run cmd/example --target native

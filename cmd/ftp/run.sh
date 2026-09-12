@@ -2,13 +2,14 @@
 # Run cmd/ftp against the vsftpd container started by scripts/start-ftp.sh.
 #
 # Reads configuration from a .env file (auto-created from .env.example) and
-# forwards it to cmd/ftp as CLI flags. Takes no arguments: the server address,
-# the credentials and the command to run are fixed here, so the same command
-# works locally and in CI.
+# forwards it to cmd/ftp as CLI flags. Arguments are passed straight through to
+# cmd/ftp; with none, the default command from .env runs, so the script works as
+# a no-argument smoke test in CI and as `cmd/ftp/run.sh ls /x` locally.
 #
 # Usage:
 #   scripts/start-ftp.sh
-#   cmd/ftp/run.sh
+#   cmd/ftp/run.sh                  # default command from .env
+#   cmd/ftp/run.sh ls /sub          # explicit subcommand, overrides .env
 #   scripts/stop-ftp.sh
 set -euo pipefail
 
@@ -29,12 +30,16 @@ set +a
 # Build/run from the repo root so `moon run cmd/ftp` resolves the package.
 cd "$SCRIPT_DIR/../.."
 
-# The command to run on the server still comes from .env, but no argv is
-# accepted: `run.sh` is the fixed "demo the CLI against the fixture" entry.
-# shellcheck disable=SC2206
-cmd_args=($FTP_COMMAND)
+# Explicit argv wins; otherwise fall back to the command configured in .env so
+# the script stays runnable with no arguments.
+if [ "$#" -gt 0 ]; then
+  cmd_args=("$@")
+else
+  # shellcheck disable=SC2206
+  cmd_args=($FTP_COMMAND)
+fi
 
-exec moon run cmd/ftp --target native -- \
+moon run cmd/ftp --target native -- \
   --host "$FTP_HOST" \
   --port "$FTP_PORT" \
   --user "$FTP_USER" \
