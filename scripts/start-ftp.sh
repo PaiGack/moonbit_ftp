@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Start a single vsftpd container for `cmd/example` to connect to.
-# One container, control port + PASV range mapped onto 127.0.0.1, testdata
-# mounted as the FTP root.
+# Start a single vsftpd container for `cmd/example` / `cmd/ftp` to connect to.
+# One container on the host network (no -p port mappings), control port 21 and
+# the PASV range bound directly on the host, testdata mounted as the FTP root.
 set -euo pipefail
 
 : "${FTP_IMAGE:=jmoyer/vsftpd:latest}"
@@ -15,23 +15,20 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FIXTURE="$ROOT/testdata/ftp/fixture"
 
 NAME="moonbit-ftp-example"
-PORT=2121
+PORT=21
 
 # Drop any leftover container with the same name.
 if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$NAME"; then
   docker rm -f "$NAME" >/dev/null 2>&1 || true
 fi
 
-# Bridge networking with explicit port mappings is more portable than
-# --network host: rootless Docker cannot share the host's network namespace,
-# and even non-rootless setups fall back to bridge when the user namespace
-# differs. PASV_ADDRESS=127.0.0.1 fixes the advertised PASV IP to loopback
-# (the image otherwise autodetects the gateway IP, which isn't reachable
-# from the client connecting via 127.0.0.1).
+# --network host shares the host's network namespace, so vsftpd listens on
+# port 21 (and the PASV range) directly on the host — no -p mappings needed.
+# PASV_ADDRESS=127.0.0.1 advertises loopback as the data-channel IP, which is
+# what the client reaches when it dials 127.0.0.1.
 docker run -d --rm \
   --name "$NAME" \
-  -p 127.0.0.1:$PORT:21 \
-  -p 127.0.0.1:$PASV_MIN_PORT-$PASV_MAX_PORT:$PASV_MIN_PORT-$PASV_MAX_PORT \
+  --network host \
   -e FTP_USER="$FTP_USER" \
   -e FTP_PASS="$FTP_PASS" \
   -e PASV_ADDRESS=127.0.0.1 \
