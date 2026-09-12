@@ -97,58 +97,7 @@ moon info                                # 更新生成接口（.mbti）
 ```
 
 提交前请确认 `moon fmt --check`、`moon check --target native --deny-warn`、
-`moon test --target native` 三条本地能过，CI 跑的就是这三条。
-
-### CI
-
-CI 在 CNB 与 GitHub Actions 上各有一份流水线配置，两者执行同一份脚本
-[`scripts/ci.sh`](scripts/ci.sh)，步骤完全一致：
-
-| 流水线 | 配置文件 | 触发方式 |
-| --- | --- | --- |
-| CNB | [`.cnb.yml`](.cnb.yml) | `main` 分支 push、PR |
-| GitHub Actions | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | `main` 分支 push、PR、手动触发 |
-
-一次 CI 依次执行：
-
-```bash
-moon fmt --check                                    # 格式检查
-moon check --target native --deny-warn              # 类型检查
-moon info && git diff --exit-code                   # 生成的 .mbti 必须已提交
-moon test --target native --deny-warn               # 单元测试
-moon coverage report -f summary                     # 覆盖率摘要
-moon build --target native                          # 构建
-moon build --target native --release                # release 构建
-moon run cmd/ftp -- --help                          # CLI 冒烟
-cmd/example/run.sh                                  # 真实 vsftpd 端到端演示
-cmd/ftp/run.sh                                      # CLI 对真实服务器冒烟
-```
-
-演示用的 vsftpd 容器由 `scripts/start-ftp.sh` 启动，`scripts/stop-ftp.sh`
-负责导出容器日志并清理，失败时同样会执行。
-
-本地复现 CI 只要一条命令（需要本机 Docker）：
-
-```bash
-bash scripts/ci.sh
-```
-
-### 端到端演示
-
-除单元测试外，CI 还会连一个真实的 vsftpd 服务器，完整跑一遍 dial / login /
-list / retr / stor / rename / mkdir / walk / quit。
-
-分步跑（容器需先起好）：
-
-```bash
-scripts/start-ftp.sh                     # 起 vsftpd 容器，监听 127.0.0.1:21
-cmd/example/run.sh                       # 端到端演示，读 cmd/example/.env
-cmd/ftp/run.sh                           # CLI 冒烟，默认跑 cmd/ftp/.env 里的 FTP_COMMAND
-cmd/ftp/run.sh ls /                      # 也可以直接带参数，覆盖上面的默认命令
-scripts/stop-ftp.sh                      # 导出容器日志并清理
-```
-
-服务器地址、账号等配置放在 `cmd/*/.env`（首次运行从 `.env.example` 复制）。
+`moon test --target native` 三条命令均通过。
 
 ## 目录结构
 
@@ -174,11 +123,11 @@ scripts/stop-ftp.sh                      # 导出容器日志并清理
 ├── cmd/ftp/                   CLI 示例：ls / get / put / walk / mkdir / rm
 │   ├── main.mbt
 │   └── run.sh                 按 .env 跑 cmd/ftp，可带参数覆盖默认命令
-├── cmd/example/               真实 vsftpd 端到端演示（CI 使用）
+├── cmd/example/               真实 vsftpd 端到端演示
 │   ├── main.mbt
 │   └── run.sh                 按 .env 跑 cmd/example
 ├── scripts/
-│   ├── ci.sh                  CI 入口脚本（CNB 与 GitHub Actions 共用）
+│   ├── ci.sh                  CI 入口脚本
 │   ├── start-ftp.sh           启动 vsftpd 容器
 │   ├── probe-ftp.py           容器就绪探测（登录 + 一次被动 LIST）
 │   └── stop-ftp.sh            导出容器日志并清理
