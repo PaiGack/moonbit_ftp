@@ -143,6 +143,7 @@ scripts/stop-ftp.sh                      # 打容器日志并清理
 ├── scripts/                          跨 CI 复用的公共脚本
 │   ├── ci.sh                         CI 唯一入口（CNB / GitHub 共用，含全部步骤）
 │   ├── start-ftp.sh                  起一个真实 vsftpd 容器（CNB / GitHub 共用）
+│   ├── probe-ftp.py                  就绪探测：完整登录 + 一次被动 LIST
 │   └── stop-ftp.sh                   打容器日志并清理
 ├── testdata/ftp/                     fixture 内容
 ├── .cnb.yml / .github/workflows/     CNB 与 GitHub 两条流水线（调同一份 scripts/）
