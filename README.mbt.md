@@ -20,6 +20,62 @@ export PATH="$HOME/.moon/bin:$PATH"
 sudo apt-get install -y gcc libc6-dev
 ```
 
+## 快速开始
+
+所有公开函数都是 `async` 函数，调用方需处在 `@async` 运行时中（CLI / 测试里写
+`async fn main` 即可，无需手写 `await`）。最小可运行例子：
+
+```moonbit
+async fn main {
+  // 1. 建连并登录
+  let client = @ftp.dial("127.0.0.1:21", timeout_ms=15000)
+  @ftp.login(client, "user", "pass")
+
+  // 2. 列目录：优先 MLSD，否则自动回退到 LIST 四种格式解析
+  for entry in @ftp.list(client, "/") {
+    println("\{entry.type_.to_string()}  size=\{entry.size}  \{entry.name}")
+  }
+
+  // 3. 下载文件
+  let resp = @ftp.retr(client, "/hello.txt")
+  let bytes = resp.reader.read_all() catch { _ => b"" }
+  resp.close()
+
+  // 4. 上传文件（任意 &@io.Reader 均可）
+  @ftp.stor(client, "/upload.txt", @io.MemoryReader(w => w.write("demo upload")))
+
+  // 5. 目录与文件操作
+  @ftp.make_dir(client, "/newdir")
+  @ftp.rename(client, "/a.txt", "/b.txt")
+  @ftp.delete(client, "/b.txt")
+
+  // 6. 递归遍历目录树
+  let w = @ftp.walk(client, "/")
+  while w.next() {
+    println(w.path())
+  }
+
+  // 7. 退出并关闭连接
+  @ftp.quit(client)
+}
+```
+
+### 常用函数
+
+| 函数 | 作用 |
+| --- | --- |
+| `dial(addr, ..)` | 建连，可选 `explicit_tls` / `tls` / `timeout_ms` / `trust_pasv_ip` 等参数 |
+| `login(client, user, pass)` | `USER`/`PASS` 登录并协商 `FEAT` / `TYPE` 能力 |
+| `list(client, path)` | 列目录，返回 `Array[Entry]`（MLSD / LIST 自动回退） |
+| `get_entry(client, path)` | 取单个条目的 facts |
+| `retr` / `retr_from(client, path, offset)` | 下载 / 断点续传下载 |
+| `stor` / `append(client, path, reader)` | 上传 / 追加 |
+| `make_dir` / `remove_dir` / `delete` / `rename` / `change_dir` / `current_dir` | 目录与文件管理 |
+| `walk(client, root)` | 深度优先遍历目录树，`next()` 失败时不抛错而是返回 `false` |
+| `quit(client)` | 发 `QUIT` 并关闭连接 |
+
+> 错误以 `FtpError` 抛出，可用 `catch` / `try!` 统一处理；`list` / `walk` 解析不出的行会被跳过而非中断。
+
 ## 开发
 
 所有 `moon` 命令都显式带上 `--target native`：`preferred_target` 已是 `native`，
@@ -30,47 +86,13 @@ moon fmt --check                         # 格式化检查
 moon check  --target native --deny-warn  # 类型检查，0 warning 0 error
 moon test   --target native              # 运行测试
 moon build  --target native              # 构建
-moon run cmd/ftp -- --help               # CLI 用法
-moon run cmd/example                     # 真机演示（需先起 vsftpd）
 moon info                                # 更新生成接口（.mbti）
 ```
 
-### 真实 FTP 服务器演示
-
-`cmd/example` 是一个跑在**真实 vsftpd** 上的端到端演示：起一个
-`jmoyer/vsftpd` 容器，挂 `testdata/ftp/fixture/` 为 FTP 根目录，跑一遍
-dial / login / list / retr / stor / mkdir / walk / quit，每步打印到 stdout。
-镜像与 fixture 由公共脚本 `scripts/start-ftp.sh` 提供：
-
-```bash
-scripts/start-ftp.sh            # 起一个 jmoyer/vsftpd 容器（--network host）
-
-export FTP_TEST_HOST=127.0.0.1 FTP_TEST_PORT=21 \
-       FTP_TEST_USER=test FTP_TEST_PASS=test
-moon run cmd/example --target native
-
-scripts/stop-ftp.sh             # 打日志并清理容器
-```
-
-GitHub Actions（`ftp-demo` job）与 CNB 流水线（`ftp-demo` stage）都调用
-**同一份**脚本（`scripts/start-ftp.sh` / `scripts/stop-ftp.sh`），镜像为
-`jmoyer/vsftpd`（vsftpd 3.0.5），fixture 在 `testdata/ftp/fixture/`。
-详见 [docs/porting/05-testing.md](docs/porting/05-testing.md) 第 4 节。
-
-### 公共脚本
-
-跨 CI 复用、需要跟平台无关的脚本统一放在 `scripts/`：
-
-| 脚本 | 作用 |
-| --- | --- |
-| `scripts/start-ftp.sh` | 起一个真实 FTP 服务器容器并轮询端口，起不来直接 exit 1 |
-| `scripts/stop-ftp.sh` | 打印容器日志并清理，从不失败 |
-
 ## 目录结构
 
-所有源码**直接平铺在仓库根目录**，没有包目录层级。原先的 `types/` `client/` `parse/`
-这些目录全部展开成了同级的 `.mbt` 文件，引用也从 `@types.Entry` 变成直接的 `Entry`
-（都在同一个包 `PaiGack/ftp` 里）。
+所有源码**直接平铺在仓库根目录**，没有包目录层级，都在同一个包 `PaiGack/ftp` 里，
+互相之间用裸名字引用（如 `Entry`、`parse_list_line`）。
 
 ```
 .
@@ -106,12 +128,6 @@ GitHub Actions（`ftp-demo` job）与 CNB 流水线（`ftp-demo` stage）都调�
 源文件头部的 `// Layer: pure logic` / `// Layer: IO` 标记上，目录树按层分组列出文件名。
 
 依赖方向单向、禁止反向，详见 [docs/porting/01-architecture.md](docs/porting/01-architecture.md)。
-
-## 文档
-
-- [docs/porting.md](docs/porting.md) — 移植总体方案
-- [docs/porting/](docs/porting/) — 实施文档集（架构、上游映射、工作包、API 映射、测试、兼容清单、风险、验收）
-- [LICENSE-THIRD-PARTY](LICENSE-THIRD-PARTY) — 上游 jlaffaye/ftp 的 ISC 许可证原文与署名
 
 ## 致谢与来源
 
