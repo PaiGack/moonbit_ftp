@@ -20,55 +20,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The whole CI — check / test / build / real-server demo / cleanup —
+      # lives in scripts/ci.sh, which .cnb.yml calls too, so the two
+      # pipelines cannot drift apart.
       - name: Install MoonBit toolchain
         run: |
           curl -fsSL https://cli.moonbitlang.cn/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
 
-      - name: MoonBit version
-        run: |
-          moon version --all
-          moon update
-
-      - name: moon check
-        run: |
-          moon fmt --check
-          moon check --target native --deny-warn
-          moon info
-          git diff --exit-code
-          git status
-
-      - name: moon test
-        run: |
-          moon test --target native --deny-warn --enable-coverage
-          moon coverage report -f summary
-
-      - name: moon build
-        run: |
-          moon build --target native
-          moon build --target native --release
-
-      - name: moon run cmd
-        run: |
-          moon run cmd/ftp -- --help
-
-      - name: Tokei
-        run: docker run --rm -v $(pwd):/src ghcr.io/xampprocky/tokei:latest .
-
-      - name: Start vsftpd container
-        run: scripts/start-ftp.sh
-
-      - name: Run cmd/example against the running server
-        run: |
-          export FTP_TEST_HOST=127.0.0.1 FTP_TEST_PORT=21 \
-                 FTP_TEST_USER=test FTP_TEST_PASS=test
-          moon run cmd/example --target native
-
-      - name: Smoke-test cmd/ftp
-        run: |
-          moon run cmd/ftp --target native -- \
-            --host 127.0.0.1 --port 21 --user test --pass test ls /
-
-      - name: Stop vsftpd container
-        if: always()
-        run: scripts/stop-ftp.sh
+      - name: Run CI
+        run: bash scripts/ci.sh

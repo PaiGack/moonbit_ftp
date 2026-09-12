@@ -24,15 +24,16 @@ You can browse and install extra skills here:
 - `cmd/example` is the real-FTP-server smoke program: it starts a single
   `jmoyer/vsftpd` container via `scripts/start-ftp.sh`, exercises dial / login
   / list / retr / stor / rename / mkdir / walk / quit against the fixture in
-  `testdata/ftp/fixture/`, and prints each step to stdout. CI runs it; the
-  GitHub Actions job is `ftp-demo`, the CNB stage is `ftp-demo`. A failure is
+  `testdata/ftp/fixture/`, and prints each step to stdout. `cmd/example/run.sh`
+  and `cmd/ftp/run.sh` are its fixed, argument-free entry points. A failure is
   a hard failure — never soften it into a skip.
 
-- Cross-CI shell scripts live in `scripts/` and are the single source of truth
-  for every pipeline. `.cnb.yml`, `.github/workflows/ci.yml` and the CNB cloud
-  dev environment all call the same `scripts/start-ftp.sh` /
-  `scripts/stop-ftp.sh`; do not inline an equivalent `docker run` into a
-  pipeline, and do not add a per-provider copy.
+- `scripts/ci.sh` is the single CI entry point: the whole check / test / build /
+  real-server-demo / cleanup sequence. `.cnb.yml` and
+  `.github/workflows/ci.yml` each have exactly one job whose only real step is
+  `bash scripts/ci.sh`, so the two pipelines cannot drift apart. Do not inline
+  `moon` commands, credentials or `docker run` into either pipeline, and do not
+  add a per-provider copy of a script.
 
 - The root `moon.pkg` has one plain import block (shared by the pure logic
   files, the IO files and the in-package tests, because MoonBit 0.1.20260904 has
