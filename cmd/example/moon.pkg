@@ -1,8 +1,7 @@
 import {
-  "PaiGack/ftp" @lib,
+  "PaiGack/ftp",
   "moonbitlang/async",
-  "moonbitlang/async/fs",
-  "moonbitlang/core/debug",
+  "moonbitlang/async/io",
   "moonbitlang/core/env",
 }
 

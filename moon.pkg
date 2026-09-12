@@ -21,7 +21,3 @@ import {
   "moonbitlang/x/time",
   "moonbitlang/core/debug",
 } for "wbtest"
-
-import {
-  "moonbitlang/core/env",
-} for "test"

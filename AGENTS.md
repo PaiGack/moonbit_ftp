@@ -13,25 +13,26 @@ You can browse and install extra skills here:
   so symbols are referenced by bare name (`Entry`, `parse_list_line`) instead of
   `@types.Entry` / `@parse.parse_list_line`.
 
-- Only `cmd/ftp/` is a separate package: it is the CLI executable. Everything
-  else is in the root `PaiGack/ftp` package.
+- `cmd/ftp/` and `cmd/example/` are separate packages: they are the CLI
+  executable and the real-FTP-server demonstration. Everything else is in the
+  root `PaiGack/ftp` package. Both `cmd/*/moon.pkg` declare `supported_targets
+  = "+native"` because the async runtime requires it.
 
 - Test files keep the usual naming: `*_test.mbt` (blackbox) and `*_wbtest.mbt`
   (whitebox). They live in the same root package as the code.
 
-- `ftp_server_test.mbt` holds the *real* FTP server end-to-end tests. They are
-  opt in through `FTP_TEST_*` environment variables and return early when
-  `FTP_TEST_HOST` is unset, so a bare `moon test` stays green locally while CI
-  runs them against real vsftpd containers started by `scripts/start-ftp.sh`.
-  There is no mock server anywhere in the repository. When `FTP_TEST_HOST` is
-  set, a failure is a hard failure - never soften it into a skip.
+- `cmd/example` is the real-FTP-server smoke program: it starts a single
+  `jmoyer/vsftpd` container via `scripts/start-ftp.sh`, exercises dial / login
+  / list / retr / stor / rename / mkdir / walk / quit against the fixture in
+  `testdata/ftp/fixture/`, and prints each step to stdout. CI runs it; the
+  GitHub Actions job is `ftp-demo`, the CNB stage is `ftp-demo`. A failure is
+  a hard failure — never soften it into a skip.
 
 - Cross-CI shell scripts live in `scripts/` and are the single source of truth
   for every pipeline. `.cnb.yml`, `.github/workflows/ci.yml` and the CNB cloud
   dev environment all call the same `scripts/start-ftp.sh` /
   `scripts/stop-ftp.sh`; do not inline an equivalent `docker run` into a
-  pipeline, and do not add a per-provider copy. Non-standard staging paths go
-  under `.tmp/` and are gitignored.
+  pipeline, and do not add a per-provider copy.
 
 - The root `moon.pkg` has one plain import block (shared by the pure logic
   files, the IO files and the in-package tests, because MoonBit 0.1.20260904 has

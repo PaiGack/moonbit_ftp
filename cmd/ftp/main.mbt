@@ -3,21 +3,32 @@
 // Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.
 
 ///|
-/// A minimal CLI skeleton for the FTP client.
+/// A small FTP CLI that drives the PaiGack/ftp client API.
 ///
-/// W0 delivers the argument parsing and the usage output; the six subcommands
-/// (`ls` / `get` / `put` / `walk` / `mkdir` / `rm`) are filled in by W7 once
-/// the client API is complete.
-fn main {
-  let args = @env.args()
-  match parse_args(args) {
+/// Usage: moon run cmd/ftp -- [options] <command> [args]
+///
+/// Subcommands:
+///   ls <path>              list a remote directory
+///   get <remote> [local]   download a file (resumes if local is shorter)
+///   put <local> [remote]   upload a file
+///   walk <root>            walk a remote directory tree
+///   mkdir <path>           create a directory
+///   rm <path>              remove a file or empty directory
+///
+/// Options:
+///   --host <host>          server host (default 127.0.0.1)
+///   --port <port>          server port (default 21, or 990 with --tls)
+///   --user <user>          login user (default anonymous)
+///   --pass <password>      login password (default empty)
+///   --timeout <ms>         connect timeout in milliseconds (default 30000)
+///   --tls                  use implicit TLS
+///   --trust-pasv-ip        trust the IP returned by PASV
+async fn main {
+  match parse_args(@env.args()) {
     Ok(parsed) =>
       match parsed.command {
         None => print_usage()
-        Some(command) =>
-          println(
-            "command '\{command}' is not implemented yet (W7 adds ls/get/put/walk/mkdir/rm)",
-          )
+        Some(cmd) => run_command(parsed, cmd)
       }
     Err(message) => {
       println("error: \{message}")
@@ -27,9 +38,11 @@ fn main {
 }
 
 ///|
-/// The parsed command line: the subcommand plus the recognized global flags.
+/// The parsed command line: the subcommand plus its positional arguments and
+/// the recognized global flags.
 struct CliArgs {
   mut command : String?
+  positional : Array[String]
   mut host : String
   mut port : Int?
   mut user : String
@@ -44,6 +57,7 @@ struct CliArgs {
 fn parse_args(args : Array[String]) -> Result[CliArgs, String] {
   let parsed : CliArgs = {
     command: None,
+    positional: [],
     host: "127.0.0.1",
     port: None,
     user: "anonymous",
@@ -116,7 +130,11 @@ fn parse_args(args : Array[String]) -> Result[CliArgs, String] {
         if arg.has_prefix("-") {
           return Err("unknown option: \{arg}")
         }
-        parsed.command = Some(arg)
+        // First non-flag is the subcommand; everything after is positional.
+        match parsed.command {
+          None => parsed.command = Some(arg)
+          Some(_) => parsed.positional.push(arg)
+        }
         i += 1
       }
     }
@@ -162,7 +180,7 @@ fn print_usage() -> Unit {
     #|  put <local> [remote]   upload a file
     #|  walk <root>            walk a remote directory tree
     #|  mkdir <path>           create a directory
-    #|  rm <path>              remove a file or directory
+    #|  rm <path>              remove a file or empty directory
     #|
     #|Options:
     #|  --host <host>          server host (default 127.0.0.1)
@@ -174,4 +192,185 @@ fn print_usage() -> Unit {
     #|  --trust-pasv-ip        trust the IP returned by PASV
     #|
   println(banner)
+}
+
+// ---------------------------------------------------------------------------
+// Subcommand dispatch
+// ---------------------------------------------------------------------------
+
+///|
+async fn run_command(args : CliArgs, command : String) -> Unit {
+  let port = match args.port {
+    Some(p) => p
+    None => if args.tls { 990 } else { 21 }
+  }
+  let client = @lib.dial(
+    "\{args.host}:\{port}",
+    timeout_ms=args.timeout_ms,
+    tls=args.tls,
+    trust_pasv_ip=args.trust_pasv_ip,
+  ) catch {
+    e => {
+      println("error: connect failed: \{e}")
+      return
+    }
+  }
+  @lib.login(client, args.user, args.password) catch {
+    e => {
+      println("error: login failed: \{e}")
+      return
+    }
+  }
+  let result : Result[Unit, Error] = try {
+    match command {
+      "ls" => cmd_ls(client, args.positional)
+      "get" => cmd_get(client, args.positional)
+      "put" => cmd_put(client, args.positional)
+      "walk" => cmd_walk(client, args.positional)
+      "mkdir" => cmd_mkdir(client, args.positional)
+      "rm" => cmd_rm(client, args.positional)
+      other => {
+        println("error: unknown command '\{other}'")
+        print_usage()
+      }
+    }
+    Ok(())
+  } catch {
+    e => Err(e)
+  }
+  if result is Err(e) {
+    println("error: \{e}")
+  }
+  @lib.quit(client) catch {
+    _ => ()
+  }
+}
+
+///|
+async fn cmd_ls(client : @lib.FTPClient, positional : Array[String]) -> Unit {
+  let path = match positional {
+    [p, ..] => p
+    [] => "/"
+  }
+  for entry in @lib.list(client, path) {
+    println("\{entry.type_.to_string()}  \{entry.size}  \{entry.name}")
+  }
+}
+
+///|
+async fn cmd_get(client : @lib.FTPClient, positional : Array[String]) -> Unit {
+  guard positional is [remote, .. rest] else {
+    println("usage: get <remote> [local]")
+    return
+  }
+  let dest = match rest {
+    [p, ..] => p
+    [] => basename(remote)
+  }
+  // Resume if the local file exists and is shorter than the remote file.
+  let remote_size = @lib.file_size(client, remote)
+  let local_size = @fs.file_size(dest) catch { _ => 0L }
+  let offset = if local_size > 0L &&
+    local_size.reinterpret_as_uint64() < remote_size {
+    local_size
+  } else {
+    0L
+  }
+  let file = if offset > 0L {
+    println("resuming from offset \{offset}")
+    @fs.open(dest, mode=WriteOnly, append=true)
+  } else {
+    @fs.open(dest, mode=WriteOnly, create_mode=CreateOrTruncate)
+  }
+  defer file.close()
+  let response = if offset > 0L {
+    @lib.retr_from(client, remote, offset~)
+  } else {
+    @lib.retr(client, remote)
+  }
+  file.write_reader(response.reader)
+  response.close()
+  println("\{remote} -> \{dest} (\{remote_size} bytes)")
+}
+
+///|
+async fn cmd_put(client : @lib.FTPClient, positional : Array[String]) -> Unit {
+  guard positional is [src_path, .. rest] else {
+    println("usage: put <local> [remote]")
+    return
+  }
+  let dest = match rest {
+    [r, ..] => r
+    [] => basename(src_path)
+  }
+  let file = @fs.open(src_path, mode=ReadOnly)
+  defer file.close()
+  @lib.stor(client, dest, file)
+  let uploaded = @lib.file_size(client, dest)
+  println("\{src_path} -> \{dest} (\{uploaded} bytes)")
+}
+
+///|
+async fn cmd_walk(client : @lib.FTPClient, positional : Array[String]) -> Unit {
+  let root = match positional {
+    [r, ..] => r
+    [] => "/"
+  }
+  let w = @lib.walk(client, root)
+  while w.next() {
+    println("\{w.path()}")
+  }
+  if w.err() is Some(e) {
+    println("error during walk: \{e}")
+  }
+}
+
+///|
+async fn cmd_mkdir(client : @lib.FTPClient, positional : Array[String]) -> Unit {
+  guard positional is [path, ..] else {
+    println("usage: mkdir <path>")
+    return
+  }
+  @lib.make_dir(client, path)
+  println("created \{path}")
+}
+
+///|
+async fn cmd_rm(client : @lib.FTPClient, positional : Array[String]) -> Unit {
+  guard positional is [path, ..] else {
+    println("usage: rm <path>")
+    return
+  }
+  let entry = @lib.get_entry(client, path) catch {
+    e => {
+      println("error: \{e}")
+      return
+    }
+  }
+  match entry.type_ {
+    File | Link => {
+      @lib.delete(client, path)
+      println("deleted \{path}")
+    }
+    Folder =>
+      try {
+        @lib.remove_dir(client, path)
+        println("removed directory \{path}")
+      } catch {
+        e =>
+          println(
+            "error: cannot remove non-empty directory '\{path}': \{e}. Use a recursive tool for nested directories.",
+          )
+      }
+  }
+}
+
+///|
+/// Return the last path segment of `path`, or the whole string if no `/`.
+fn basename(path : String) -> String {
+  let trimmed = path.trim_end(chars="/")
+  match trimmed.rev_find("/") {
+    Some(i) => trimmed[i + 1:].to_owned()
+    None => trimmed.to_owned()
+  }
 }

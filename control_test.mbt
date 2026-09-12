@@ -8,8 +8,9 @@
 //
 // These used to drive a scripted in-process mock (`@socket.TcpServer` plus a
 // hand written reply table). That mock is gone: every end-to-end assertion now
-// runs against the real vsftpd started by `scripts/start-ftp.sh`, so the client
-// cannot be "helped along" by a server written to agree with it.
+// runs against the real vsftpd started by `scripts/start-ftp.sh`, exercised
+// from `cmd/example`, so the client cannot be "helped along" by a server
+// written to agree with it.
 //
 // What survives here is the half that never needed a server: the pure helpers
 // (`parse_features`, `check_for_command_injection`, `parse_code`,
@@ -18,9 +19,9 @@
 // asked to emit `200` with no separator or a two line `MLST`, and pretending
 // otherwise would mean keeping the mock.
 //
-// The cases that *could* be moved to a real server live in
-// `ftp_server_test.mbt`; see `docs/porting/05-testing.md` section 3 for the
-// list of mock-only cases that were dropped and why.
+// The cases that *could* be moved to a real server live in `cmd/example`; see
+// `docs/porting/05-testing.md` section 3 for the list of mock-only cases that
+// were dropped and why.
 
 ///|
 /// A `Control` over an in-memory reader, so a test can feed the reply parser

@@ -28,29 +28,32 @@ wasm / wasm-gc 后端提供不了真实网络栈。
 ```bash
 moon fmt --check                         # 格式化检查
 moon check  --target native --deny-warn  # 类型检查，0 warning 0 error
-moon test   --target native              # 运行测试（真机用例默认跳过）
+moon test   --target native              # 运行测试
 moon build  --target native              # 构建
-moon run cmd/ftp                         # 运行 CLI（打印 usage）
+moon run cmd/ftp -- --help               # CLI 用法
+moon run cmd/example                     # 真机演示（需先起 vsftpd）
 moon info                                # 更新生成接口（.mbti）
 ```
 
-### 真实 FTP 服务器测试
+### 真实 FTP 服务器演示
 
-`ftp_server_test.mbt` 的端到端用例跑在**真实的 vsftpd** 上，需要显式设置环境变量才会
-执行（不设时用例直接 return，本机 `moon test` 保持全绿）。服务器由公共脚本
-`scripts/start-ftp.sh` 以 Docker 起，四个「能力画像」各一个容器：
+`cmd/example` 是一个跑在**真实 vsftpd** 上的端到端演示：起一个
+`jmoyer/vsftpd` 容器，挂 `testdata/ftp/fixture/` 为 FTP 根目录，跑一遍
+dial / login / list / retr / stor / mkdir / walk / quit，每步打印到 stdout。
+镜像与 fixture 由公共脚本 `scripts/start-ftp.sh` 提供：
 
 ```bash
-scripts/start-ftp.sh            # 起 full / no-mlst / no-time / no-epsv 四个容器
+scripts/start-ftp.sh            # 起一个 jmoyer/vsftpd 容器（--network host）
 
-export FTP_TEST_HOST=127.0.0.1 FTP_TEST_PORT=2121        FTP_TEST_USER=test FTP_TEST_PASS=test        FTP_TEST_FIXTURE=/fixture FTP_TEST_DIR=/upload        FTP_TEST_PORT_NO_MLST=2122 FTP_TEST_PORT_NO_TIME=2123 FTP_TEST_PORT_NO_EPSV=2124
-moon test --target native
+export FTP_TEST_HOST=127.0.0.1 FTP_TEST_PORT=21 \
+       FTP_TEST_USER=test FTP_TEST_PASS=test
+moon run cmd/example --target native
 
 scripts/stop-ftp.sh             # 打日志并清理容器
 ```
 
-GitHub Actions、CNB 流水线与 CNB 云原生开发环境调用的都是**同一份**脚本
-（`scripts/start-ftp.sh` / `scripts/stop-ftp.sh`），镜像为
+GitHub Actions（`ftp-demo` job）与 CNB 流水线（`ftp-demo` stage）都调用
+**同一份**脚本（`scripts/start-ftp.sh` / `scripts/stop-ftp.sh`），镜像为
 `jmoyer/vsftpd`（vsftpd 3.0.5），fixture 在 `testdata/ftp/fixture/`。
 详见 [docs/porting/05-testing.md](docs/porting/05-testing.md) 第 4 节。
 
@@ -60,8 +63,8 @@ GitHub Actions、CNB 流水线与 CNB 云原生开发环境调用的都是**同�
 
 | 脚本 | 作用 |
 | --- | --- |
-| `scripts/start-ftp.sh` | 起四个真实 FTP 服务器容器并轮询端口，起不来直接 exit 1 |
-| `scripts/stop-ftp.sh` | 打印每个容器的日志并删除，从不失败 |
+| `scripts/start-ftp.sh` | 起一个真实 FTP 服务器容器并轮询端口，起不来直接 exit 1 |
+| `scripts/stop-ftp.sh` | 打印容器日志并清理，从不失败 |
 
 ## 目录结构
 
@@ -88,10 +91,11 @@ GitHub Actions、CNB 流水线与 CNB 云原生开发环境调用的都是**同�
 ├── list.mbt / transfer.mbt / walker.mbt
 │                                     列表、传输、目录树遍历                          IO
 ├── cmd/ftp/                          CLI 示例：ls / get / put / walk / mkdir / rm
+├── cmd/example/                      真实 vsftpd 端到端演示（CI 用）
 ├── scripts/                          跨 CI 复用的公共脚本
-│   ├── start-ftp.sh                  起四个真实 FTP 服务器容器（CNB / GitHub 共用）
+│   ├── start-ftp.sh                  起一个真实 vsftpd 容器（CNB / GitHub 共用）
 │   └── stop-ftp.sh                   打容器日志并清理
-├── testdata/ftp/                     测试数据：fixture 与 vsftpd 配置模板
+├── testdata/ftp/                     fixture 内容
 ├── .cnb.yml / .github/workflows/     CNB 与 GitHub 两条流水线（调同一份 scripts/）
 ├── moon.pkg                          根包清单（唯一的源码包）
 └── moon.mod                          模块根

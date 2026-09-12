@@ -54,3 +54,35 @@ jobs:
 
       - name: Tokei
         run: docker run --rm -v $(pwd):/src ghcr.io/xampprocky/tokei:latest .
+
+  ftp-demo:
+    name: FTP demo against real vsftpd
+    runs-on: ubuntu-latest
+    needs: moonbit
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install MoonBit toolchain
+        run: |
+          curl -fsSL https://cli.moonbitlang.cn/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Start vsftpd container
+        run: scripts/start-ftp.sh
+
+      - name: Run cmd/example against the running server
+        run: |
+          export FTP_TEST_HOST=127.0.0.1 FTP_TEST_PORT=21 \
+                 FTP_TEST_USER=test FTP_TEST_PASS=test
+          moon run cmd/example --target native
+
+      - name: Smoke-test cmd/ftp
+        run: |
+          moon run cmd/ftp --target native -- \
+            --host 127.0.0.1 --port 21 --user test --pass test ls /
+
+      - name: Stop vsftpd container
+        if: always()
+        run: scripts/stop-ftp.sh

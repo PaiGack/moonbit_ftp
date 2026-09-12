@@ -4,7 +4,3 @@ target/
 target
 .mooncakes/
 .moonagent/
-# Staging directories for the real FTP server containers in scripts/start-ftp.sh
-# (ftp-root: served fixture; ftp-conf: per-profile configs)
-.tmp/ftp-root/
-.tmp/ftp-conf/
