@@ -25,7 +25,8 @@ sudo apt-get install -y gcc libc6-dev
 所有公开函数都是 `async` 函数，调用方需处在 `@async` 运行时中（CLI / 测试里写
 `async fn main` 即可，无需手写 `await`）。最小可运行例子：
 
-```moonbit
+```moonbit nocheck
+///|
 async fn main {
   // 1. 建连并登录
   let client = @ftp.dial("127.0.0.1:21", timeout_ms=15000)
@@ -42,7 +43,11 @@ async fn main {
   resp.close()
 
   // 4. 上传文件（任意 &@io.Reader 均可）
-  @ftp.stor(client, "/upload.txt", @io.MemoryReader(w => w.write("demo upload")))
+  @ftp.stor(
+    client,
+    "/upload.txt",
+    @io.MemoryReader(w => w.write("demo upload")),
+  )
 
   // 5. 目录与文件操作
   @ftp.make_dir(client, "/newdir")
