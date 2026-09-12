@@ -101,17 +101,19 @@ moon info                                # 更新生成接口（.mbti）
 bash scripts/ci.sh                       # 起容器 → 跑全部步骤 → 打日志并清理
 ```
 
-只想单独跑演示（容器需先起好）：
+只想单独跑演示（容器需先起好，同一条 `moon run` 只是薄封装）：
 
 ```bash
 scripts/start-ftp.sh                     # 起 vsftpd 容器，监听 127.0.0.1:21
 cmd/example/run.sh                       # 端到端演示，读 cmd/example/.env
 cmd/ftp/run.sh                           # CLI 冒烟，读 cmd/ftp/.env
+cmd/ftp/run.sh ls /sub                   # 也可以直接给参数，覆盖 .env 里的默认命令
 scripts/stop-ftp.sh                      # 打容器日志并清理
 ```
 
-两个 `run.sh` 都**不接受任何参数**：地址、账号、命令都固定在各自的 `.env`
-（首次运行从 `.env.example` 复制）里，因此本地和 CI 跑的是同一条命令。
+两个 `run.sh` 都不带参数也能跑：地址、账号来自各自的 `.env`（首次运行从
+`.env.example` 复制），`cmd/ftp/run.sh` 还会在没给参数时回退到 `.env` 里的
+`FTP_COMMAND`，因此本地和 CI 跑的是同一条命令；显式传参则覆盖该默认值。
 
 ## 目录结构
 
@@ -137,9 +139,9 @@ scripts/stop-ftp.sh                      # 打容器日志并清理
 ├── list.mbt / transfer.mbt / walker.mbt
 │                                     列表、传输、目录树遍历                          IO
 ├── cmd/ftp/                          CLI 示例：ls / get / put / walk / mkdir / rm
-│   └── run.sh                        固定入口：按 .env 跑 cmd/ftp（不带参数）
+│   └── run.sh                        入口：按 .env 跑 cmd/ftp，可带参数覆盖默认命令
 ├── cmd/example/                      真实 vsftpd 端到端演示（CI 用）
-│   └── run.sh                        固定入口：跑 cmd/example（不带参数）
+│   └── run.sh                        入口：按 .env 跑 cmd/example
 ├── scripts/                          跨 CI 复用的公共脚本
 │   ├── ci.sh                         CI 唯一入口（CNB / GitHub 共用，含全部步骤）
 │   ├── start-ftp.sh                  起一个真实 vsftpd 容器（CNB / GitHub 共用）
