@@ -1,12 +1,4 @@
-# CNB 流水线按 GitHub Actions（.github/workflows/ci.yml）的 job 逐步对齐：
-# 同一个 job 里按顺序跑同一批步骤，每一步都调同一个脚本，不在这里内联任何
-# moon 命令或账号 / 端口。
-#
-# FTP 服务器由 scripts/start-ftp.sh 起：CNB 的 docker service 是 DinD sidecar，
-# daemon 在独立容器里，`--network host` 指的是那个容器的 netns，构建容器到不了，
-# 所以端口一律用 `-p 127.0.0.1:...:...` 发布，控制端口与 PASV 区间都要发，
-# 否则登录能过、第一个 LIST 就 ECONNREFUSED。账号 / 端口都只在脚本和
-# cmd/*/.env.example 里出现一次，两个平台完全同源。
+# CNB 流水线按 GitHub Actions（.github/workflows/ci.yml）的 job 逐步对齐。
 .ftp-ci-env: &ftp-ci-env
   docker:
     build:
