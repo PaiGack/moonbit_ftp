@@ -23,25 +23,48 @@
 ///   --timeout <ms>         connect timeout in milliseconds (default 30000)
 ///   --tls                  use implicit TLS
 ///   --trust-pasv-ip        trust the IP returned by PASV
+///   -h, --help             print this usage and exit
+///
+/// Exit codes: 0 on success (including `--help`), 2 on a usage error such as an
+/// unknown option or a missing value, 1 on a failed FTP command.
 async fn main {
   match parse_args(@env.args()) {
     Ok(parsed) =>
-      match parsed.command {
-        None => print_usage()
-        Some(cmd) => run_command(parsed, cmd)
+      match parsed.help {
+        true => print_usage()
+        false =>
+          match parsed.command {
+            None => print_usage()
+            Some(cmd) => if run_command(parsed, cmd) { exit_with(1) }
+          }
       }
     Err(message) => {
       println("error: \{message}")
       print_usage()
+      exit_with(2)
     }
   }
 }
+
+///|
+/// Terminate the process with `code`, used by the CLI's failure paths because a
+/// plain `return` from `main` always yields exit status 0.
+fn exit_with(code : Int) -> Unit {
+  exit(code)
+}
+
+///|
+/// The C `exit`, so the CLI can report a non-zero status. MoonBit's `abort`
+/// panics (SIGABRT, 134), which is not what a command-line tool should return
+/// for an ordinary usage error.
+extern "c" fn exit(code : Int) = "exit"
 
 ///|
 /// The parsed command line: the subcommand plus its positional arguments and
 /// the recognized global flags.
 struct CliArgs {
   mut command : String?
+  mut help : Bool
   positional : Array[String]
   mut host : String
   mut port : Int?
@@ -57,6 +80,7 @@ struct CliArgs {
 fn parse_args(args : Array[String]) -> Result[CliArgs, String] {
   let parsed : CliArgs = {
     command: None,
+    help: false,
     positional: [],
     host: "127.0.0.1",
     port: None,
@@ -118,6 +142,10 @@ fn parse_args(args : Array[String]) -> Result[CliArgs, String] {
             }
           Err(message) => return Err(message)
         }
+      "--help" | "-h" => {
+        parsed.help = true
+        i += 1
+      }
       "--tls" => {
         parsed.tls = true
         i += 1
@@ -190,6 +218,7 @@ fn print_usage() -> Unit {
     #|  --timeout <ms>         connect timeout in milliseconds (default 30000)
     #|  --tls                  use implicit TLS
     #|  --trust-pasv-ip        trust the IP returned by PASV
+    #|  -h, --help             print this usage and exit
     #|
   println(banner)
 }
@@ -199,7 +228,9 @@ fn print_usage() -> Unit {
 // ---------------------------------------------------------------------------
 
 ///|
-async fn run_command(args : CliArgs, command : String) -> Unit {
+/// Run one subcommand, returning `true` when it failed so `main` can set a
+/// non-zero exit status.
+async fn run_command(args : CliArgs, command : String) -> Bool {
   let port = match args.port {
     Some(p) => p
     None => if args.tls { 990 } else { 21 }
@@ -212,15 +243,16 @@ async fn run_command(args : CliArgs, command : String) -> Unit {
   ) catch {
     e => {
       println("error: connect failed: \{e}")
-      return
+      return true
     }
   }
   @lib.login(client, args.user, args.password) catch {
     e => {
       println("error: login failed: \{e}")
-      return
+      return true
     }
   }
+  let mut failed = false
   let result : Result[Unit, Error] = try {
     match command {
       "ls" => cmd_ls(client, args.positional)
@@ -232,6 +264,7 @@ async fn run_command(args : CliArgs, command : String) -> Unit {
       other => {
         println("error: unknown command '\{other}'")
         print_usage()
+        failed = true
       }
     }
     Ok(())
@@ -240,10 +273,12 @@ async fn run_command(args : CliArgs, command : String) -> Unit {
   }
   if result is Err(e) {
     println("error: \{e}")
+    failed = true
   }
   @lib.quit(client) catch {
     _ => ()
   }
+  failed
 }
 
 ///|
