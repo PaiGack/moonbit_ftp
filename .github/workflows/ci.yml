@@ -25,7 +25,7 @@ jobs:
       # pipelines cannot drift apart.
       - name: Install MoonBit toolchain
         run: |
-          curl -fsSL https://cli.moonbitlang.cn/install/unix.sh | bash
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
 
       - name: Run CI
