@@ -14,7 +14,7 @@
 ///|
 /// Whether `parse_pasv` refuses the reply.
 fn pasv_rejects(line : String) -> Bool {
-  ignore(parse_pasv(line)) catch {
+  ignore(@ftp.parse_pasv(line)) catch {
     _ => return true
   }
   false
@@ -22,7 +22,9 @@ fn pasv_rejects(line : String) -> Bool {
 
 ///|
 test "parse_pasv reads the six numbers" {
-  let (ip, port) = parse_pasv("227 Entering Passive Mode (127,0,0,1,196,6)")
+  let (ip, port) = @ftp.parse_pasv(
+    "227 Entering Passive Mode (127,0,0,1,196,6)",
+  )
   assert_eq(ip, "127.0.0.1")
   // 196 * 256 + 6
   assert_eq(port, 50182)
@@ -53,13 +55,16 @@ test "parse_pasv rejects a non numeric field" {
 ///|
 /// `parse_epsv` must extract the port between the `|||` markers.
 test "parse_epsv reads the port" {
-  assert_eq(parse_epsv("229 Entering Extended Passive Mode (|||6446|)"), 6446)
+  assert_eq(
+    @ftp.parse_epsv("229 Entering Extended Passive Mode (|||6446|)"),
+    6446,
+  )
 }
 
 ///|
 test "parse_epsv rejects a malformed reply" {
   let rejects = fn(line : String) -> Bool {
-    ignore(parse_epsv(line)) catch {
+    ignore(@ftp.parse_epsv(line)) catch {
       _ => return true
     }
     false
@@ -75,56 +80,56 @@ test "parse_epsv rejects a malformed reply" {
 /// The SSRF guard: a `PASV` answer pointing somewhere else must be refused
 /// unless the caller opted in.
 test "is_bogus_data_ip refuses multicast" {
-  assert_true(is_bogus_data_ip("127.0.0.1", "239.0.0.1"))
+  assert_true(@ftp.is_bogus_data_ip("127.0.0.1", "239.0.0.1"))
 }
 
 ///|
 test "is_bogus_data_ip refuses a private answer to a public peer" {
-  assert_true(is_bogus_data_ip("8.8.8.8", "10.0.0.1"))
+  assert_true(@ftp.is_bogus_data_ip("8.8.8.8", "10.0.0.1"))
 }
 
 ///|
 test "is_bogus_data_ip refuses a loopback answer to a public peer" {
-  assert_true(is_bogus_data_ip("8.8.8.8", "127.0.0.1"))
+  assert_true(@ftp.is_bogus_data_ip("8.8.8.8", "127.0.0.1"))
 }
 
 ///|
 test "is_bogus_data_ip accepts a matching answer" {
-  assert_false(is_bogus_data_ip("127.0.0.1", "127.0.0.1"))
-  assert_false(is_bogus_data_ip("8.8.8.8", "8.8.4.4"))
+  assert_false(@ftp.is_bogus_data_ip("127.0.0.1", "127.0.0.1"))
+  assert_false(@ftp.is_bogus_data_ip("8.8.8.8", "8.8.4.4"))
 }
 
 ///|
 /// The IPv6 forms of the SSRF predicates. IPv6 has no dotted quad, so
 /// `ip_segments` returns `None` and the prefix rules take over.
 test "is_private recognises IPv6 unique local addresses" {
-  assert_true(is_private("fc00::1"))
-  assert_true(is_private("fd12:3456::1"))
-  assert_false(is_private("2001:db8::1"))
+  assert_true(@ftp.is_private("fc00::1"))
+  assert_true(@ftp.is_private("fd12:3456::1"))
+  assert_false(@ftp.is_private("2001:db8::1"))
 }
 
 ///|
 test "is_loopback recognises IPv6 loopback" {
-  assert_true(is_loopback("::1"))
-  assert_true(is_loopback("127.0.0.1"))
-  assert_false(is_loopback("::2"))
+  assert_true(@ftp.is_loopback("::1"))
+  assert_true(@ftp.is_loopback("127.0.0.1"))
+  assert_false(@ftp.is_loopback("::2"))
 }
 
 ///|
 test "is_multicast recognises IPv6 multicast" {
-  assert_true(is_multicast("ff02::1"))
-  assert_true(is_multicast("239.1.1.1"))
-  assert_false(is_multicast("192.168.1.1"))
+  assert_true(@ftp.is_multicast("ff02::1"))
+  assert_true(@ftp.is_multicast("239.1.1.1"))
+  assert_false(@ftp.is_multicast("192.168.1.1"))
 }
 
 ///|
 test "is_private matches the private IPv4 ranges" {
-  assert_true(is_private("10.1.2.3"))
-  assert_true(is_private("172.16.0.1"))
-  assert_true(is_private("172.31.255.255"))
-  assert_true(is_private("192.168.1.1"))
-  assert_true(is_private("169.254.1.1"))
-  assert_true(is_private("100.64.0.1"))
-  assert_false(is_private("172.32.0.1"))
-  assert_false(is_private("8.8.8.8"))
+  assert_true(@ftp.is_private("10.1.2.3"))
+  assert_true(@ftp.is_private("172.16.0.1"))
+  assert_true(@ftp.is_private("172.31.255.255"))
+  assert_true(@ftp.is_private("192.168.1.1"))
+  assert_true(@ftp.is_private("169.254.1.1"))
+  assert_true(@ftp.is_private("100.64.0.1"))
+  assert_false(@ftp.is_private("172.32.0.1"))
+  assert_false(@ftp.is_private("8.8.8.8"))
 }
