@@ -17,6 +17,14 @@ pub(all) enum EntryType {
 } derive(Eq, @debug.Debug)
 
 ///|
+/// `EntryType` promotes its `Eq` and `Debug` methods as regular methods; declare
+/// the promotions explicitly so the deprecation warning stays away.
+pub extend EntryType with Eq::{equal, not_equal}
+
+///|
+pub extend EntryType with @debug.Debug::{to_repr}
+
+///|
 /// Return the lowercase name of the entry type, matching the string form used
 /// by the Go implementation (`file` / `folder` / `link`).
 pub fn EntryType::to_string(self : EntryType) -> String {
@@ -46,6 +54,11 @@ pub struct Entry {
   /// Parsed modification time, timezone included.
   mut time : @time.ZonedDateTime
 } derive(@debug.Debug)
+
+///|
+/// `Entry` promotes its `Debug` methods as regular methods; declare the
+/// promotion explicitly so the deprecation warning stays away.
+pub extend Entry with @debug.Debug::{to_repr}
 
 ///|
 /// Build an entry with the given name and type; the target defaults to the
@@ -157,6 +170,14 @@ pub(all) enum TransferType {
   /// `TYPE A`, ASCII transfer.
   ASCII
 } derive(Eq, @debug.Debug)
+
+///|
+/// `TransferType` promotes its `Eq` and `Debug` methods as regular methods; declare
+/// the promotions explicitly so the deprecation warning stays away.
+pub extend TransferType with Eq::{equal, not_equal}
+
+///|
+pub extend TransferType with @debug.Debug::{to_repr}
 
 ///|
 /// The argument string sent with the `TYPE` command.
