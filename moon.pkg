@@ -1,9 +1,10 @@
 // Root package: every source file lives flat here, no `src/` intermediate
 // layer. See docs/porting/01-architecture.md section 2.
 //
-// The plain import block is shared by the pure logic files, the IO files and
-// the in-package tests, because MoonBit 0.1.20260904 has no per-file imports,
-// so the async stack is named here even though the parsers never use it.
+// The plain import block covers the pure logic files and the IO files, because
+// MoonBit 0.1.20260920 has no per-file imports, so the async stack is named
+// here even though the parsers never use it. The test targets do *not* inherit
+// this block; they get their own block further down.
 // The pure logic / IO file inventory that review relies on lives in the
 // grouped file tree of docs/porting/01-architecture.md section 2, backed by
 // the per-file `// Layer:` markers; section 3 states the rule.
@@ -17,7 +18,28 @@ import {
   "moonbitlang/core/debug",
 }
 
+// Test-only import block, shared by the blackbox `*_test.mbt` files and the
+// whitebox `*_wbtest.mbt` ones. MoonBit 0.1.20260920 has no per-file imports
+// and does not let a test target inherit the plain block as an explicit
+// import, so every package a test file references by `@name` has to be listed
+// here.
+//
+// `moonbitlang/async` is what makes the tests in this file set count *at all*:
+// `moon test` only runs an async test file when the package declares the async
+// runtime. The `*_wbtest.mbt` files added with the list / transfer / walker /
+// commands coverage then drive the real IO layer through it -- `@io.MemoryReader`
+// plus a custom `@io.Writer` stand in for the control channel, and a loopback
+// `@socket.TcpServer` stands in for the data channel.
 import {
+  "moonbitlang/async",
+  "moonbitlang/async/io",
+  "moonbitlang/async/socket",
   "moonbitlang/x/time",
   "moonbitlang/core/debug",
 } for "wbtest"
+
+// The blackbox `*_test.mbt` files spell the library symbols `@ftp.…`, so the
+// package has to be reachable under that alias from the blackbox test target.
+import {
+  "PaiGack/ftp",
+} for "test"

@@ -19,8 +19,8 @@ let test_now : @time.ZonedDateTime = @time.ZonedDateTime::of(
 }
 
 ///|
-fn parse(line : String) -> Entry raise {
-  let (entry, _) = parse_list_line(line, test_now)
+fn parse(line : String) -> @ftp.Entry raise {
+  let (entry, _) = @ftp.parse_list_line(line, test_now)
   entry
 }
 
@@ -30,7 +30,7 @@ test "unix ls line with a year" {
     "drwxr-xr-x    3 110      1002            3 Dec 02  2009 pub",
   )
   assert_eq(entry.name, "pub")
-  assert_eq(entry.type_, EntryType::Folder)
+  assert_eq(entry.type_, @ftp.EntryType::Folder)
   assert_eq(entry.time.year(), 2009)
   assert_eq(entry.time.month(), 12)
   assert_eq(entry.time.day(), 2)
@@ -60,7 +60,7 @@ test "unix ls line with a symlink splits name and target" {
   )
   assert_eq(entry.name, "bin")
   assert_eq(entry.target, "usr/bin")
-  assert_eq(entry.type_, EntryType::Link)
+  assert_eq(entry.type_, @ftp.EntryType::Link)
   assert_eq(entry.time.year(), 2017)
 }
 
@@ -69,7 +69,7 @@ test "hostedftp line without a link count" {
   let entry = parse(
     "drwxr-xr-x               folder        0 Aug 15 05:49 !!!-Tipp des Haus!",
   )
-  assert_eq(entry.type_, EntryType::Folder)
+  assert_eq(entry.type_, @ftp.EntryType::Folder)
   assert_eq(entry.name, "!!!-Tipp des Haus!")
 }
 
@@ -78,21 +78,21 @@ test "hostedftp lowercase variant" {
   let entry = parse(
     "drwxr-xr-x               folder        0 Aug 11 20:32 P0RN",
   )
-  assert_eq(entry.type_, EntryType::Folder)
+  assert_eq(entry.type_, @ftp.EntryType::Folder)
   assert_eq(entry.name, "P0RN")
 }
 
 ///|
 test "rfc3659 folder entry" {
   let entry = parse("type=dir;modify=20140101000000; movies")
-  assert_eq(entry.type_, EntryType::Folder)
+  assert_eq(entry.type_, @ftp.EntryType::Folder)
   assert_eq(entry.name, "movies")
 }
 
 ///|
 test "rfc3659 file entry with a size" {
   let entry = parse("size=951;type=file;modify=20140101000000; welcome.msg")
-  assert_eq(entry.type_, EntryType::File)
+  assert_eq(entry.type_, @ftp.EntryType::File)
   assert_eq(entry.size, 951UL)
   assert_eq(entry.name, "welcome.msg")
 }
@@ -102,7 +102,7 @@ test "rfc3659 accepts capitalized fact names" {
   let entry = parse(
     "Modify=20140101000000;Perm=el;Size=951;Type=file; welcome.msg",
   )
-  assert_eq(entry.type_, EntryType::File)
+  assert_eq(entry.type_, @ftp.EntryType::File)
   assert_eq(entry.size, 951UL)
 }
 
@@ -112,7 +112,7 @@ test "unsupported line raises UnsupportedListLine" {
     ignore(parse("this is definitely not a listing line"))
     None
   } catch {
-    FtpError::UnsupportedListLine(line~) => Some(line)
+    @ftp.FtpError::UnsupportedListLine(line~) => Some(line)
     _ => None
   }
   assert_true(result is Some(_))
@@ -120,19 +120,21 @@ test "unsupported line raises UnsupportedListLine" {
 
 ///|
 test "parse_list_line reports which parser matched" {
-  let (_, format) = parse_list_line("size=951;type=file; welcome.msg", test_now)
-  assert_eq(format, ListFormat::Rfc3659)
-  let (_, format) = parse_list_line(
+  let (_, format) = @ftp.parse_list_line(
+    "size=951;type=file; welcome.msg", test_now,
+  )
+  assert_eq(format, @ftp.ListFormat::Rfc3659)
+  let (_, format) = @ftp.parse_list_line(
     "drwxr-xr-x    3 110      1002            3 Dec 02  2009 pub", test_now,
   )
-  assert_eq(format, ListFormat::UnixLs)
+  assert_eq(format, @ftp.ListFormat::UnixLs)
 }
 
 ///|
 test "set_size understands hexadecimal and octal prefixes" {
-  assert_eq(set_size("0x10"), 16UL)
-  assert_eq(set_size("0o17"), 15UL)
-  assert_eq(set_size("42"), 42UL)
+  assert_eq(@ftp.set_size("0x10"), 16UL)
+  assert_eq(@ftp.set_size("0o17"), 15UL)
+  assert_eq(@ftp.set_size("42"), 42UL)
 }
 
 ///|
@@ -183,7 +185,7 @@ test "a four digit year is used verbatim" {
 
 ///|
 test "scanner walks fields and keeps the separator in remaining" {
-  let scanner = Scanner::new("foo  bar x  y")
+  let scanner = @ftp.Scanner::new("foo  bar x  y")
   assert_eq(scanner.next(), "foo")
   assert_eq(scanner.remaining(), " bar x  y")
   assert_eq(scanner.next(), "bar")
@@ -197,7 +199,7 @@ test "scanner walks fields and keeps the separator in remaining" {
 
 ///|
 test "scanner on an empty input yields empty fields" {
-  let scanner = Scanner::new("")
+  let scanner = @ftp.Scanner::new("")
   assert_eq(scanner.next(), "")
   assert_eq(scanner.next(), "")
   assert_eq(scanner.remaining(), "")
@@ -205,13 +207,13 @@ test "scanner on an empty input yields empty fields" {
 
 ///|
 test "scanner next_fields stops without raising when input runs out" {
-  let scanner = Scanner::new("a b")
+  let scanner = @ftp.Scanner::new("a b")
   assert_eq(scanner.next_fields(5), ["a", "b"])
 }
 
 ///|
 test "scanner tolerates a leading run of spaces" {
-  let scanner = Scanner::new("   a b")
+  let scanner = @ftp.Scanner::new("   a b")
   assert_eq(scanner.next(), "a")
   assert_eq(scanner.next(), "b")
   assert_eq(scanner.next(), "")

@@ -23,6 +23,11 @@ pub(all) suberror FtpError {
 } derive(@debug.Debug)
 
 ///|
+/// `FtpError` promotes its `Debug` methods as regular methods; declare the
+/// promotion explicitly so the deprecation warning stays away.
+pub extend FtpError with @debug.Debug::{to_repr}
+
+///|
 /// Aggregation of several failures that happened during one logical
 /// operation. This mirrors Go's `errors.Join`: the upstream implementation
 /// deliberately keeps *every* error (transfer + close + status read) instead
@@ -31,6 +36,11 @@ pub(all) suberror FtpErrors {
   /// All errors of a single operation, in the order they occurred.
   MultipleErrors(errors~ : Array[Error])
 } derive(@debug.Debug)
+
+///|
+/// `FtpErrors` promotes its `Debug` methods as regular methods; declare the
+/// promotion explicitly so the deprecation warning stays away.
+pub extend FtpErrors with @debug.Debug::{to_repr}
 
 ///|
 /// Build an aggregated error, collapsing the trivial cases so callers do not

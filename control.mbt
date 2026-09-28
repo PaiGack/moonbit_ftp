@@ -156,6 +156,11 @@ pub struct Response {
 } derive(@debug.Debug)
 
 ///|
+/// `Response` promotes its `Debug` methods as regular methods; declare the
+/// promotion explicitly so the deprecation warning stays away.
+pub extend Response with @debug.Debug::{to_repr}
+
+///|
 /// Build a reply value.
 pub fn Response::new(code : Int, message : String) -> Response {
   { code, message, }

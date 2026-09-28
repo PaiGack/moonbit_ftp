@@ -40,6 +40,14 @@ pub(all) enum ListFormat {
 } derive(Eq, @debug.Debug)
 
 ///|
+/// `ListFormat` promotes its `Eq` and `Debug` methods as regular methods; declare
+/// the promotions explicitly so the deprecation warning stays away.
+pub extend ListFormat with Eq::{equal, not_equal}
+
+///|
+pub extend ListFormat with @debug.Debug::{to_repr}
+
+///|
 /// Parse a single `LIST` / `MLSD` line, trying the four parsers in the fixed
 /// fallback order documented in `docs/porting/02-upstream-map.md`.
 ///

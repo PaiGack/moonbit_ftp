@@ -278,10 +278,12 @@ pub(all) suberror FtpError {
   UnsupportedListDate(field~ : String)
   ParseError(msg~ : String)
 } derive(@debug.Debug)
+pub fn FtpError::to_repr(Self) -> @debug.Repr
 
 pub(all) suberror FtpErrors {
   MultipleErrors(errors~ : Array[Error])
 } derive(@debug.Debug)
+pub fn FtpErrors::to_repr(Self) -> @debug.Repr
 
 // Types and methods
 pub struct Control {
@@ -354,12 +356,16 @@ pub fn Entry::set_size(Self, UInt64) -> Unit
 pub fn Entry::set_target(Self, String) -> Unit
 pub fn Entry::set_time(Self, @time.ZonedDateTime) -> Unit
 pub fn Entry::set_type(Self, EntryType) -> Unit
+pub fn Entry::to_repr(Self) -> @debug.Repr
 
 pub(all) enum EntryType {
   File
   Folder
   Link
 } derive(Eq, @debug.Debug)
+pub fn EntryType::equal(Self, Self) -> Bool
+pub fn EntryType::not_equal(Self, Self) -> Bool
+pub fn EntryType::to_repr(Self) -> @debug.Repr
 pub fn EntryType::to_string(Self) -> String
 
 pub struct FTPClient {
@@ -411,6 +417,9 @@ pub(all) enum ListFormat {
   DosDir
   HostedFtp
 } derive(Eq, @debug.Debug)
+pub fn ListFormat::equal(Self, Self) -> Bool
+pub fn ListFormat::not_equal(Self, Self) -> Bool
+pub fn ListFormat::to_repr(Self) -> @debug.Repr
 
 pub struct Options {
   disable_epsv : Bool
@@ -436,6 +445,7 @@ pub struct Response {
 pub fn Response::code(Self) -> Int
 pub fn Response::message(Self) -> String
 pub fn Response::new(Int, String) -> Self
+pub fn Response::to_repr(Self) -> @debug.Repr
 
 pub struct Scanner {
   src : String
@@ -466,7 +476,10 @@ pub(all) enum TransferType {
   ASCII
 } derive(Eq, @debug.Debug)
 pub fn TransferType::argument(Self) -> String
+pub fn TransferType::equal(Self, Self) -> Bool
 pub fn TransferType::from_string(String) -> Self?
+pub fn TransferType::not_equal(Self, Self) -> Bool
+pub fn TransferType::to_repr(Self) -> @debug.Repr
 pub fn TransferType::to_string(Self) -> String
 
 pub struct Walker {
