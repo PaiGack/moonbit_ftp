@@ -93,19 +93,26 @@ fn append_entry(
 /// Advance to the next entry, returning `false` when the walk is finished or
 /// when a listing failed.
 ///
-/// The five steps are exactly upstream's:
+/// The steps are exactly upstream's:
 /// 1. initialise `cur` to a synthetic folder entry for the root,
-/// 2. list `cur` when `descend` is set, recording (not raising) failures,
+/// 2. list `cur` only when `descend` is set **and `cur` is a folder**, recording
+///    (not raising) failures,
 /// 3. push every child except `.` and `..`,
 /// 4. stop when the stack is empty,
 /// 5. pop the stack top, reset `descend`, return `true`.
+///
+/// The `cur` is a folder guard is upstream's (`Next` tests
+/// `w.cur.entry.Type == EntryTypeFolder`), and it is what makes a walk of a
+/// real tree terminate cleanly: without it the walker would try to `LIST` every
+/// file it pops, and a server that refuses to list a file would turn an
+/// ordinary tree into an error at the end.
 pub async fn Walker::next(self : Walker) -> Bool {
   if self.cur is None {
     self.cur = Some(make_entry("", EntryType::Folder))
     self.cur_path = self.root
     self.descend = true
   }
-  if self.descend {
+  if self.descend && self.cur is Some(cur) && cur.type_ is EntryType::Folder {
     let path = self.path()
     let entries = list(self.client, path) catch {
       err => {

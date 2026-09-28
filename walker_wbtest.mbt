@@ -106,9 +106,9 @@ test "stat is not changed by a bare pop" {
 /// is upstream's `ftp.Walker` behaviour, and the reason a walk is not expected
 /// to match `LIST` output.
 ///
-/// The entries are directories, not files: the walker lists whatever it pops
-/// (it does not consult `Entry::type_`), so a file would trigger a listing of
-/// its own and abort the walk — see the dedicated test below.
+/// The entries here are directories, not files: only folders are listed, so a
+/// file would be visited without ever opening a second data connection — see
+/// the dedicated test below.
 async test "walker visits the children of one directory in reverse listing order" {
   let root = data_listener()
   let root_port = root.addr.port()
@@ -181,12 +181,11 @@ async test "walker descends into subdirectories and drops dot entries" {
   })
   assert_eq(visited, ["/root/top", "/root/sub", "/root/sub/nested.txt"])
   // The root is listed with the trailing slash from `walk`; the child paths
-  // lose it because `join("/root/", "sub")` drops the separator. The trailing
-  // `EPSV`/`PASV` pair is the walker listing `nested.txt`, a *file* — see the
-  // dedicated test on that upstream behaviour.
+  // lose it because `join("/root/", "sub")` drops the separator. Only folders
+  // are listed: `top` and `sub` each get an `MLSD`, and `nested.txt` — a
+  // *file* — is visited but never listed, so no fourth `EPSV` follows.
   assert_eq(sink.lines, [
-    "EPSV", "MLSD /root/", "EPSV", "MLSD /root/top", "EPSV", "MLSD /root/sub", "EPSV",
-    "PASV",
+    "EPSV", "MLSD /root/", "EPSV", "MLSD /root/top", "EPSV", "MLSD /root/sub",
   ])
 }
 
@@ -272,32 +271,23 @@ async test "walker keeps the visited entries when a nested listing fails" {
 }
 
 ///|
-/// The walker does not consult `Entry::type_`: whatever it pops gets listed,
-/// files included.
+/// A walk visits file entries but never lists them: only folders are descended
+/// into.
 ///
-/// That is upstream `ftp.Walker` behaviour (`Next` only tests `descend`), and
-/// it makes a real walk depend on the server refusing to list a file — which
-/// is why the walk ends with a recorded error rather than a clean finish. The
-/// contract callers rely on is `next() == false`, not an empty `err()`.
-async test "walker lists file entries too and records the failure" {
+/// That is upstream `ftp.Walker` behaviour — `Next` guards its listing with
+/// `w.cur.entry.Type == EntryTypeFolder`. The guard is what lets a walk of a
+/// real tree finish cleanly: without it the walker would `LIST` every file it
+/// pops, and a server that refuses to list a file (the common case) would turn
+/// an ordinary tree into a recorded error at the very end.
+async test "walker visits file entries without listing them" {
   let root = data_listener()
   let root_port = root.addr.port()
-  // The second data connection is real so `EPSV` succeeds; the listing command
-  // on it is what gets refused.
-  let second = data_listener()
-  let second_port = second.addr.port()
   let script = epsv_reply(root_port) +
-    "150 Here comes the directory listing.\r\n226 Directory send OK.\r\n" +
-    epsv_reply(second_port) +
-    "550 Not a directory.\r\n"
+    "150 Here comes the directory listing.\r\n226 Directory send OK.\r\n"
   let (client, sink) = scripted_client(script, mlst_supported=true)
   let (visited, had_error) = @async.with_task_group(async fn(group) {
     group.spawn_bg(no_wait=true, async fn() {
       serve_payload(root, "type=file; a.txt\r\n")
-    })
-    group.spawn_bg(no_wait=true, async fn() {
-      let (conn, _) = second.accept()
-      conn.close()
     })
     let w = walk(client, "/root")
     let seen : Array[String] = []
@@ -307,10 +297,10 @@ async test "walker lists file entries too and records the failure" {
     (seen, w.err() is Some(_))
   })
   assert_eq(visited, ["/root/a.txt"])
-  assert_true(had_error)
-  // The second listing attempt is visible: `EPSV` succeeds, then the listing
-  // command itself is refused.
-  assert_eq(sink.lines, ["EPSV", "MLSD /root/", "EPSV", "MLSD /root/a.txt"])
+  assert_false(had_error)
+  // The file is visited but never listed: exactly one listing reached the wire,
+  // the root one, and no second `EPSV`/`MLSD /root/a.txt` follows.
+  assert_eq(sink.lines, ["EPSV", "MLSD /root/"])
 }
 
 ///|
