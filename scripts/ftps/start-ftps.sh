@@ -51,10 +51,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CERT_DIR="$ROOT/testdata/ftp/tls"
-FIXTURE="$ROOT/testdata/ftp/fixture"
+SOURCE_FIXTURE="$ROOT/testdata/ftp/fixture"
 ENV_FILE="$ROOT/.ftp-tls.env"
 
 NAME="moonbit-ftps-explicit"
+
+# A private copy of the fixture, for the same reason `scripts/start-ftp.sh`
+# takes one: the FTP home has to be writable (the smoke tests upload into it),
+# and this image's init step `chown`s `/files` to its own user. Sharing one
+# host directory between this container and the plaintext one made the second
+# server to start unable to write, which surfaced as
+# `553 Could not create file.` in a test that has nothing to do with TLS.
+FIXTURE="$ROOT/.ftp-ftps-files"
+rm -rf "$FIXTURE"
+mkdir -p "$FIXTURE"
+cp -R "$SOURCE_FIXTURE/." "$FIXTURE/"
+chmod -R a+rwX "$FIXTURE"
 
 # A leftover container from an interrupted run holds the port and the old
 # fixture. `stop-ftps.sh` is the normal remover; this is the re-entry guard, so

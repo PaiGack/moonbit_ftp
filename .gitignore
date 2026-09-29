@@ -10,3 +10,10 @@ target
 # scripts/ftps/gen-cert.sh (a throwaway CA + leaf, regenerated on every run).
 .ftp-tls.env
 testdata/ftp/tls/
+
+# Per-container copies of testdata/ftp/fixture, made by scripts/start-ftp.sh and
+# scripts/ftps/start-ftps.sh. The FTP home has to be writable, and the two
+# servers must not share one directory: each takes its own copy so one cannot
+# chown, fill or delete the other's files.
+.ftp-plain-root/
+.ftp-ftps-files/

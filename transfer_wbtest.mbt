@@ -209,11 +209,16 @@ async test "stor raises when the transfer command is refused" {
   // The transfer command is refused before any payload, so `stor` must close
   // the data connection itself — which is why the listener never has to
   // accept, and why a pending accept would be a leaked task.
+  //
+  // The source is a real `MemoryReader`, not `failing_source()`. It used to be
+  // the latter, with a comment explaining that a producer left parked "would
+  // deadlock the test runner" — which is precisely the bug, written down as a
+  // constraint on the *test* instead of on `stor`. `MemoryReader` is what a
+  // caller actually hands to `stor`, and a refused `553` is what vsftpd
+  // actually answers, so this is the case that has to work.
+  let source = text_source("payload that is never read")
   let raised = try {
-    // `failing_source()` rather than a `MemoryReader`: the payload is never
-    // read on this path, and a producer left parked would deadlock the test
-    // runner. `cmd/ftps` closes its reader for the same reason.
-    stor(client, "/up.txt", failing_source())
+    stor(client, "/up.txt", source)
     None
   } catch {
     // The server's own code and message survive the refusal.
@@ -222,6 +227,10 @@ async test "stor raises when the transfer command is refused" {
     _ => None
   }
   listener.close()
+  // `close` only returns once the producer stopped, which is what makes the
+  // leak observable: a producer parked on a pipe nobody drains would keep the
+  // test runner's event loop from ever reporting the deadlock as recoverable.
+  source.close()
   assert_eq(raised, Some("550 Not enough space."))
 }
 

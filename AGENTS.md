@@ -30,6 +30,22 @@ You can browse and install extra skills here:
   (Alpine + vsftpd 3.0.5) configured with `force_local_data_ssl=YES`, which is
   what makes a control-channel-only "upgrade" fail every transfer.
 
+- **Each container gets its own copy of `testdata/ftp/fixture`; never mount the
+  checked-in directory into both.** The FTP home has to be writable (the smoke
+  tests upload into it) and the two images treat it differently: `bfren/ftps`
+  runs `11-user.nu` "Ensuring user test owns /files" and `chown`s whatever is
+  mounted at `/files`, while `jmoyer/vsftpd` mounts the same tree as its own
+  user's home. Pointing both starters at `testdata/ftp/fixture` therefore makes
+  whichever server starts second unable to write, and vsftpd says so with
+  `553 Could not create file.` -- in `cmd/ftps/run.sh plain`, i.e. a failure
+  that reads like a plaintext-transport regression and has nothing to do with
+  TLS. It also dirties the working tree as a side effect. `scripts/start-ftp.sh`
+  and `scripts/ftps/start-ftps.sh` each `cp -R` the fixture into their own
+  gitignored `.ftp-plain-root/` / `.ftp-ftps-files/`, `chmod -R a+rwX` it, and
+  their `stop-*.sh` counterparts `rm -rf` it, so a run cannot inherit a
+  root-owned leftover from the one before it. Do not "simplify" this back to a
+  single shared mount.
+
 - **The mounted leaf certificate must be named `/ssl/vsftpd.pem`, and `/ssl`
   must stay read-only.** `bfren/ftps` hardcodes `FTPS_VSFTPD_CERT=/ssl/vsftpd.pem`
   (`10-env.nu`), skips generating a certificate only when that exact path exists

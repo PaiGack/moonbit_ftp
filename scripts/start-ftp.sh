@@ -13,10 +13,33 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-FIXTURE="$ROOT/testdata/ftp/fixture"
+SOURCE_FIXTURE="$ROOT/testdata/ftp/fixture"
 
 NAME="moonbit-ftp-example"
 PORT=21
+
+# A *private copy* of the fixture, not the checked-in directory itself.
+#
+# The FTP home is writable by design -- the demos upload, rename and delete
+# files in it -- so mounting `testdata/ftp/fixture` directly means the tests
+# mutate the working tree. That is how this script and `scripts/ftps/
+# start-ftps.sh` came to share one directory: both mounted the same path, and
+# the FTPS container's init step (`11-user.nu`, "Ensuring user test owns
+# /files") `chown`s it to its own user before it starts. The plaintext
+# container uses a *different* image whose user does not match, so after the
+# FTPS container had run once, the plaintext server could no longer create
+# files in what was now someone else's directory -- vsftpd answered
+# `553 Could not create file.` and the plain smoke test failed with no
+# obvious connection to TLS.
+#
+# Copying per container removes the coupling rather than papering over it: two
+# servers cannot fight over one directory if each owns its own, and a crashed
+# run cannot leave a root-owned scratch file behind for the next one.
+FIXTURE="$ROOT/.ftp-plain-root"
+rm -rf "$FIXTURE"
+mkdir -p "$FIXTURE"
+cp -R "$SOURCE_FIXTURE/." "$FIXTURE/"
+chmod -R a+rwX "$FIXTURE"
 
 # Drop any leftover container with the same name.
 if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$NAME"; then

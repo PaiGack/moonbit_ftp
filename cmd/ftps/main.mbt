@@ -213,7 +213,22 @@ async fn smoke(
   let upload = @io.MemoryReader(w => w.write("ftps\n"))
   defer upload.close()
   @ftp.stor(client, scratch, upload) catch {
-    e => fail("\{label}: STOR failed: \{@debug.Repr(e)}")
+    // `553` is what vsftpd answers when its FTP root is not writable by the
+    // logged-in user, and it is the *only* thing it says: the log then shows a
+    // successful login, a successful `LIST` and a rejected `STOR`, with
+    // nothing pointing at permissions. Naming the cause turns that into a
+    // diagnosis instead of a hunt for a transport bug. The FTP root is the
+    // suspect, either because it is mounted from a directory another server
+    // already chowned to its own user, or because an earlier run left behind a
+    // file this user cannot replace.
+    e =>
+      match e {
+        @ftp.FtpError::ServerError(code=553, ..) =>
+          fail(
+            "\{label}: STOR \{scratch} refused with 553. The server could not create the file: its FTP root is not writable by the logged-in user. Check the container's home directory is owned by (and writable to) that user, and that it is not a directory another container has chowned. The starters give each container its own fixture copy for that reason: see scripts/start-ftp.sh and scripts/ftps/start-ftps.sh.",
+          )
+        _ => fail("\{label}: STOR failed: \{@debug.Repr(e)}")
+      }
   }
   println("    SIZE \{scratch}: \{@ftp.file_size(client, scratch)}")
   @ftp.delete(client, scratch) catch {
