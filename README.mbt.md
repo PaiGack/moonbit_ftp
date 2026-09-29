@@ -46,10 +46,14 @@ async fn main {
   resp.close()
 
   // 4. 上传文件（任意 &@io.Reader 均可）
+  // `MemoryReader` 的后台生产者由调用方负责关：绑到变量再 defer close，
+  // 否则传输失败时它残留的任务会让事件循环以死锁收场。
+  let source = @io.MemoryReader(w => w.write("demo upload"))
+  defer source.close()
   let upload = "/upload.txt"
-  @ftp.stor(client, upload, @io.MemoryReader(w => w.write("demo upload")))
+  @ftp.stor(client, upload, source)
 
-  // 5. 重命名演示，创建的目录也要建了就有拆
+  // 5. 重命名，顺手做一次建目录 / 删目录的往返
   let renamed = "/upload_renamed.txt"
   @ftp.rename(client, upload, renamed)
   @ftp.make_dir(client, "/newdir")
@@ -112,61 +116,18 @@ moon info                                # 更新生成接口（.mbti）
 | **FTPS 端到端** | `scripts/ftps/start-ftps.sh` + `cmd/ftps/run.sh` | 真实 vsftpd 上的**显式 `AUTH TLS`**：dial / login / LIST / RETR / STOR / DELE |
 | 明文回归 | `cmd/ftps/run.sh plain` | 同一个 `cmd/ftps` 二进制走明文链路，确保数据通道时序改动没有破坏无 TLS 路径 |
 
-FTPS 端到端由 `scripts/ci.sh` 驱动，和明文演示共用同一套编排，一共两个容器：
-
-- `scripts/start-ftp.sh` 起明文 `jmoyer/vsftpd`（`127.0.0.1:21`）；
-- `scripts/ftps/start-ftps.sh` 起 FTPS `bfren/ftps`（`127.0.0.1:2121`，vsftpd 3.0.5），
-  它的配置里 `force_local_logins_ssl=YES` 且 `force_local_data_ssl=YES`——只升级控制通道、
-  漏发 `PBSZ` / `PROT P` 的客户端连一个字节都传不出去。
-
-`cmd/ftps` 用参数选择传输方式（默认显式 TLS，`plain` 走明文），所以"加密能用、明文不回归"
-是同一条代码路径上的两个断言。证书由 `scripts/ftps/gen-cert.sh` 每次现场签发自签名 CA，
-通过 `-v ...:/ssl` 挂给容器，客户端再用
-`trust=@tls.TrustedRoot::CustomPemFile(ca)` 注入——**证书校验始终开启**，而不是为了跑通
-关掉 `verify`。
-
-两道闸门（就绪探测、`cmd/ftps` 自身）都在 `scripts/ci.sh` 里、任何 Docker 步骤**之前**
-各有一个 mock 自测，跑的是真实脚本 / 真实二进制：
-
-- `scripts/ftps/probe-ftps-selftest.py` 用 mock 服务器驱动 `probe-ftps.sh`。它是整段 FTPS
-  的闸门，坏了会伪装成下游的 TLS 问题。
-- `scripts/ftps/cmd-ftps-selftest.py` 用 `scripts/ftps/ftp_mock.py` 驱动 `cmd/ftps plain`，
-  其中 **`STOR` 被拒** 这条是回归护栏：`cmd/ftps` 曾把 `@io.MemoryReader` 直接写成 `stor`
-  调用的临时参数，没人负责关它，于是传输失败时它的后台生产者任务残留、事件循环以死锁
-  panic 收场——报错只剩下 `cmd/ftps/main.mbt:202:30-202:70` 一行，本次 CI 的 `plain` 段
-  就是这样挂的。现在 reader 绑定到变量并 `defer close()`，这两条断言同时成立：失败要报
-  服务器自己的错，且不能出现 `Dead lock`。
-- `scripts/ftps/fixture-isolation-selftest.py` 断言两个容器**不共用**同一个可写 fixture
-  目录。`bfren/ftps` 初始化时会 `bf ch --owner "test:test" --recurse /files`，而
-  `FTPS_VSFTPD_UID` 默认 1000；`/files` 是 bind mount，所以那次递归 chown 会改到**宿主机**
-  目录。明文容器 `jmoyer/vsftpd` 的虚拟用户映射到镜像里的 `ftp`（uid 100），于是 FTPS
-  容器一起来，明文容器就写不动自己的根目录了，`STOR` 直接被 `550` 拒掉。这就是
-  `cmd/ftps/run.sh plain` 在 `start-ftps.sh` **之后**才失败、而更早跑的 `cmd/example` 在同一
-  个容器上却通过的原因。现在两个 starter 各自复制一份私有 fixture 去挂载
-  （`.ftp-plain-root/` / `.ftp-ftps-files/`，都 gitignore，由对应的 `stop-*.sh` 清掉）。
-
-挂载的**文件名是契约**，不是随手起的：`bfren/ftps` 把 `FTPS_VSFTPD_CERT` 硬编码成
-`/ssl/vsftpd.pem`，它的 init 脚本只在这条路径存在时才跳过自签，`rsa_cert_file` /
-`rsa_private_key_file` 也都指向它。所以 `gen-cert.sh` 写出的叶证书必须叫 `vsftpd.pem`。
-名字写错时镜像会去自签一张，落在只读挂载上直接失败、容器在 init 阶段退出——症状是
-probe 连不上，而不是一句能指向证书的报错。
-
-本地跑（需要 docker）：
+### 本地端到端（需要 docker）
 
 ```bash
-scripts/start-ftp.sh
-scripts/ftps/start-ftps.sh
-cmd/ftps/run.sh          # 显式 AUTH TLS
-cmd/ftps/run.sh plain    # 明文
+scripts/start-ftp.sh          # 明文 vsftpd，127.0.0.1:21
+scripts/ftps/start-ftps.sh    # FTPS vsftpd，127.0.0.1:2121
+cmd/ftps/run.sh               # 显式 AUTH TLS
+cmd/ftps/run.sh plain         # 明文回归
 scripts/ftps/stop-ftps.sh
 scripts/stop-ftp.sh
 ```
 
-> **隐式 TLS（990）** 目前只有单元测试覆盖：`dial(addr, tls=true)` 会在读 `220` 之前先把
-> 控制通道包进 TLS，这条分支由 `tls_test.mbt` / `dial_wbtest.mbt` 守住，握手也带上了超时。
-> 端到端没纳入 CI，是因为没有合适的镜像——vsftpd 需要 `implicit_ssl=YES` 的额外配置，
-> `bfren/ftps` 生成的配置无法注入，而在容器前面套 `stunnel` 会把"客户端时序是否正确"这个
-> 待测问题本身盖掉。与其用一个假的绿灯，不如把这条路径的覆盖状态写在这里。
+FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同一个 `cmd/ftps` 二进制。
 
 ## 目录结构
 
@@ -207,7 +168,7 @@ scripts/stop-ftp.sh
 │       ├── gen-cert.sh        自签名 CA + 叶证书（每次重新签发）
 │       ├── probe-ftps.sh      就绪探测：AUTH TLS 握手 + 证书校验
 │       ├── probe-ftps-selftest.py  用 mock 服务器自测上面的探测（无需 Docker）
-│       ├── ftp_mock.py        明文 FTP mock，供下面两个自测驱动真实二进制
+│       ├── ftp_mock.py        明文 FTP mock，供 cmd-ftps-selftest.py 驱动真实二进制
 │       ├── cmd-ftps-selftest.py    无 Docker 跑 cmd/ftps plain（含 STOR 被拒的回归用例）
 │       ├── fixture-isolation-selftest.py  断言两个容器不共用可写 fixture
 │       ├── start-ftps.sh      启动 FTPS 容器（127.0.0.1:2121）并写 .ftp-tls.env
@@ -218,8 +179,7 @@ scripts/stop-ftp.sh
 └── moon.mod                   模块定义
 ```
 
-`moon.pkg` 的 import 块包含 `moonbitlang/async`，纯逻辑与 IO 源码同属一个包，
-分层约束通过每个源文件头部注释标记，目录树按层分组列出文件名。
+纯逻辑与 IO 源码同属一个包，分层约束通过每个源文件头部的 `// Layer:` 注释标记。
 
 ## 致谢与来源
 
