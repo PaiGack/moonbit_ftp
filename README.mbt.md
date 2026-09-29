@@ -46,24 +46,22 @@ async fn main {
   let upload = "/upload.txt"
   @ftp.stor(client, upload, @io.MemoryReader(w => w.write("demo upload")))
 
-  // 5. 重命名，再删除
+  // 5. 重命名演示，创建的目录也要建了就有拆
   let renamed = "/upload_renamed.txt"
   @ftp.rename(client, upload, renamed)
-
-  // 6. 用完即删：示例里创建的东西一律拆掉，重复运行才安全（幂等）
-  @ftp.delete(client, renamed)
-
-  // 7. 建目录同样要拆
   @ftp.make_dir(client, "/newdir")
   @ftp.remove_dir(client, "/newdir")
 
-  // 8. 递归遍历目录树
+  // 6. 递归遍历目录树
   let w = @ftp.walk(client, "/")
   while w.next() {
     println(w.path())
   }
 
-  // 9. 退出并关闭连接
+  // 7. 遍历结束再删：上传的文件活到走完目录树才收拾，重复运行才安全（幂等）
+  @ftp.delete(client, renamed)
+
+  // 8. 退出并关闭连接
   @ftp.quit(client)
 }
 ```
