@@ -79,10 +79,11 @@ You can browse and install extra skills here:
 - `cmd/example` is the real-FTP-server smoke program: it starts a single
   `jmoyer/vsftpd` container via `scripts/start-ftp.sh`, exercises dial / login
   / list / retr / stor / rename / mkdir / walk / quit against the fixture in
-  `testdata/ftp/fixture/`, and prints each step to stdout. `cmd/ftp/run.sh` is
-  its entry point (a plain `moon run` wrapper, no `exec`/`--`-only indirection);
-  with no arguments it falls back to the `FTP_COMMAND` in `.env`, so CI can call
-  it argument-free. A failure is a hard failure — never soften it into a skip.
+  `testdata/ftp/fixture/`, and prints each step to stdout. `cmd/example/run.sh`
+  is its entry point (a plain `moon run` wrapper) and takes no arguments, so CI
+  can call it directly; `cmd/ftp/run.sh` runs the CLI against the same
+  container, and with no arguments falls back to the `FTP_COMMAND` in `.env`.
+  A failure is a hard failure — never soften it into a skip.
 
 - `cmd/ftps` is the **FTPS end-to-end smoke test**, the encrypted counterpart of
   `cmd/example`. It takes a transport argument: `explicit` (default, `AUTH TLS`
