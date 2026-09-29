@@ -2,7 +2,12 @@
 
 FROM cnbcool/default-dev-env:latest
 
-RUN apt-get update && apt-get install -y gcc libc6-dev libssl-dev strace
+# `openssl` is used by the FTPS test path: `scripts/ftps/gen-cert.sh` mints the
+# throwaway CA + leaf on every run, and `scripts/ftps/probe-ftps.sh` drives the
+# `AUTH TLS` readiness handshake with `s_client`. `python3` stays because
+# `scripts/probe-ftp.py` probes the plaintext container.
+RUN apt-get update && apt-get install -y \
+      gcc libc6-dev libssl-dev strace python3 openssl
 
 RUN curl -fsSL https://cli.moonbitlang.cn/install/unix.sh | bash \
      && code-server --install-extension moonbit.moonbit-lang

@@ -224,13 +224,23 @@ pub fn parse_port(digits : String) -> Int? {
 
 ///|
 /// The data connection used for one transfer.
+///
+/// The socket is always a raw `Tcp` at first, even for FTPS: the TLS handshake
+/// is deferred until `start_tls` runs, which happens only *after* the server
+/// answered the transfer command with `150`. `reader` / `writer` are the trait
+/// objects the transfer code actually uses; before `start_tls` they point at
+/// the socket, after it they point at the `Tls` session.
 pub struct DataConn {
+  /// The raw data socket. Kept so `start_tls` can wrap it and so the plain
+  /// path can close it.
+  socket : @socket.Tcp
   /// Reads the payload coming from the server.
-  reader : &@io.Reader
+  mut reader : &@io.Reader
   /// Writes the payload going to the server.
-  writer : &@io.Writer
-  /// Closes the socket, keeping the raw connection alive for the 226 read.
-  closer : () -> Unit
+  mut writer : &@io.Writer
+  /// The TLS session, once `start_tls` ran. `None` in the clear and for an
+  /// FTPS connection whose handshake has not started yet.
+  mut tls : @tls.Tls?
 }
 
 ///|
@@ -246,9 +256,68 @@ pub fn DataConn::writer(self : DataConn) -> &@io.Writer {
 }
 
 ///|
+/// Start the TLS handshake on an already connected data socket.
+///
+/// The timing is the whole point of this function, and it is why the handshake
+/// is *not* done in `open_data_conn`:
+///
+/// RFC 4217 starts the data-channel TLS session **after** the server accepted
+/// the transfer command. The server does not read the data socket until it has
+/// answered `150` on the control channel, so a client that connects and
+/// handshakes earlier writes a `ClientHello` into a socket nobody is reading
+/// yet -- and the server, when it later accepts the connection, sees the bytes
+/// of a handshake it never invited. vsftpd and proftpd answer
+/// `425 Unable to build data connection` (or simply drop it) and the transfer
+/// dies; a lenient server may let it slide, which is exactly the "green but
+/// wrong" state a stub server used to hide.
+///
+/// Doing it here also keeps the plain path untouched: `start_tls` is a no-op
+/// when `Options::tls` is off, so a plaintext transfer connects no differently
+/// than before.
+pub async fn DataConn::start_tls(self : DataConn, session : Session) -> Unit {
+  if session.options().tls() == false {
+    return
+  }
+  // A hang here would be indistinguishable from a stalled transfer, so the
+  // handshake gets the same connect timeout as the socket itself.
+  let tls = @async.with_timeout(session.options().timeout_ms(), async fn() {
+    @tls.Tls::client(
+      self.socket,
+      host=session.control().host(),
+      trust=session.options().trust(),
+    )
+  })
+  self.tls = Some(tls)
+  self.reader = tls
+  self.writer = tls
+}
+
+///|
 /// Close the data connection without touching the control channel.
-pub fn DataConn::close(self : DataConn) -> Unit {
-  (self.closer)()
+///
+/// For a TLS data connection the `close_notify` is sent first. This is not
+/// politeness: a server that reads the upload until EOF waits for the record
+/// layer to say "no more data", and a bare socket close (which is all
+/// `Tls::close` does -- it frees the OpenSSL handle, the graceful half is the
+/// async `Tls::shutdown`) leaves the server without its EOF, so it never
+/// writes the `226` and the very next control read blocks forever. In the
+/// clear the socket close *is* the EOF, so nothing extra is needed there.
+pub async fn DataConn::close(self : DataConn) -> Unit {
+  match self.tls {
+    Some(tls) =>
+      // The shutdown can block on a peer that stopped reading; bound it so a
+      // half-dead server turns into a failed transfer rather than a hang.
+      @async.with_timeout(5000, async fn() {
+        tls.shutdown() catch {
+          // A peer that already hung up has no one to say goodbye to.
+          _ => ()
+        }
+      }) catch {
+        _ => ()
+      }
+    None => ()
+  }
+  self.socket.close()
 }
 
 ///|
@@ -280,11 +349,11 @@ pub async fn get_data_port(session : Session) -> (String, Int) {
 }
 
 ///|
-/// Open the passive data connection.
+/// Open the passive data connection: `EPSV` / `PASV`, then a TCP connect.
 ///
-/// With TLS the socket is connected but the handshake is deferred to the first
-/// read/write: ProFTPD and PureFTPD both refuse a data connection that starts
-/// its handshake before the transfer command was answered.
+/// No TLS handshake happens here on purpose -- see `DataConn::start_tls` for
+/// why it belongs after the transfer command was accepted. The socket is left
+/// raw so the handshake can be triggered at the right moment.
 pub async fn open_data_conn(session : Session) -> DataConn {
   let (ip, port) = get_data_port(session)
   let addr = @socket.Addr::parse("\{ip}:\{port}") catch {
@@ -296,15 +365,7 @@ pub async fn open_data_conn(session : Session) -> DataConn {
   let tcp = @async.with_timeout(session.options().timeout_ms(), async fn() {
     @socket.Tcp::connect(addr)
   })
-  if session.options().tls() {
-    let tls = @tls.Tls::client(
-      tcp,
-      host=session.control().host(),
-      trust=session.options().trust(),
-    )
-    return { reader: tls, writer: tls, closer: () => tls.close(), }
-  }
-  { reader: tcp, writer: tcp, closer: () => tcp.close(), }
+  { socket: tcp, reader: tcp, writer: tcp, tls: None, }
 }
 
 ///|
@@ -314,10 +375,16 @@ pub async fn open_data_conn(session : Session) -> DataConn {
 /// `cmdDataConnFrom` step by step:
 ///
 /// 1. `PRET <cmd>` first when the server advertised `PRET`,
-/// 2. open the data connection,
+/// 2. open the data connection (a plain TCP connect, no TLS yet),
 /// 3. `REST <offset>` when a resume offset was given, expecting `350`,
 /// 4. send the transfer command, expecting `125` or `150`,
-/// 5. on a non 2xx answer, close the data connection before raising.
+/// 5. **only then** start the data-channel TLS handshake for FTPS,
+/// 6. on a non 2xx answer, close the data connection before raising.
+///
+/// Step 5 is the fix for the FTPS ordering bug: the handshake used to run
+/// inside `open_data_conn`, i.e. before step 4, which no real ftpd tolerates
+/// (see `DataConn::start_tls`). It now happens exactly once the server has
+/// answered `150` and is ready to read the data socket.
 pub async fn cmd_data_conn_from(
   session : Session,
   offset : Int64,
@@ -374,5 +441,6 @@ pub async fn cmd_data_conn_from(
     conn.close()
     raise FtpError::ServerError(code=response.code(), msg=response.message())
   }
+  conn.start_tls(session)
   conn
 }

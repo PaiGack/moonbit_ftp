@@ -391,25 +391,35 @@ async test "dial reports an unparsable address" {
 }
 
 ///|
-/// `explicit_tls` sends `AUTH TLS` after the greeting and requires `234`; a
-/// server that refuses it fails the dial instead of leaving the caller with a
-/// plaintext session they believe is encrypted.
-async test "dial with explicit_tls sends AUTH TLS" {
+/// `explicit_tls` sends `AUTH TLS` after the greeting, requires `234`, and then
+/// really starts the handshake on the same socket.
+///
+/// The stub here answers `234` but never speaks TLS, which is exactly the trap
+/// the old code fell into: it read `234`, returned "upgraded", and left the
+/// caller with a plaintext session they believed was encrypted. Now the
+/// handshake is attempted and bounded, so the dial fails instead of either
+/// silently downgrading or hanging.
+async test "dial with explicit_tls attempts the handshake and fails on a non-TLS peer" {
   let listener = data_listener()
   let port = listener.addr.port()
-  let client = @async.with_task_group(async fn(group) {
+  let failed = @async.with_task_group(async fn(group) {
     group.spawn_bg(no_wait=true, async fn() {
       let (conn, _) = listener.accept()
       conn.write("220 Test server ready.\r\n")
       conn.write("234 AUTH TLS successful.\r\n")
+      // A real server would now handshake; this one just holds the fd open so
+      // the client's ClientHello is met with silence.
       ignore(conn.read_all() catch { _ => empty_data() })
       conn.close()
     })
-    dial("127.0.0.1:\{port}", explicit_tls=true) catch {
-      _ => fail("dial")
+    try {
+      ignore(dial("127.0.0.1:\{port}", explicit_tls=true, timeout_ms=1500))
+      false
+    } catch {
+      _ => true
     }
   })
-  assert_false(client.is_closed())
+  assert_true(failed)
 }
 
 ///|

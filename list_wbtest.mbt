@@ -539,10 +539,14 @@ async test "name_list reports a data connection failure" {
 /// desynchronise the session for every later command.
 async test "read_payload records a broken reader and returns empty" {
   let errors : Array[Error] = []
+  // `DataConn` owns a real socket (the TLS handshake and `close` both need
+  // it), so the fixture takes one from a loopback listener rather than
+  // pretending. The reader is then swapped for the failing one.
   let conn : DataConn = {
+    socket: connected_socket(),
     reader: failing_source(),
     writer: NullWriter::{ },
-    closer: () => (),
+    tls: None,
   }
   let payload = read_payload(conn, errors)
   assert_eq(payload, "")

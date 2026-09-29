@@ -4,6 +4,7 @@ package "PaiGack/ftp"
 import {
   "moonbitlang/async",
   "moonbitlang/async/io",
+  "moonbitlang/async/socket",
   "moonbitlang/async/tls",
   "moonbitlang/core/debug",
   "moonbitlang/x/time",
@@ -300,12 +301,14 @@ pub async fn Control::send_line(Self, String) -> Unit
 pub fn Control::upgrade(Self, &@io.Reader, &@io.Writer) -> Unit
 
 pub struct DataConn {
-  reader : &@io.Reader
-  writer : &@io.Writer
-  closer : () -> Unit
+  socket : @socket.Tcp
+  mut reader : &@io.Reader
+  mut writer : &@io.Writer
+  mut tls : @tls.Tls?
 }
-pub fn DataConn::close(Self) -> Unit
+pub async fn DataConn::close(Self) -> Unit
 pub fn DataConn::reader(Self) -> &@io.Reader
+pub async fn DataConn::start_tls(Self, Session) -> Unit
 pub fn DataConn::writer(Self) -> &@io.Writer
 
 pub struct DataResponse {

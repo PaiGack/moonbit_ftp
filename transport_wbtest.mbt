@@ -142,6 +142,45 @@ async test "open_data_conn connects to the EPSV port" {
 }
 
 ///|
+/// The data-channel TLS handshake is *deferred*: `open_data_conn` only connects
+/// the socket, and the handshake runs later in `DataConn::start_tls`.
+///
+/// This is the regression test for the FTPS ordering bug. `open_data_conn` used
+/// to call `Tls::client` eagerly, i.e. before the transfer command was sent, so
+/// against a real ftpd the client wrote a `ClientHello` into a socket the server
+/// had not started reading and every transfer died with
+/// `425 Unable to build data connection`. The observable consequence is the one
+/// asserted here: after `open_data_conn` with TLS enabled, no TLS session exists
+/// yet.
+async test "open_data_conn defers the TLS handshake until start_tls" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let options = Options::new(
+    false,
+    false,
+    true,
+    default_dial_timeout_ms,
+    0,
+    @tls.TrustedRoot::SystemRoot,
+  )
+  let (session, sink) = scripted_session(epsv_reply(port), options~)
+  let tls_started = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      let (peer, _) = listener.accept()
+      peer.close()
+    })
+    let conn = open_data_conn(session) catch { _ => fail("open_data_conn") }
+    let started = conn.tls is Some(_)
+    conn.close()
+    started
+  })
+  assert_false(tls_started)
+  // The only commands on the wire are the passive-mode negotiation: nothing
+  // was sent for the handshake, because nothing was attempted.
+  assert_eq(sink.lines, ["EPSV"])
+}
+
+///|
 /// `PRET` is only sent when the server advertised it, and the transfer command
 /// follows it.
 async test "cmd_data_conn_from sends PRET when the server supports it" {

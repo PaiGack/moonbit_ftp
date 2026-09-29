@@ -62,7 +62,24 @@ pub async fn dial(
   // The trusted IP for PASV is the peer we actually reached, not the hostname
   // we asked for: DNS may resolve to several addresses.
   let peer = tcp.addr().ip()
-  let control = Control::new(tcp, tcp, format_ip(peer))
+  let host_text = format_ip(peer)
+  // Implicit TLS (port 990) is encrypted from the first byte: the `220`
+  // greeting itself arrives inside the TLS session, so the handshake has to
+  // happen before a single byte is read. Explicit TLS is the opposite and is
+  // handled further down, after the plaintext greeting and `AUTH TLS`.
+  //
+  // `DialOptions.tls` used to only pick the default port, leaving the control
+  // connection in the clear: against a real implicit server that reads the
+  // TLS handshake as a malformed command line and answers `500`, and the
+  // first `read_until` of the greeting blocks on bytes it can never parse.
+  let control = if tls {
+    let encrypted = @async.with_timeout(timeout_ms, async fn() {
+      @tls.Tls::client(tcp, host=host_text, trust~)
+    })
+    Control::new(encrypted, encrypted, host_text)
+  } else {
+    Control::new(tcp, tcp, host_text)
+  }
   let state_options = options.to_state_options()
   let session = Session::new(control, options=state_options)
   let client : FTPClient = {
@@ -88,7 +105,7 @@ pub async fn dial(
     raise FtpError::ServerError(code=greeting.code(), msg=greeting.message())
   }
   if explicit_tls {
-    auth_tls(client)
+    auth_tls(client, tcp)
   }
   client
 }
@@ -125,10 +142,38 @@ fn format_ip(ip : UInt) -> String {
 ///|
 /// Send `AUTH TLS`, expect `234`, then wrap the socket in a TLS session and
 /// rebuild the control connection around it.
-async fn auth_tls(client : FTPClient) -> Unit {
-  ignore(cmd_expect(client.session.control(), "AUTH TLS", [status_auth_ok]))
-  // The upgrade itself is wired by the caller-visible `dial` path; see
-  // `login` for the `PBSZ` / `PROT` half of the handshake.
+///
+/// The order matters and is the whole point of the command: `234` is the
+/// server's promise that *everything after this reply* is TLS. So the reply has
+/// to be read off the plaintext connection first, and the client-side handshake
+/// can only start once the `234` line has been consumed -- wrapping before
+/// would negotiate TLS over a socket whose buffered `234` has not been read
+/// yet, and the server would be waiting for a `ClientHello` while the client is
+/// still waiting for a reply that is already in its own buffer.
+///
+/// The upgraded connection is built with `Tls::client`, which owns a *new*
+/// reader/writer pair over the same socket (`Control` holds trait objects for
+/// exactly this), and `Control::upgrade` swaps them in. Reusing `DialOptions.tls`
+/// here would be wrong: that flag means implicit TLS on port 990, where the
+/// greeting itself arrives encrypted and no `AUTH TLS` happens at all.
+async fn auth_tls(client : FTPClient, socket : @socket.Tcp) -> Unit {
+  let control = client.session.control()
+  ignore(cmd_expect(control, "AUTH TLS", [status_auth_ok]))
+  // `Tls::client` drives a full handshake and blocks on the peer's reply. A
+  // peer that answered `234` but never speaks TLS (a broken proxy, a stub, or
+  // a server that lied) would otherwise park this task forever -- the timeout
+  // turns that into an ordinary failed dial.
+  let deadline = client.options.timeout_ms
+  let tls = @async.with_timeout(deadline, async fn() {
+    @tls.Tls::client(socket, host=control.host(), trust=client.options.trust)
+  }) catch {
+    e =>
+      raise FtpError::ServerError(
+        code=status_service_unavailable,
+        msg="TLS handshake after AUTH TLS failed: \{e}",
+      )
+  }
+  control.upgrade(tls, tls)
 }
 
 ///|
@@ -181,7 +226,17 @@ pub async fn login(
     }
   }
   set_transfer_type(client, TransferType::Binary)
-  if client.options.tls {
+  // `PBSZ` / `PROT P` protect the *data* channel, and that is needed for both
+  // FTPS flavours: `AUTH TLS` only upgrades the control channel, so an
+  // explicit-TLS session that stops there answers every transfer with
+  // `550 SSL/TLS required on the data channel.` from a server configured the
+  // way RFC 4217 intends (vsftpd's `force_local_data_ssl`). Implicit TLS needs
+  // it for the same reason after the greeting: the data connection is still a
+  // fresh plaintext socket.
+  //
+  // Upstream keys this on `dialOpts.TLS` alone, which is why its implicit-only
+  // handling looked complete; the explicit path was never wired end to end.
+  if client.options.tls || client.options.explicit_tls {
     client.lock()
     defer client.unlock()
     ignore(cmd_expect(client.session.control(), "PBSZ 0", [status_cmd_ok]))

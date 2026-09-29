@@ -42,4 +42,6 @@ import {
 // package has to be reachable under that alias from the blackbox test target.
 import {
   "PaiGack/ftp",
+  "moonbitlang/async",
+  "moonbitlang/async/tls",
 } for "test"
