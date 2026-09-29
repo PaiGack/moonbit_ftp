@@ -108,13 +108,16 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 
-# Readiness: a real `AUTH TLS` handshake *and* a passive `LIST` over the
-# encrypted data channel, i.e. the same handshake `cmd/ftps` will perform.
-# Proving only that the control port accepts would miss the half that breaks
-# when the passive range or `PROT P` is wrong. See scripts/ftps/probe-ftps.sh.
+# Readiness: a real `AUTH TLS` handshake followed by a `USER`/`PASS` that earns
+# a `230`, i.e. the handshake `cmd/ftps` will perform first. Proving only that
+# the control port accepts would miss a certificate the client cannot verify
+# or a daemon that is not ready yet. The *data* channel -- `PBSZ` / `PROT P`,
+# the passive range -- is deliberately left to `cmd/ftps/run.sh`, which is the
+# real assertion; a shell pipe would only re-run the same code. See
+# scripts/ftps/probe-ftps.sh.
 if ! "$SCRIPT_DIR/probe-ftps.sh" \
   "127.0.0.1" "$FTPS_PORT" "$FTP_USER" "$FTP_PASS" "$CERT_DIR/ca.pem" "$PROBE_TIMEOUT"; then
-  echo "start-ftps.sh: $NAME did not answer AUTH TLS + a passive LIST" \
+  echo "start-ftps.sh: $NAME did not complete AUTH TLS + login" \
     "on 127.0.0.1:$FTPS_PORT within ${PROBE_TIMEOUT}s" >&2
   docker logs "$NAME" >&2 || true
   exit 1

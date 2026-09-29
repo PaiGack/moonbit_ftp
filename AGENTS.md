@@ -70,6 +70,16 @@ You can browse and install extra skills here:
   `close_notify`. Before touching `dial.mbt` / `transport.mbt` /
   `control.mbt`, keep `cmd/ftps` passing.
 
+- **The readiness probe judges the transcript, never `openssl`'s exit code.**
+  vsftpd closes the control socket after `QUIT` without a TLS `close_notify`,
+  so `openssl s_client` exits 1 with `ssl3_read_n:unexpected eof while reading`
+  *after* a successful `230 Login successful.`. `probe-ftps.sh` therefore
+  captures with `|| true` and passes only on a `230` seen in the output; keying
+  off the exit status made the gate reject a healthy server and retry until the
+  timeout, printing the *successful* handshake as the "last error". A probe that
+  fails must print the whole transcript — truncating it to the last line is what
+  turned that into a wild goose chase.
+
 - **The data-channel TLS handshake belongs *after* the transfer command.** The
   server does not read the data socket until it has answered `150`, so a client
   that handshakes earlier writes a `ClientHello` into a socket nobody is
