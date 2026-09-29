@@ -3,7 +3,7 @@
 
 name = "PaiGack/ftp"
 
-version = "0.1.0"
+version = "0.2.0"
 
 readme = "README.mbt.md"
 
@@ -17,7 +17,7 @@ keywords = [ "ftp", "network", "client", "protocol", "async" ]
 
 preferred_target = "native"
 
-description = "A pure MoonBit FTP client library ported from jlaffaye/ftp, supporting passive mode, MLSD/LIST parsing, resume and FTPS."
+description = "FTP/FTPS client library for MoonBit with passive EPSV/PASV data connections, MLSD/LIST parsing, resume, directory tree walking, and explicit/implicit TLS."
 
 import {
   "moonbitlang/async@0.21.3",

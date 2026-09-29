@@ -13,9 +13,9 @@
 `jlaffaye/ftp` 是一个纯 Go 实现的 FTP 客户端库，遵循 RFC 959，并额外支持：
 
 - RFC 2389（`FEAT` 特性协商）
-- RFC 3659（`MLST` / `MLSD` / `SIZE` / `MDTM`）
+- RFC 3659（`MLST` / `MLSD` / `SIZE` / `MDTM` / `MFMT`）
 - RFC 4217（显式 / 隐式 FTPS，`AUTH TLS` / `PBSZ` / `PROT P`）
-- 主动/被动模式，`EPSV`（RFC 2428）优先、`PASV` 回退
+- 被动模式，`EPSV`（RFC 2428）优先、`PASV` 回退；主动模式（`PORT` / `EPRT`）不做
 - 常见服务器的兼容性处理（VsFtpd、ProFTPD、Serv-U、hostedftp、Windows IIS、WFTPD 等）
 
 它的价值在于**不是简单封装 socket**，而是把 FTP 这套"文本控制通道 + 独立数据通道"协议的
@@ -147,21 +147,21 @@
 
 ```moonbit
 // Go: c, err := ftp.Dial("ftp.example.org:21", ftp.DialWithTimeout(5*time.Second))
-let c = try @ftp.dial("ftp.example.org:21", timeout=5000) catch { ... }
+let c = try @ftp.dial("ftp.example.org:21", timeout_ms=5000) catch { ... }
 
 // Go: err = c.Login("anonymous", "anonymous")
-c.login("anonymous", "anonymous")
+@ftp.login(c, "anonymous", "anonymous")
 
 // Go: r, err := c.Retr("a.txt"); buf, _ := io.ReadAll(r); r.Close()
-let r = c.retr("a.txt")
-let buf = r.read_all()
+let r = @ftp.retr(c, "a.txt")
+let buf = r.reader.read_all() catch { _ => b"" }
 r.close()
 
 // Go: entries, err := c.List(".")
-let entries = c.list(".")
+let entries = @ftp.list(c, ".")
 
 // Go: w := c.Walk("/root"); for w.Next() { fmt.Println(w.Path(), w.Stat()) }
-let w = c.walk("/root")
+let w = @ftp.walk(c, "/root")
 while w.next() {
   println(w.path())
 }
@@ -170,8 +170,10 @@ while w.next() {
 设计约定：
 
 - 所有可能失败的调用 `raise`，错误类型统一继承 `FtpError`。
-- 可选参数一律用 `label~`（如 `timeout~`、`location~`、`disable_epsv~`），避免 Go 的 `...DialOption` 变参。
-- `DialOption` 语义用 `DialOptions` 结构体承载，内部字段私有、通过 `with_*` 构造函数生成，保持可读性。
+- 可选参数一律用 `label=value`（如 `timeout_ms=5000`、`location=zone`、`disable_epsv=true`），
+  声明处写成 `label? : T = default`，避免 Go 的 `...DialOption` 变参。
+- `DialOption` 语义用 `DialOptions` 结构体承载，所有字段都有文档化的默认值，
+  所以 `dial(addr)` 单独就是一个合法调用；`set_*` 方法用于构造后调整。
 
 ### 2.6 测试策略
 
