@@ -30,6 +30,22 @@ You can browse and install extra skills here:
   (Alpine + vsftpd 3.0.5) configured with `force_local_data_ssl=YES`, which is
   what makes a control-channel-only "upgrade" fail every transfer.
 
+- **Each container gets its own copy of `testdata/ftp/fixture`; never mount the
+  checked-in directory into both.** The FTP home has to be writable (the smoke
+  tests upload into it) and the two images treat it differently: `bfren/ftps`
+  runs `11-user.nu` "Ensuring user test owns /files" and `chown`s whatever is
+  mounted at `/files`, while `jmoyer/vsftpd` mounts the same tree as its own
+  user's home. Pointing both starters at `testdata/ftp/fixture` therefore makes
+  whichever server starts second unable to write, and vsftpd says so with
+  `553 Could not create file.` -- in `cmd/ftps/run.sh plain`, i.e. a failure
+  that reads like a plaintext-transport regression and has nothing to do with
+  TLS. It also dirties the working tree as a side effect. `scripts/start-ftp.sh`
+  and `scripts/ftps/start-ftps.sh` each `cp -R` the fixture into their own
+  gitignored `.ftp-plain-root/` / `.ftp-ftps-files/`, `chmod -R a+rwX` it, and
+  their `stop-*.sh` counterparts `rm -rf` it, so a run cannot inherit a
+  root-owned leftover from the one before it. Do not "simplify" this back to a
+  single shared mount.
+
 - **The mounted leaf certificate must be named `/ssl/vsftpd.pem`, and `/ssl`
   must stay read-only.** `bfren/ftps` hardcodes `FTPS_VSFTPD_CERT=/ssl/vsftpd.pem`
   (`10-env.nu`), skips generating a certificate only when that exact path exists
@@ -70,6 +86,16 @@ You can browse and install extra skills here:
   `close_notify`. Before touching `dial.mbt` / `transport.mbt` /
   `control.mbt`, keep `cmd/ftps` passing.
 
+- **The readiness probe judges the transcript, never `openssl`'s exit code.**
+  vsftpd closes the control socket after `QUIT` without a TLS `close_notify`,
+  so `openssl s_client` exits 1 with `ssl3_read_n:unexpected eof while reading`
+  *after* a successful `230 Login successful.`. `probe-ftps.sh` therefore
+  captures with `|| true` and passes only on a `230` seen in the output; keying
+  off the exit status made the gate reject a healthy server and retry until the
+  timeout, printing the *successful* handshake as the "last error". A probe that
+  fails must print the whole transcript — truncating it to the last line is what
+  turned that into a wild goose chase.
+
 - **The data-channel TLS handshake belongs *after* the transfer command.** The
   server does not read the data socket until it has answered `150`, so a client
   that handshakes earlier writes a `ClientHello` into a socket nobody is
@@ -78,6 +104,26 @@ You can browse and install extra skills here:
   `DataConn::start_tls` is called from `cmd_data_conn_from` after the `150` for
   exactly this reason, and `DataConn::close` sends the TLS `close_notify` before
   closing the socket. Both are load bearing.
+
+- **A reply read must have a deadline, or the async runtime calls the wait a
+  deadlock.** `EventLoop::check_dead_lock` fires as soon as the loop has no
+  ready task and no pending timer, and a suspended socket read counts as "no
+  ready task" — so an unbounded `Control::read_line` on a server that is merely
+  slow (a real ftpd answers `150` only *after* it accepted the data
+  connection) aborts the process with `Dead lock detected`, naming whichever
+  *unrelated* task happened to be parked. That is how a plain `STOR` came to be
+  blamed on the `@io.MemoryReader` two files away in `cmd/ftps/main.mbt`.
+  `Control` therefore carries a `timeout_ms` and `read_line` raises
+  `FtpError::RequestTimeout`; keep the deadline on, and keep `timeout_ms` out
+  of the `FtpError` collapse in `cmd_data_conn_from` — a swallowed error turns
+  a silent server into the same "transfer command failed" as a `550`.
+
+- **A `MemoryReader` passed to `stor` / `append` must be closed by the caller.**
+  `stor` only drains the source once the server accepted the transfer, so a
+  refused or unanswered command leaves the producer parked on a pipe nobody
+  reads. The parked task then trips the deadlock check at process exit, which
+  is the same misleading abort as above. `cmd/ftps` closes its reader in a
+  `defer`; tests use `failing_source()` or call `.close()`.
 
 - `scripts/ci.sh` is the single CI entry point: the whole check / test / build /
   real-server-demo / FTPS-demo / cleanup sequence. `.cnb.yml` and

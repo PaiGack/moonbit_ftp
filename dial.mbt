@@ -76,9 +76,9 @@ pub async fn dial(
     let encrypted = @async.with_timeout(timeout_ms, async fn() {
       @tls.Tls::client(tcp, host=host_text, trust~)
     })
-    Control::new(encrypted, encrypted, host_text)
+    Control::new(encrypted, encrypted, host_text, timeout_ms~)
   } else {
-    Control::new(tcp, tcp, host_text)
+    Control::new(tcp, tcp, host_text, timeout_ms~)
   }
   let state_options = options.to_state_options()
   let session = Session::new(control, options=state_options)

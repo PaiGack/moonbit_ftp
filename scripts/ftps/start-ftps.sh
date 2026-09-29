@@ -51,10 +51,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CERT_DIR="$ROOT/testdata/ftp/tls"
-FIXTURE="$ROOT/testdata/ftp/fixture"
+SOURCE_FIXTURE="$ROOT/testdata/ftp/fixture"
 ENV_FILE="$ROOT/.ftp-tls.env"
 
 NAME="moonbit-ftps-explicit"
+
+# A private copy of the fixture, for the same reason `scripts/start-ftp.sh`
+# takes one: the FTP home has to be writable (the smoke tests upload into it),
+# and this image's init step `chown`s `/files` to its own user. Sharing one
+# host directory between this container and the plaintext one made the second
+# server to start unable to write, which surfaced as
+# `553 Could not create file.` in a test that has nothing to do with TLS.
+FIXTURE="$ROOT/.ftp-ftps-files"
+rm -rf "$FIXTURE"
+mkdir -p "$FIXTURE"
+cp -R "$SOURCE_FIXTURE/." "$FIXTURE/"
+chmod -R a+rwX "$FIXTURE"
 
 # A leftover container from an interrupted run holds the port and the old
 # fixture. `stop-ftps.sh` is the normal remover; this is the re-entry guard, so
@@ -108,13 +120,16 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 
-# Readiness: a real `AUTH TLS` handshake *and* a passive `LIST` over the
-# encrypted data channel, i.e. the same handshake `cmd/ftps` will perform.
-# Proving only that the control port accepts would miss the half that breaks
-# when the passive range or `PROT P` is wrong. See scripts/ftps/probe-ftps.sh.
+# Readiness: a real `AUTH TLS` handshake followed by a `USER`/`PASS` that earns
+# a `230`, i.e. the handshake `cmd/ftps` will perform first. Proving only that
+# the control port accepts would miss a certificate the client cannot verify
+# or a daemon that is not ready yet. The *data* channel -- `PBSZ` / `PROT P`,
+# the passive range -- is deliberately left to `cmd/ftps/run.sh`, which is the
+# real assertion; a shell pipe would only re-run the same code. See
+# scripts/ftps/probe-ftps.sh.
 if ! "$SCRIPT_DIR/probe-ftps.sh" \
   "127.0.0.1" "$FTPS_PORT" "$FTP_USER" "$FTP_PASS" "$CERT_DIR/ca.pem" "$PROBE_TIMEOUT"; then
-  echo "start-ftps.sh: $NAME did not answer AUTH TLS + a passive LIST" \
+  echo "start-ftps.sh: $NAME did not complete AUTH TLS + login" \
     "on 127.0.0.1:$FTPS_PORT within ${PROBE_TIMEOUT}s" >&2
   docker logs "$NAME" >&2 || true
   exit 1

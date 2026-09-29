@@ -21,6 +21,16 @@
 # `AUTH TLS` upgrade, and `-verify_return_error` turns a bad certificate into a
 # non-zero exit instead of a warning -- which is what makes this a real gate
 # rather than a "did the port open" test.
+#
+# The verdict comes from the *transcript*, never from `openssl`'s exit code.
+# vsftpd closes the data/control socket after `QUIT` without sending a TLS
+# `close_notify`, so `s_client` always exits 1 with
+# `ssl3_read_n:unexpected eof while reading` -- after a perfectly good
+# `230 Login successful.`. Treating that exit code as the verdict made this
+# probe retry a healthy server until the timeout, and report "gave up ... last
+# error:" followed by a banner of the *successful* handshake, which is exactly
+# the confusing log that sent two earlier rounds hunting for a TLS bug. So:
+# capture the output with `|| true`, and let the `230` in the transcript decide.
 set -euo pipefail
 
 HOST="${1:?usage: probe-ftps.sh HOST PORT USER PASS CA_FILE TIMEOUT_SECONDS}"
@@ -32,30 +42,37 @@ TIMEOUT="${6:?}"
 
 deadline=$((SECONDS + TIMEOUT))
 attempts=0
-last_error="no attempt was made"
+last_out=""
 
 while [ "$SECONDS" -lt "$deadline" ]; do
   attempts=$((attempts + 1))
-  if out="$(
+  # `|| true` is load bearing: see the header. The exit code is not the verdict;
+  # the transcript below is. Without this, a successful login is discarded and
+  # an idle retry loop burns the whole timeout.
+  out="$(
     printf 'USER %s\r\nPASS %s\r\nQUIT\r\n' "$USER" "$PASS" \
       | openssl s_client -starttls ftp -connect "$HOST:$PORT" \
           -servername localhost \
-          -verifyCAfile "$CA" -verify_return_error -quiet 2>&1
-  )"; then
-    # A completed handshake plus the `220`/`230` replies is the pass. `AUTH TLS`
-    # itself was already driven by `-starttls ftp`.
-    if printf '%s' "$out" | grep -q '^230 '; then
-      if [ "$attempts" -gt 1 ]; then
-        echo "  AUTH TLS + login succeeded on attempt $attempts"
-      fi
-      exit 0
+          -verifyCAfile "$CA" -verify_return_error -quiet 2>&1 || true
+  )"
+  last_out="$out"
+
+  # A completed handshake plus the `220`/`230` replies is the pass. `AUTH TLS`
+  # itself was already driven by `-starttls ftp`. A certificate that fails
+  # verification never produces the `230`, so `-verify_return_error` is still
+  # enforced -- just through the transcript, not through the exit status.
+  if printf '%s' "$out" | grep -q '^230 '; then
+    if [ "$attempts" -gt 1 ]; then
+      echo "  AUTH TLS + login succeeded on attempt $attempts"
     fi
-    last_error="handshake completed but no 230 reply: $(printf '%s' "$out" | tail -n 1)"
-  else
-    last_error="$out"
+    exit 0
   fi
   sleep 0.5
 done
 
-echo "gave up after $attempts attempts, last error: $last_error" >&2
+echo "gave up after $attempts attempts." >&2
+# Print the whole last transcript, not its tail: the interesting line is often
+# the `depth=0 ... verify error` near the top, and truncating it to the last
+# line is what made the previous failure unreadable.
+printf '%s\n' "$last_out" >&2
 exit 1

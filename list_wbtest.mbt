@@ -166,12 +166,12 @@ async test "list raises ServerError when the transfer command is refused" {
       ignore(list(client, "/"))
       None
     } catch {
-      FtpError::ParseError(msg~) => Some(msg)
+      FtpError::ServerError(code~, msg~) => Some("\{code} \{msg}")
       _ => None
     }
     result
   })
-  assert_eq(raised, Some("transfer command failed"))
+  assert_eq(raised, Some("550 Permission denied."))
 }
 
 ///|

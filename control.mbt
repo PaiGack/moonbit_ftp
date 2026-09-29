@@ -25,6 +25,21 @@ pub struct Control {
   /// Address of the peer we are talking to; the `PASV` SSRF guard trusts this
   /// one, not the address the server advertises.
   host : String
+  /// Deadline applied to every reply read, in milliseconds; `0` disables it.
+  ///
+  /// A read with no deadline is not merely missing a diagnostic: it is the
+  /// shape the async runtime reports as a *deadlock*. `check_dead_lock` fires
+  /// as soon as every task is parked, and a suspended socket read counts as
+  /// parked — so a server that takes a few milliseconds longer than the client
+  /// expects (a real ftpd answers `150` only *after* it accepted the data
+  /// connection, which is one scheduling round where the client is already
+  /// waiting) aborts the process with SIGABRT instead of waiting. The report
+  /// then names whichever unrelated task happened to be parked too, which is
+  /// how a plain `STOR` came to be blamed on a `MemoryReader` two files away.
+  /// A deadline makes the wait bounded: the loop has a timer to expire, the
+  /// deadlock check never runs, and a genuinely silent peer turns into a plain
+  /// `FtpError` the caller can read.
+  timeout_ms : Int
 }
 
 ///|
@@ -33,8 +48,9 @@ pub fn Control::new(
   reader : &@io.Reader,
   writer : &@io.Writer,
   host : String,
+  timeout_ms? : Int = 0,
 ) -> Control {
-  { reader, writer, host, }
+  { reader, writer, host, timeout_ms, }
 }
 
 ///|
@@ -63,11 +79,23 @@ pub async fn Control::send_line(self : Control, line : String) -> Unit {
 
 ///|
 /// Read one line, without its trailing CRLF. Raises `ReaderClosed` when the
-/// connection was closed before a complete line arrived.
+/// connection was closed before a complete line arrived, and
+/// `RequestTimeout` when the server stayed silent for `timeout_ms`.
+///
+/// The deadline is on *the reply*, not on the transfer: only the idle part of
+/// a wait is bounded, so a long listing still completes as long as the server
+/// keeps the lines coming.
 pub async fn Control::read_line(self : Control) -> String {
-  match self.reader.read_until("\r\n") {
-    Some(line) => line
-    None => raise @io.ReaderClosed
+  let read = async fn() {
+    match self.reader.read_until("\r\n") {
+      Some(line) => line
+      None => raise @io.ReaderClosed
+    }
+  }
+  guard self.timeout_ms > 0 else { return read() }
+  @async.with_timeout(self.timeout_ms, read) catch {
+    @async.TimeoutError => raise FtpError::RequestTimeout
+    err => raise err
   }
 }
 

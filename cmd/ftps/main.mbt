@@ -198,9 +198,37 @@ async fn smoke(
 
   // STOR / DELE: the write direction, and proof that the data connection is
   // opened per transfer rather than being a one-shot control path.
+  //
+  // The source is a `MemoryReader`, which runs its producer in a background
+  // task, and it is closed in a `defer` rather than left to the GC. That is
+  // not tidiness: `stor` only drains the source once the server accepted the
+  // transfer, so a `STOR` that is refused -- or that never gets its `150` --
+  // leaves the producer parked on a pipe nobody reads. The async runtime
+  // reports a parked task as a *deadlock* the moment the loop has nothing else
+  // to run, and it names the `MemoryReader` line rather than the stalled read,
+  // so the failure reads like a bug in the smoke test instead of "the server
+  // did not answer". Closing the reader cancels the producer, which leaves the
+  // real error (`RequestTimeout`, `550`, ...) as the only thing to report.
   let scratch = "/ftps_smoke.txt"
-  @ftp.stor(client, scratch, @io.MemoryReader(w => w.write("ftps\n"))) catch {
-    e => fail("\{label}: STOR failed: \{@debug.Repr(e)}")
+  let upload = @io.MemoryReader(w => w.write("ftps\n"))
+  defer upload.close()
+  @ftp.stor(client, scratch, upload) catch {
+    // `553` is what vsftpd answers when its FTP root is not writable by the
+    // logged-in user, and it is the *only* thing it says: the log then shows a
+    // successful login, a successful `LIST` and a rejected `STOR`, with
+    // nothing pointing at permissions. Naming the cause turns that into a
+    // diagnosis instead of a hunt for a transport bug. The FTP root is the
+    // suspect, either because it is mounted from a directory another server
+    // already chowned to its own user, or because an earlier run left behind a
+    // file this user cannot replace.
+    e =>
+      match e {
+        @ftp.FtpError::ServerError(code=553, ..) =>
+          fail(
+            "\{label}: STOR \{scratch} refused with 553. The server could not create the file: its FTP root is not writable by the logged-in user. Check the container's home directory is owned by (and writable to) that user, and that it is not a directory another container has chowned. The starters give each container its own fixture copy for that reason: see scripts/start-ftp.sh and scripts/ftps/start-ftps.sh.",
+          )
+        _ => fail("\{label}: STOR failed: \{@debug.Repr(e)}")
+      }
   }
   println("    SIZE \{scratch}: \{@ftp.file_size(client, scratch)}")
   @ftp.delete(client, scratch) catch {

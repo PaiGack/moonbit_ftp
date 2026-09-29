@@ -18,5 +18,8 @@ if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$NAME"; then
 fi
 
 rm -f "$ROOT/.ftp-tls.env"
+# The private fixture copy is scratch: a root-owned leftover file here is what
+# makes the next `STOR` answer `553`.
+rm -rf "$ROOT/.ftp-ftps-files" 2>/dev/null || true
 
 echo "stop-ftps.sh: done"

@@ -14,4 +14,9 @@ if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$NAME"; then
   docker rm -f "$NAME" >/dev/null 2>&1 || true
 fi
 
+# The private fixture copy is scratch, and a root-owned leftover from an
+# aborted run is exactly what made the next `STOR` fail with `553`. Removing it
+# here means a clean start does not depend on the previous run having finished.
+rm -rf "$(cd "$(dirname "$0")/.." && pwd)/.ftp-plain-root" 2>/dev/null || true
+
 echo "stop-ftp.sh: done"
