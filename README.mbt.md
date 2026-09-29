@@ -44,11 +44,7 @@ async fn main {
 
   // 4. 上传文件（任意 &@io.Reader 均可）
   let upload = "/upload.txt"
-  @ftp.stor(
-    client,
-    upload,
-    @io.MemoryReader(w => w.write("demo upload")),
-  )
+  @ftp.stor(client, upload, @io.MemoryReader(w => w.write("demo upload")))
 
   // 5. 重命名，再删除
   let renamed = "/upload_renamed.txt"
