@@ -122,6 +122,25 @@ FTPS 端到端由 `scripts/ci.sh` 驱动，和明文演示共用同一套编排�
 `trust=@tls.TrustedRoot::CustomPemFile(ca)` 注入——**证书校验始终开启**，而不是为了跑通
 关掉 `verify`。
 
+两道闸门（就绪探测、`cmd/ftps` 自身）都在 `scripts/ci.sh` 里、任何 Docker 步骤**之前**
+各有一个 mock 自测，跑的是真实脚本 / 真实二进制：
+
+- `scripts/ftps/probe-ftps-selftest.py` 用 mock 服务器驱动 `probe-ftps.sh`。它是整段 FTPS
+  的闸门，坏了会伪装成下游的 TLS 问题。
+- `scripts/ftps/cmd-ftps-selftest.py` 用 `scripts/ftps/ftp_mock.py` 驱动 `cmd/ftps plain`，
+  其中 **`STOR` 被拒** 这条是回归护栏：`cmd/ftps` 曾把 `@io.MemoryReader` 直接写成 `stor`
+  调用的临时参数，没人负责关它，于是传输失败时它的后台生产者任务残留、事件循环以死锁
+  panic 收场——报错只剩下 `cmd/ftps/main.mbt:202:30-202:70` 一行，本次 CI 的 `plain` 段
+  就是这样挂的。现在 reader 绑定到变量并 `defer close()`，这两条断言同时成立：失败要报
+  服务器自己的错，且不能出现 `Dead lock`。
+- `scripts/ftps/fixture-isolation-selftest.py` 断言两个容器**不共用**同一个可写 fixture
+  目录。`bfren/ftps` 初始化时会 `bf ch --owner "test:test" --recurse /files`，而
+  `FTPS_VSFTPD_UID` 默认 1000；`/files` 是 bind mount，所以那次递归 chown 会改到**宿主机**
+  目录。明文容器 `jmoyer/vsftpd` 的虚拟用户映射到镜像里的 `ftp`（uid 100），于是 FTPS
+  容器一起来，明文容器就写不动自己的根目录了，`STOR` 直接被 `550` 拒掉。这就是
+  `cmd/ftps/run.sh plain` 在 `start-ftps.sh` **之后**才失败、而更早跑的 `cmd/example` 在同一
+  个容器上却通过的原因。现在 `start-ftps.sh` 每次运行都复制一份私有 fixture 去挂载。
+
 挂载的**文件名是契约**，不是随手起的：`bfren/ftps` 把 `FTPS_VSFTPD_CERT` 硬编码成
 `/ssl/vsftpd.pem`，它的 init 脚本只在这条路径存在时才跳过自签，`rsa_cert_file` /
 `rsa_private_key_file` 也都指向它。所以 `gen-cert.sh` 写出的叶证书必须叫 `vsftpd.pem`。
@@ -184,6 +203,9 @@ scripts/stop-ftp.sh
 │       ├── gen-cert.sh        自签名 CA + 叶证书（每次重新签发）
 │       ├── probe-ftps.sh      就绪探测：AUTH TLS 握手 + 证书校验
 │       ├── probe-ftps-selftest.py  用 mock 服务器自测上面的探测（无需 Docker）
+│       ├── ftp_mock.py        明文 FTP mock，供下面两个自测驱动真实二进制
+│       ├── cmd-ftps-selftest.py    无 Docker 跑 cmd/ftps plain（含 STOR 被拒的回归用例）
+│       ├── fixture-isolation-selftest.py  断言两个容器不共用可写 fixture
 │       ├── start-ftps.sh      启动 FTPS 容器（127.0.0.1:2121）并写 .ftp-tls.env
 │       └── stop-ftps.sh       导出容器日志并清理
 ├── testdata/ftp/              测试与演示使用的 fixture

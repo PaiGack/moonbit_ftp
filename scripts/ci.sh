@@ -85,6 +85,27 @@ run moon run cmd/ftp -- --help
 run python3 "$SCRIPT_DIR/ftps/probe-ftps-selftest.py" \
   "$SCRIPT_DIR/ftps/probe-ftps.sh"
 
+# Same rule for `cmd/ftps` itself. Its `plain` leg is the only thing that runs
+# the smoke test in the clear, and until now the earliest it ran was against a
+# real container -- so a defect in the *program* surfaced as a container-log
+# dump with no connection to its cause. That is exactly what happened: a
+# `MemoryReader` built inline at the `STOR` call site had no owner to close it,
+# so a refused `STOR` left its producer task alive and the event loop ended
+# with a deadlock panic, naming `cmd/ftps/main.mbt:202` and nothing else.
+#
+# The mock speaks the same slice of FTP the smoke test uses and binds ephemeral
+# ports, so this runs before any image is pulled and cannot be blamed on a
+# flaky pull. The refused-`STOR` case is the regression guard.
+run python3 "$SCRIPT_DIR/ftps/cmd-ftps-selftest.py" "$ROOT"
+
+# And the cross-container invariant, which no single-container test can see:
+# `bfren/ftps` recursively chowns its `/files` bind mount at init, so mounting
+# the shared `testdata/ftp/fixture` from both containers silently takes write
+# access away from the plaintext one and its `STOR` starts failing with `550`.
+# That only shows up once the FTPS container has run, i.e. after `cmd/example`
+# has already passed -- which is why it read as an inexplicable `plain` failure.
+run python3 "$SCRIPT_DIR/ftps/fixture-isolation-selftest.py" "$ROOT"
+
 # Code statistics. Best-effort: a registry hiccup must not fail the build.
 run docker run --rm -v "$ROOT:/src" ghcr.io/xampprocky/tokei:latest .
 

@@ -11,9 +11,18 @@ target
 .ftp-tls.env
 testdata/ftp/tls/
 
-# Per-container copies of testdata/ftp/fixture, made by scripts/start-ftp.sh and
-# scripts/ftps/start-ftps.sh. The FTP home has to be writable, and the two
-# servers must not share one directory: each takes its own copy so one cannot
-# chown, fill or delete the other's files.
+# Private copies of testdata/ftp/fixture, one per container.
+#
+# The FTP home has to be writable (the smoke tests upload into it), and the two
+# images treat it differently: `bfren/ftps` chowns whatever is mounted at
+# `/files` to its own user at init, while `jmoyer/vsftpd` maps its virtual user
+# to the image's `ftp` (uid 100). Sharing one directory therefore makes whichever
+# server starts second unable to write, and its `STOR` is refused with `550` --
+# a failure that reads like a plaintext-transport regression and has nothing to
+# do with TLS. Each starter mounts its own copy instead.
+#
+# The copies are gitignored rather than kept under `testdata/`: they are scratch,
+# rebuilt from the checked-in fixture on every run and deleted by the matching
+# `stop-*.sh`, so a run never inherits a root-owned leftover from the one before.
 .ftp-plain-root/
 .ftp-ftps-files/

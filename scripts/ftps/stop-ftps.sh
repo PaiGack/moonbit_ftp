@@ -18,8 +18,9 @@ if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$NAME"; then
 fi
 
 rm -f "$ROOT/.ftp-tls.env"
-# The private fixture copy is scratch: a root-owned leftover file here is what
-# makes the next `STOR` answer `553`.
+# The private fixture copy is scratch. `rm -rf` it rather than leaving it for
+# the next run: a root-owned leftover is what makes a later `STOR` answer `553`,
+# and start-ftps.sh's own `rm -rf` would need privileges it does not have.
 rm -rf "$ROOT/.ftp-ftps-files" 2>/dev/null || true
 
 echo "stop-ftps.sh: done"
