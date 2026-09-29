@@ -91,7 +91,7 @@ You can browse and install extra skills here:
   no per-file imports) plus a `for "wbtest"` block. The async packages therefore
   sit in the plain block on purpose; the pure logic / IO split is carried by the
   per-file `// Layer:` markers and by the grouped file tree in
-  `docs/porting/01-architecture.md` section 2.
+  `docs/porting.md` section 2.3 (package layout).
 
 - In the toplevel directory, there is a `moon.mod` file listing module
   metadata.

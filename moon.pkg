@@ -1,12 +1,12 @@
 // Root package: every source file lives flat here, no `src/` intermediate
-// layer. See docs/porting/01-architecture.md section 2.
+// layer. See docs/porting.md, section 2.3 (package layout).
 //
 // The plain import block covers the pure logic files and the IO files, because
 // MoonBit 0.1.20260920 has no per-file imports, so the async stack is named
 // here even though the parsers never use it. The test targets do *not* inherit
 // this block; they get their own block further down.
 // The pure logic / IO file inventory that review relies on lives in the
-// grouped file tree of docs/porting/01-architecture.md section 2, backed by
+// grouped file tree of docs/porting.md section 2.3, backed by
 // the per-file `// Layer:` markers; section 3 states the rule.
 
 import {

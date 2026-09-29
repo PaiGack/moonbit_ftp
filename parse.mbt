@@ -22,8 +22,8 @@
 // of a directory listing.
 //
 // The fallback order is load bearing and documented in
-// `docs/porting/02-upstream-map.md`; changing it changes which parser wins for
-// an ambiguous line.
+// `docs/porting.md` section 1 (upstream analysis); changing it changes which
+// parser wins for an ambiguous line.
 
 ///|
 /// Which of the four parsers recognised a listing line. The order of the
@@ -49,7 +49,7 @@ pub extend ListFormat with @debug.Debug::{to_repr}
 
 ///|
 /// Parse a single `LIST` / `MLSD` line, trying the four parsers in the fixed
-/// fallback order documented in `docs/porting/02-upstream-map.md`.
+/// fallback order documented in `docs/porting.md` section 1 (upstream analysis).
 ///
 /// `line` must not contain the trailing CR/LF. `now` is the reference instant
 /// used for the "no year" heuristic and is an explicit parameter so that the

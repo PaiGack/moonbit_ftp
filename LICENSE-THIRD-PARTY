@@ -42,7 +42,7 @@ basis:
 
 - ftp.go, parse.go, status.go, scanner.go, walker.go, debug.go (implementation)
   and the matching *_test.go files (test cases and expectations), as mapped
-  file-by-file in docs/porting/02-upstream-map.md.
+  file-by-file in docs/porting.md, section 1 (upstream analysis).
 - The LIST / MLSD line parsers and the "half-year rule" for timestamps in
   parse.go are behavior ports; the FTP response status table in status.go is
   ported into status.mbt.
@@ -53,8 +53,8 @@ The port is not a mechanical translation: files were reorganized by
 responsibility, the async I/O layer was rebuilt on `moonbitlang/async`, and
 Go-specific types, error values and concurrency constraints were rewritten
 using MoonBit idioms. The deliberate behavioral differences from the upstream
-Go implementation are enumerated in docs/porting/02-upstream-map.md and
-docs/porting/06-compat-checklist.md.
+Go implementation are enumerated in docs/porting.md, sections 3
+(upstream differences) and 6 (acceptance checklist).
 
 Per-file provenance: every file carrying ported code starts with a header of
 the form

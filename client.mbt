@@ -529,7 +529,7 @@ pub struct Options {
 
 ///|
 /// Default options, matching the documented defaults in
-/// `docs/porting/04-api-mapping.md`.
+/// `docs/porting.md` section 2.4 (API mapping).
 pub fn Options::default() -> Options {
   {
     disable_epsv: false,
