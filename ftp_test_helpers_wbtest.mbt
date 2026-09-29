@@ -118,6 +118,25 @@ async fn serve_payload(listener : @socket.TcpServer, payload : String) -> Unit {
 }
 
 ///|
+/// A `@socket.Tcp` connected to a throwaway loopback listener, for the
+/// `DataConn` fixtures that need a real socket but never move a byte over it.
+///
+/// `DataConn` owns its socket (the TLS handshake and `close` both need it), so
+/// a fixture cannot be built out of thin air any more. The listener side is
+/// accepted and dropped immediately: the client end stays writable/readable
+/// for as long as the fixture needs, which is enough for tests whose reader is
+/// a stub that never touches the socket.
+async fn connected_socket() -> @socket.Tcp {
+  let listener = data_listener()
+  @async.with_task_group(async fn(group) {
+    let server = group.spawn(no_wait=true, async fn() { listener.accept() })
+    let client = @socket.Tcp::connect(listener.addr)
+    ignore(server.wait())
+    client
+  })
+}
+
+///|
 /// The `EPSV` reply that points a client at `port` on the loopback interface.
 fn epsv_reply(port : Int) -> String {
   "229 Entering Extended Passive Mode (|||" + port.to_string() + "|)\r\n"

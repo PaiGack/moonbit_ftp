@@ -21,6 +21,15 @@ You can browse and install extra skills here:
 - Test files keep the usual naming: `*_test.mbt` (blackbox) and `*_wbtest.mbt`
   (whitebox). They live in the same root package as the code.
 
+- `scripts/ftps/` mirrors the `scripts/*.sh` lifecycle for the encrypted case:
+  `gen-cert.sh` (self-signed CA + leaf, regenerated every run and gitignored),
+  `probe-ftps.sh` (`AUTH TLS` readiness handshake, verified against the CA),
+  `start-ftps.sh` (the FTPS container on `127.0.0.1:2121`, endpoint written to
+  `.ftp-tls.env`) and `stop-ftps.sh` (dumps logs, removes the container, never
+  fails). There is no Python server: the FTPS container is `bfren/ftps`
+  (Alpine + vsftpd 3.0.5) configured with `force_local_data_ssl=YES`, which is
+  what makes a control-channel-only "upgrade" fail every transfer.
+
 - `cmd/example` is the real-FTP-server smoke program: it starts a single
   `jmoyer/vsftpd` container via `scripts/start-ftp.sh`, exercises dial / login
   / list / retr / stor / rename / mkdir / walk / quit against the fixture in
@@ -29,8 +38,36 @@ You can browse and install extra skills here:
   with no arguments it falls back to the `FTP_COMMAND` in `.env`, so CI can call
   it argument-free. A failure is a hard failure — never soften it into a skip.
 
+- `cmd/ftps` is the **FTPS end-to-end smoke test**, the encrypted counterpart of
+  `cmd/example`. It takes a transport argument: `explicit` (default, `AUTH TLS`
+  on a plaintext control channel, the RFC 4217 shape) or `plain` (no TLS, for
+  the regression guard against the plaintext container). One binary, both
+  transports, so "the fix works over TLS and does not break the clear" is a
+  single verifiable claim. Its server comes from `scripts/ftps/start-ftps.sh`;
+  the certificate is a self-signed CA generated per run by
+  `scripts/ftps/gen-cert.sh`, mounted into the container and injected into the
+  client with `trust=@tls.TrustedRoot::CustomPemFile(...)` so verification
+  stays **on** — never disable it to make the test pass.
+
+- **FTPS is the one capability whose failure mode is "the first read hangs"**,
+  which no unit test and no plaintext server can reach. All four of the TLS
+  bugs found so far lived in the seams: `AUTH TLS` sent without upgrading the
+  socket, `PBSZ` / `PROT P` skipped for explicit TLS, implicit TLS never
+  wrapping the control connection, and a TLS data connection closed without a
+  `close_notify`. Before touching `dial.mbt` / `transport.mbt` /
+  `control.mbt`, keep `cmd/ftps` passing.
+
+- **The data-channel TLS handshake belongs *after* the transfer command.** The
+  server does not read the data socket until it has answered `150`, so a client
+  that handshakes earlier writes a `ClientHello` into a socket nobody is
+  reading and real servers answer `425 Unable to build data connection` (a
+  lenient stub lets it slide, which is how this stayed green while broken).
+  `DataConn::start_tls` is called from `cmd_data_conn_from` after the `150` for
+  exactly this reason, and `DataConn::close` sends the TLS `close_notify` before
+  closing the socket. Both are load bearing.
+
 - `scripts/ci.sh` is the single CI entry point: the whole check / test / build /
-  real-server-demo / cleanup sequence. `.cnb.yml` and
+  real-server-demo / FTPS-demo / cleanup sequence. `.cnb.yml` and
   `.github/workflows/ci.yml` each have exactly one job whose only real step is
   `bash scripts/ci.sh`, so the two pipelines cannot drift apart. Do not inline
   `moon` commands, credentials or `docker run` into either pipeline, and do not

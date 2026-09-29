@@ -5,3 +5,8 @@ target
 .mooncakes/
 .moonagent/
 .env
+
+# Written by scripts/ftps/start-ftps.sh (the FTPS endpoint + CA path) and by
+# scripts/ftps/gen-cert.sh (a throwaway CA + leaf, regenerated on every run).
+.ftp-tls.env
+testdata/ftp/tls/

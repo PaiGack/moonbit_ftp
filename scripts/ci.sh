@@ -42,6 +42,8 @@ run() {
 cleanup() {
   step "scripts/stop-ftp.sh"
   "$SCRIPT_DIR/stop-ftp.sh" || true
+  step "scripts/ftps/stop-ftps.sh"
+  "$SCRIPT_DIR/ftps/stop-ftps.sh" || true
 }
 trap cleanup EXIT
 
@@ -73,11 +75,31 @@ run moon run cmd/ftp -- --help
 run docker run --rm -v "$ROOT:/src" ghcr.io/xampprocky/tokei:latest .
 
 # ---------------------------------------------------------------------------
-# Real FTP server demo. Both package wrappers take no arguments and talk to
-# the container started here, on 127.0.0.1:21.
+# Real FTP server demo, in the clear. Both package wrappers take no arguments
+# and talk to the plaintext container started here, on 127.0.0.1:21.
 # ---------------------------------------------------------------------------
 run "$SCRIPT_DIR/start-ftp.sh"
 run "$ROOT/cmd/example/run.sh"
 run "$ROOT/cmd/ftp/run.sh"
+
+# ---------------------------------------------------------------------------
+# FTPS (explicit AUTH TLS) end-to-end. The plaintext demo above cannot cover
+# this: it is the one capability the README advertised whose failure mode is
+# "the first read hangs", which no unit test can reach.
+#
+# A second container runs vsftpd with `force_local_data_ssl=YES`, presenting a
+# leaf signed by the CA `scripts/ftps/gen-cert.sh` mints. `cmd/ftps/run.sh`
+# reaches it with `trust=CustomPemFile(ca)`, so certificate verification stays
+# ON rather than being disabled to make the test pass.
+#
+# The *same* `cmd/ftps` binary is then run with `plain` against the container
+# from the previous block. That is the regression guard for the fix in this
+# change: deferring the data-channel handshake must not disturb the plaintext
+# ordering, and only running both transports proves it.
+# ---------------------------------------------------------------------------
+run "$SCRIPT_DIR/ftps/start-ftps.sh"
+run "$ROOT/cmd/ftps/run.sh"
+run "$ROOT/cmd/ftps/run.sh" plain
+run "$SCRIPT_DIR/ftps/stop-ftps.sh"
 
 exit "$status"

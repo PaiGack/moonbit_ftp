@@ -19,7 +19,7 @@
 ///
 /// The trailing slash matters: every child path is `join(root, name)`, so a
 /// missing slash would produce `rootsub/` instead of `root/sub`.
-test "walk normalises the root and starts empty" {
+async test "walk normalises the root and starts empty" {
   let (client, _) = scripted_client("")
   let bare = walk(client, "/root")
   assert_eq(bare.path(), "/root/")
@@ -39,7 +39,7 @@ test "walk normalises the root and starts empty" {
 ///|
 /// `push` / `pop` are LIFO on the array tail, and `pop` on an empty stack
 /// returns `None` instead of raising.
-test "walker push and pop are LIFO" {
+async test "walker push and pop are LIFO" {
   let (client, _) = scripted_client("")
   let w = walk(client, "/root")
   assert_true(w.pop() is None)
@@ -68,7 +68,7 @@ test "walker push and pop are LIFO" {
 ///|
 /// `entries` exposes the stack oldest first and `set_stack` replaces it
 /// wholesale, which is how a caller primes a walk.
-test "walker entries and set_stack round-trip" {
+async test "walker entries and set_stack round-trip" {
   let (client, _) = scripted_client("")
   let w = walk(client, "/root")
   w.set_stack([(make_file("x"), "/root/x"), (make_file("y"), "/root/y")])
@@ -87,7 +87,7 @@ test "walker entries and set_stack round-trip" {
 ///|
 /// `pop` alone does not move the cursor: only `next()` updates `cur`, so
 /// `stat()` still reports the pre-walk state.
-test "stat is not changed by a bare pop" {
+async test "stat is not changed by a bare pop" {
   let (client, _) = scripted_client("")
   let w = walk(client, "/root")
   assert_true(w.stat() is None)

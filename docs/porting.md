@@ -184,6 +184,22 @@ while w.next() {
 3. **帧解析用例**：用 `@io.MemoryReader` 精确构造畸形响应（畸形状态行、空行续行、两行 MLST），
    不需要假服务器也不需要 socket。
 4. **边界用例**：命令注入、EPSV 被拒后回退、二次 `Close`、REST 断点续传、超时。
+5. **FTPS 端到端**：`scripts/ftps/start-ftps.sh` 起 `bfren/ftps`（vsftpd 3.0.5，
+   `force_local_data_ssl=YES`），自签名 CA 由 `gen-cert.sh` 现场签发、挂进容器，
+   并以 `trust=CustomPemFile` 注入客户端（**校验保持开启**）。`cmd/ftps` 默认跑显式
+   `AUTH TLS` 的 dial / login / list / retr / stor / dele，再用 `plain` 参数对明文容器
+   跑同一段，确保数据通道时序的改动没有破坏无 TLS 路径。与明文演示共用 `scripts/ci.sh`
+   这套编排，失败同样是硬失败。
+
+   > 这一层不是可选的补充。本节 3.3 提到的"数据通道 TLS 握手时机"在本仓库里踩了四次：
+   > `AUTH TLS` 发出去但没升级连接、显式 TLS 漏发 `PBSZ`/`PROT P`、隐式 TLS 根本没加密
+   > 控制通道、TLS 数据连接关闭时不发 `close_notify`。四个都是"编译通过、单测全绿、
+   > 连上明文服务器也一切正常"，只有对着真实 FTPS 服务器才会以"第一次读就挂住"暴露出来。
+   >
+   > 隐式 TLS（990）目前只到单元测试层：`dial(tls=true)` 在首个字节前包好控制通道，
+   > 由 `tls_test.mbt` / `dial_wbtest.mbt` 覆盖，握手本身带超时。端到端没进 CI 是因为
+   > 没有能同时讲好显式与隐式、且允许换成我们证书的镜像；在容器前套 `stunnel` 会把
+   > "客户端握手时机是否正确"这个待测问题本身掩盖掉，所以宁可不跑，也不跑个假的绿灯。
 
 ---
 

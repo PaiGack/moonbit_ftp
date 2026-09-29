@@ -100,6 +100,45 @@ moon info                                # 更新生成接口（.mbti）
 提交前请确认 `moon fmt --check`、`moon check --target native --deny-warn`、
 `moon test --target native` 三条命令均通过。
 
+### 测试分层
+
+| 层 | 命令 | 覆盖 |
+| --- | --- | --- |
+| 纯逻辑单测 | `moon test --target native` | 四种列表解析、状态码、路径 join、控制通道帧解析 |
+| 明文端到端 | `scripts/start-ftp.sh` + `cmd/example/run.sh` | 真实 vsftpd 上的 dial / login / list / retr / stor / rename / mkdir / walk |
+| **FTPS 端到端** | `scripts/ftps/start-ftps.sh` + `cmd/ftps/run.sh` | 真实 vsftpd 上的**显式 `AUTH TLS`**：dial / login / LIST / RETR / STOR / DELE |
+| 明文回归 | `cmd/ftps/run.sh plain` | 同一个 `cmd/ftps` 二进制走明文链路，确保数据通道时序改动没有破坏无 TLS 路径 |
+
+FTPS 端到端由 `scripts/ci.sh` 驱动，和明文演示共用同一套编排，一共两个容器：
+
+- `scripts/start-ftp.sh` 起明文 `jmoyer/vsftpd`（`127.0.0.1:21`）；
+- `scripts/ftps/start-ftps.sh` 起 FTPS `bfren/ftps`（`127.0.0.1:2121`，vsftpd 3.0.5），
+  它的配置里 `force_local_logins_ssl=YES` 且 `force_local_data_ssl=YES`——只升级控制通道、
+  漏发 `PBSZ` / `PROT P` 的客户端连一个字节都传不出去。
+
+`cmd/ftps` 用参数选择传输方式（默认显式 TLS，`plain` 走明文），所以"加密能用、明文不回归"
+是同一条代码路径上的两个断言。证书由 `scripts/ftps/gen-cert.sh` 每次现场签发自签名 CA，
+通过 `-v ...:/ssl` 挂给容器，客户端再用
+`trust=@tls.TrustedRoot::CustomPemFile(ca)` 注入——**证书校验始终开启**，而不是为了跑通
+关掉 `verify`。
+
+本地跑（需要 docker）：
+
+```bash
+scripts/start-ftp.sh
+scripts/ftps/start-ftps.sh
+cmd/ftps/run.sh          # 显式 AUTH TLS
+cmd/ftps/run.sh plain    # 明文
+scripts/ftps/stop-ftps.sh
+scripts/stop-ftp.sh
+```
+
+> **隐式 TLS（990）** 目前只有单元测试覆盖：`dial(addr, tls=true)` 会在读 `220` 之前先把
+> 控制通道包进 TLS，这条分支由 `tls_test.mbt` / `dial_wbtest.mbt` 守住，握手也带上了超时。
+> 端到端没纳入 CI，是因为没有合适的镜像——vsftpd 需要 `implicit_ssl=YES` 的额外配置，
+> `bfren/ftps` 生成的配置无法注入，而在容器前面套 `stunnel` 会把"客户端时序是否正确"这个
+> 待测问题本身盖掉。与其用一个假的绿灯，不如把这条路径的覆盖状态写在这里。
+
 ## 目录结构
 
 所有源码直接平铺在仓库根目录，没有包目录层级，全部属于同一个包 `PaiGack/ftp`，
@@ -124,14 +163,22 @@ moon info                                # 更新生成接口（.mbti）
 ├── cmd/ftp/                   CLI 示例：ls / get / put / walk / mkdir / rm
 │   ├── main.mbt
 │   └── run.sh                 按 .env 跑 cmd/ftp，可带参数覆盖默认命令
-├── cmd/example/               真实 vsftpd 端到端演示
+├── cmd/example/               真实 vsftpd 端到端演示（明文）
 │   ├── main.mbt
 │   └── run.sh                 按 .env 跑 cmd/example
+├── cmd/ftps/                  FTPS / 明文端到端冒烟：参数选择传输方式
+│   ├── main.mbt
+│   └── run.sh                 读 .ftp-tls.env 跑 cmd/ftps（可传 plain）
 ├── scripts/
 │   ├── ci.sh                  CI 入口脚本
-│   ├── start-ftp.sh           启动 vsftpd 容器
-│   ├── probe-ftp.py           容器就绪探测（登录 + 一次被动 LIST）
-│   └── stop-ftp.sh            导出容器日志并清理
+│   ├── start-ftp.sh           启动明文 vsftpd 容器（127.0.0.1:21）
+│   ├── probe-ftp.py           明文容器就绪探测（登录 + 一次被动 LIST）
+│   ├── stop-ftp.sh            导出明文容器日志并清理
+│   └── ftps/                  FTPS（显式 AUTH TLS）容器
+│       ├── gen-cert.sh        自签名 CA + 叶证书（每次重新签发）
+│       ├── probe-ftps.sh      就绪探测：AUTH TLS 握手 + 证书校验
+│       ├── start-ftps.sh      启动 FTPS 容器（127.0.0.1:2121）并写 .ftp-tls.env
+│       └── stop-ftps.sh       导出容器日志并清理
 ├── testdata/ftp/              测试与演示使用的 fixture
 ├── docs/                      移植方案与设计文档
 ├── moon.pkg                   根包清单
