@@ -317,3 +317,142 @@ async test "check_data_shut rejects a code other than 226 and 250" {
   }
   assert_eq(raised, Some((451, "Local error in processing.")))
 }
+
+///|
+/// `shut_timeout_ms` wraps the closing `226` read in a timeout. The wrap is
+/// best effort — a timeout is swallowed, because the transfer itself already
+/// succeeded and dropping the client over a late reply would be worse than
+/// leaving one stale reply in the channel.
+async test "DataResponse::close tolerates a timeout on the 226 read" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let script = epsv_reply(port) + "150 Opening BINARY mode data connection.\r\n"
+  // No `226` follows, so the wrap-up read will hit the timeout.
+  let (client, _) = scripted_client(script)
+  client.options.shut_timeout_ms = 30
+  @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      serve_payload(listener, "payload")
+    })
+    let response = retr(client, "/a.txt") catch { _ => fail("retr") }
+    // Draining the payload is not required; `close` resets the data channel.
+    response.close() catch {
+      e => fail("close should swallow the timeout: \{e}")
+    }
+    // A second close is a no-op, not a second wrap-up read.
+    response.close() catch {
+      e => fail("second close: \{e}")
+    }
+    ()
+  })
+}
+
+///|
+/// A zero byte upload over a TLS-configured client is the ProFTPD case: the
+/// data connection was opened but never written to, so the TLS handshake never
+/// happened and the server answers `Unable to build data connection`. The
+/// explicit no-op keeps that from being an error.
+async test "stor_from accepts a zero byte TLS upload" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let script = epsv_reply(port) +
+    "150 Ok to send data.\r\n226 Transfer complete.\r\n"
+  let (client, sink) = scripted_client(script)
+  // TLS on the options makes the zero byte branch reachable without a real
+  // TLS handshake: the branch is `written == 0 && options.tls`.
+  client.options.tls = true
+  @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      let (conn, _) = listener.accept()
+      ignore(conn.read_all() catch { _ => empty_data() })
+      conn.close()
+    })
+    stor_from(client, "/empty.bin", text_source("")) catch {
+      e => fail("stor_from: \{e}")
+    }
+    ()
+  })
+  assert_eq(sink.lines, ["EPSV", "STOR /empty.bin"])
+}
+
+///|
+/// `append` aggregates the read error and the `226` error the same way `stor`
+/// does, so a broken source is reported instead of being swallowed.
+async test "append reports a broken source" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let script = epsv_reply(port) +
+    "150 Ok to send data.\r\n226 Transfer complete.\r\n"
+  let (client, sink) = scripted_client(script)
+  let raised = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      let (conn, _) = listener.accept()
+      ignore(conn.read_all() catch { _ => empty_data() })
+      conn.close()
+    })
+    try {
+      append(client, "/log.txt", failing_source())
+      false
+    } catch {
+      _ => true
+    }
+  })
+  assert_true(raised)
+  assert_eq(sink.lines, ["EPSV", "APPE /log.txt"])
+}
+
+///|
+/// `append` keeps the `226` failure *and* the transfer result: the wrap-up
+/// error is aggregated rather than replacing the outcome, matching upstream's
+/// `errors.Join`. A refused `226` (a `5xx` instead of `226`) is the reachable
+/// shape.
+async test "append aggregates a refused 226" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let script = epsv_reply(port) +
+    "150 Ok to send data.\r\n550 Transfer refused.\r\n"
+  let (client, sink) = scripted_client(script)
+  let code = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      let (conn, _) = listener.accept()
+      ignore(conn.read_all() catch { _ => empty_data() })
+      conn.close()
+    })
+    try {
+      append(client, "/log.txt", text_source("line\n"))
+      -1
+    } catch {
+      FtpError::ServerError(code~, ..) => code
+      _ => -2
+    }
+  })
+  assert_eq(code, 550)
+  assert_eq(sink.lines, ["EPSV", "APPE /log.txt"])
+}
+
+///|
+/// The same aggregation on `stor`: a refused `226` is reported instead of
+/// being treated as a successful upload.
+async test "stor aggregates a refused 226" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let script = epsv_reply(port) +
+    "150 Ok to send data.\r\n550 Transfer refused.\r\n"
+  let (client, sink) = scripted_client(script)
+  let code = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      let (conn, _) = listener.accept()
+      ignore(conn.read_all() catch { _ => empty_data() })
+      conn.close()
+    })
+    try {
+      stor(client, "/up.txt", text_source("payload"))
+      -1
+    } catch {
+      FtpError::ServerError(code~, ..) => code
+      _ => -2
+    }
+  })
+  assert_eq(code, 550)
+  assert_eq(sink.lines, ["EPSV", "STOR /up.txt"])
+}

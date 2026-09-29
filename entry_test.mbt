@@ -47,3 +47,53 @@ test "entry constructors cover all three entry types" {
   let file = @ftp.make_entry("message.ftp", @ftp.EntryType::File)
   assert_eq(file.type_, @ftp.EntryType::File)
 }
+
+///|
+/// `TransferType::from_string` is the inverse of `to_string`, and it is what a
+/// caller round-tripping a `TYPE` argument back into the enum relies on.
+test "transfer type parses back from its TYPE argument" {
+  assert_true(
+    @ftp.TransferType::from_string("I") is Some(@ftp.TransferType::Binary),
+  )
+  assert_true(
+    @ftp.TransferType::from_string("A") is Some(@ftp.TransferType::ASCII),
+  )
+  // Case insensitive, because servers echo the uppercase form and callers
+  // should not have to care.
+  assert_true(
+    @ftp.TransferType::from_string("i") is Some(@ftp.TransferType::Binary),
+  )
+  assert_true(
+    @ftp.TransferType::from_string("a") is Some(@ftp.TransferType::ASCII),
+  )
+}
+
+///|
+test "transfer type rejects anything that is not a TYPE code" {
+  assert_true(@ftp.TransferType::from_string("") is None)
+  assert_true(@ftp.TransferType::from_string("E") is None)
+  assert_true(@ftp.TransferType::from_string("binary") is None)
+  assert_true(@ftp.TransferType::from_string("A ") is None)
+}
+
+///|
+/// `argument` is the spelling that reads better at a call site; it must agree
+/// with `to_string`, which is what actually goes on the wire.
+test "transfer type argument is its wire spelling" {
+  assert_eq(@ftp.TransferType::Binary.argument(), "I")
+  assert_eq(@ftp.TransferType::ASCII.argument(), "A")
+  assert_eq(
+    @ftp.TransferType::Binary.argument(),
+    @ftp.TransferType::Binary.to_string(),
+  )
+}
+
+///|
+/// The shared `epoch` constant is what an entry gets when a listing carries no
+/// usable timestamp; it must be Unix second zero in UTC.
+test "epoch is the unix epoch in UTC" {
+  assert_eq(@ftp.epoch.to_unix_second(), 0L)
+  assert_eq(@ftp.epoch.year(), 1970)
+  assert_eq(@ftp.epoch.month(), 1)
+  assert_eq(@ftp.epoch.day(), 1)
+}

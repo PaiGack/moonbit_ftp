@@ -154,6 +154,8 @@ pub async fn remove_dir(FTPClient, String) -> Unit
 
 pub async fn rename(FTPClient, String, String) -> Unit
 
+pub fn render_command(String, Array[String]) -> String raise FtpError
+
 pub async fn retr(FTPClient, String) -> DataResponse
 
 pub async fn retr_from(FTPClient, String, offset? : Int64) -> DataResponse

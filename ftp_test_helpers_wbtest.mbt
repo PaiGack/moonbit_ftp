@@ -78,10 +78,11 @@ fn scripted_client(
   mlst_supported? : Bool = false,
   options? : Options = Options::default(),
   location? : @time.Zone = @time.utc_zone,
+  dial_options? : DialOptions = DialOptions::default(),
 ) -> (FTPClient, RecordingSink) {
   let (control, sink) = scripted_control(script)
   let client : FTPClient = {
-    options: DialOptions::default(),
+    options: dial_options,
     state_options: options,
     session: Session::new(control, options~),
     closed: false,
@@ -166,4 +167,16 @@ fn failing_source() -> &@io.Reader {
 /// value of the same type as the successful one.
 fn empty_data() -> &@io.Data {
   ""
+}
+
+///|
+/// A `Session` over a scripted control channel, plus the sink recording what
+/// was sent. Used by the data channel tests, which need a session but no
+/// `FTPClient`.
+fn scripted_session(
+  script : String,
+  options? : Options = Options::default(),
+) -> (Session, RecordingSink) {
+  let (control, sink) = scripted_control(script)
+  (Session::new(control, options~), sink)
 }
