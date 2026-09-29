@@ -280,6 +280,7 @@ pub(all) suberror FtpError {
   UnsupportedListLine(line~ : String)
   UnsupportedListDate(field~ : String)
   ParseError(msg~ : String)
+  RequestTimeout
 } derive(@debug.Debug)
 pub fn FtpError::to_repr(Self) -> @debug.Repr
 
@@ -293,9 +294,10 @@ pub struct Control {
   mut reader : &@io.Reader
   mut writer : &@io.Writer
   host : String
+  timeout_ms : Int
 }
 pub fn Control::host(Self) -> String
-pub fn Control::new(&@io.Reader, &@io.Writer, String) -> Self
+pub fn Control::new(&@io.Reader, &@io.Writer, String, timeout_ms? : Int) -> Self
 pub async fn Control::read_line(Self) -> String
 pub async fn Control::send_line(Self, String) -> Unit
 pub fn Control::upgrade(Self, &@io.Reader, &@io.Writer) -> Unit

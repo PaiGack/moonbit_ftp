@@ -133,3 +133,52 @@ impl @io.Writer for NullSink with fn write_once(
   ignore(offset)
   len
 }
+
+///|
+/// A silent server fails with `RequestTimeout` instead of parking forever.
+///
+/// This is the regression test for the CI failure that made the whole suite
+/// abort with "Dead lock detected": the reply read had no deadline, so a
+/// server that did not answer left the only live task parked on the control
+/// socket. The async runtime reports a fully parked loop as a deadlock and
+/// aborts the process, naming whichever *other* task happened to be parked —
+/// so the failure named a `MemoryReader` two files away from the real stall.
+/// With a deadline the wait is bounded and the error names the wait.
+async test "read_response times out on a silent server" {
+  let listener = @socket.TcpServer::TcpServer(
+    @socket.Addr::parse("127.0.0.1:0"),
+  )
+  let raised = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      // Accept the connection, then never say anything.
+      let (peer, _) = listener.accept()
+      @async.sleep(5000)
+      peer.close()
+    })
+    let socket = @socket.Tcp::connect(listener.addr)
+    // 100 ms is far below the 5 s the peer stays silent.
+    let control = Control::new(socket, socket, "127.0.0.1", timeout_ms=100)
+    let result = try {
+      ignore(read_response(control))
+      "no error"
+    } catch {
+      FtpError::RequestTimeout => "RequestTimeout"
+      err => "other: \{err}"
+    }
+    result
+  })
+  assert_eq(raised, "RequestTimeout")
+}
+
+///|
+/// `timeout_ms = 0` keeps the deadline off, which is the default every
+/// in-package fixture relies on: a scripted reader has no peer to time out
+/// against and must still answer.
+async test "a zero deadline leaves the reply read unbounded" {
+  let control = Control::new(
+    @io.MemoryReader(writer => writer.write("220 ready\r\n")),
+    NullSink::{ },
+    "127.0.0.1",
+  )
+  assert_eq(read_response(control).code(), 220)
+}

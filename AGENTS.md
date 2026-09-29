@@ -89,6 +89,26 @@ You can browse and install extra skills here:
   exactly this reason, and `DataConn::close` sends the TLS `close_notify` before
   closing the socket. Both are load bearing.
 
+- **A reply read must have a deadline, or the async runtime calls the wait a
+  deadlock.** `EventLoop::check_dead_lock` fires as soon as the loop has no
+  ready task and no pending timer, and a suspended socket read counts as "no
+  ready task" — so an unbounded `Control::read_line` on a server that is merely
+  slow (a real ftpd answers `150` only *after* it accepted the data
+  connection) aborts the process with `Dead lock detected`, naming whichever
+  *unrelated* task happened to be parked. That is how a plain `STOR` came to be
+  blamed on the `@io.MemoryReader` two files away in `cmd/ftps/main.mbt`.
+  `Control` therefore carries a `timeout_ms` and `read_line` raises
+  `FtpError::RequestTimeout`; keep the deadline on, and keep `timeout_ms` out
+  of the `FtpError` collapse in `cmd_data_conn_from` — a swallowed error turns
+  a silent server into the same "transfer command failed" as a `550`.
+
+- **A `MemoryReader` passed to `stor` / `append` must be closed by the caller.**
+  `stor` only drains the source once the server accepted the transfer, so a
+  refused or unanswered command leaves the producer parked on a pipe nobody
+  reads. The parked task then trips the deadlock check at process exit, which
+  is the same misleading abort as above. `cmd/ftps` closes its reader in a
+  `defer`; tests use `failing_source()` or call `.close()`.
+
 - `scripts/ci.sh` is the single CI entry point: the whole check / test / build /
   real-server-demo / FTPS-demo / cleanup sequence. `.cnb.yml` and
   `.github/workflows/ci.yml` each have exactly one job whose only real step is

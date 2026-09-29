@@ -198,8 +198,21 @@ async fn smoke(
 
   // STOR / DELE: the write direction, and proof that the data connection is
   // opened per transfer rather than being a one-shot control path.
+  //
+  // The source is a `MemoryReader`, which runs its producer in a background
+  // task, and it is closed in a `defer` rather than left to the GC. That is
+  // not tidiness: `stor` only drains the source once the server accepted the
+  // transfer, so a `STOR` that is refused -- or that never gets its `150` --
+  // leaves the producer parked on a pipe nobody reads. The async runtime
+  // reports a parked task as a *deadlock* the moment the loop has nothing else
+  // to run, and it names the `MemoryReader` line rather than the stalled read,
+  // so the failure reads like a bug in the smoke test instead of "the server
+  // did not answer". Closing the reader cancels the producer, which leaves the
+  // real error (`RequestTimeout`, `550`, ...) as the only thing to report.
   let scratch = "/ftps_smoke.txt"
-  @ftp.stor(client, scratch, @io.MemoryReader(w => w.write("ftps\n"))) catch {
+  let upload = @io.MemoryReader(w => w.write("ftps\n"))
+  defer upload.close()
+  @ftp.stor(client, scratch, upload) catch {
     e => fail("\{label}: STOR failed: \{@debug.Repr(e)}")
   }
   println("    SIZE \{scratch}: \{@ftp.file_size(client, scratch)}")

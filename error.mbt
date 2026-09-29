@@ -20,6 +20,13 @@ pub(all) suberror FtpError {
   UnsupportedListDate(field~ : String)
   /// Generic parsing failure, carries the underlying reason.
   ParseError(msg~ : String)
+  /// The server did not answer within the configured deadline.
+  ///
+  /// Distinct from `ServerError` on purpose: nothing was answered, so there is
+  /// no status code to report. It exists so that a silent peer fails with an
+  /// error naming the wait instead of hanging, and so that the async runtime
+  /// never mistakes the wait for a deadlock.
+  RequestTimeout
 } derive(@debug.Debug)
 
 ///|

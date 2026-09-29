@@ -426,14 +426,14 @@ pub async fn cmd_data_conn_from(
       raise FtpError::ParseError(msg="REST command failed")
     }
   }
+  // The reason the command was rejected propagates untouched. It used to be
+  // replaced by a generic `transfer command failed`, which made a stalled
+  // server (no reply at all) indistinguishable from one that answered `500`
+  // -- the transcript that would tell them apart was already gone.
+  errdefer conn.close()
   let response = cmd_format(session.control(), cmd, args, [
     status_data_conn_already_in_use, 150,
-  ]) catch {
-    _ => {
-      conn.close()
-      raise FtpError::ParseError(msg="transfer command failed")
-    }
-  }
+  ])
   // The reply that starts a transfer is a *positive intermediate* (`125` or
   // `150`), not a completion: `2xx` only arrives at the end, on `226`. Testing
   // `is_positive_completion` here rejected every real transfer.

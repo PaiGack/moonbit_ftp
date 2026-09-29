@@ -212,18 +212,17 @@ async test "stor raises when the transfer command is refused" {
   let raised = try {
     // `failing_source()` rather than a `MemoryReader`: the payload is never
     // read on this path, and a producer left parked would deadlock the test
-    // runner.
+    // runner. `cmd/ftps` closes its reader for the same reason.
     stor(client, "/up.txt", failing_source())
     None
   } catch {
-    FtpError::ParseError(msg~) => Some(msg)
-    FtpError::ServerError(code~, ..) => Some("http \{code}")
-    // `cmd_data_conn_from` reports a refused command as one of the two above;
-    // anything else would be a regression worth seeing.
+    // The server's own code and message survive the refusal.
+    FtpError::ServerError(code~, msg~) => Some("\{code} \{msg}")
+    FtpError::ParseError(msg~) => Some("parse: \{msg}")
     _ => None
   }
   listener.close()
-  assert_eq(raised, Some("transfer command failed"))
+  assert_eq(raised, Some("550 Not enough space."))
 }
 
 ///|

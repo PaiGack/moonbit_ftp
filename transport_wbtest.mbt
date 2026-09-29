@@ -231,10 +231,13 @@ async test "cmd_data_conn_from tolerates a refused PRET" {
 }
 
 ///|
-/// A status code outside the accepted set (`125` / `150`) is turned into a
-/// `ParseError`: the command was refused, and the caller gets a stable
-/// "transfer command failed" rather than the server's raw code — the same
-/// treatment `REST` gets below.
+/// A status code outside the accepted set (`125` / `150`) surfaces as the
+/// server's own `ServerError`.
+///
+/// The reply is *re-raised*, not replaced by a generic "transfer command
+/// failed": the code and the message are the only diagnostics a refused
+/// transfer has, and collapsing them used to make a silent server
+/// (`RequestTimeout`) look exactly like a `550`.
 async test "cmd_data_conn_from reports a refused transfer command" {
   let listener = data_listener()
   let port = listener.addr.port()
@@ -249,11 +252,11 @@ async test "cmd_data_conn_from reports a refused transfer command" {
       ignore(cmd_data_conn_from(session, 0, "RETR {}", ["/gone.txt"]))
       "no error"
     } catch {
-      FtpError::ParseError(msg~) => msg
+      FtpError::ServerError(code~, msg~) => "\{code} \{msg}"
       _ => "other"
     }
   })
-  assert_eq(message, "transfer command failed")
+  assert_eq(message, "550 No such file.")
   assert_eq(sink.lines, ["EPSV", "RETR /gone.txt"])
 }
 
