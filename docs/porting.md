@@ -201,6 +201,18 @@ while w.next() {
    > 没有能同时讲好显式与隐式、且允许换成我们证书的镜像；在容器前套 `stunnel` 会把
    > "客户端握手时机是否正确"这个待测问题本身掩盖掉，所以宁可不跑，也不跑个假的绿灯。
 
+   同一段编排里还有三道**无 Docker 的闸门自测**，都在任何容器之前跑：
+   `probe-ftps-selftest.py` 驱动 `probe-ftps.sh`，`cmd-ftps-selftest.py` 用 `ftp_mock.py`
+   驱动真实的 `cmd/ftps plain`，`fixture-isolation-selftest.py` 断言两个容器不共用可写的
+   fixture 目录。第二条是这次 CI 失败的教训：`cmd/ftps` 把 `@io.MemoryReader` 直接写成
+   `stor` 调用的临时参数，没人负责关它，`STOR` 被拒时它的后台生产者任务残留，事件循环以
+   `Dead lock detected` panic 收场，整段 FTPS 于是看起来像 TLS 问题——而真正的错误
+   （服务器回了什么）一个字都没打出来。失败路径必须有自己的测试，否则它只会在容器日志里
+   现形。第三条是它把真正的错误露出来之后才看见的：`bfren/ftps` 初始化时递归 chown 自己的
+   `/files` bind mount（`FTPS_VSFTPD_UID` 默认 1000），而那个目录正是明文容器的根目录，
+   明文容器（uid 100）随即失去写权限、`STOR` 吃 `550`。跨容器的约定没有单容器测试看得见，
+   所以单独写一条断言。
+
 ---
 
 ## 3. 与上游的差异与裁剪

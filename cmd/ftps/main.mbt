@@ -210,6 +210,11 @@ async fn smoke(
   // did not answer". Closing the reader cancels the producer, which leaves the
   // real error (`RequestTimeout`, `550`, ...) as the only thing to report.
   let scratch = "/ftps_smoke.txt"
+  // The `MemoryReader` is bound to a name and closed here rather than being a
+  // temporary inside the `stor` call. Constructing it inline leaves a *second*
+  // owner of the pipe that nothing ever closes, so the background task the
+  // reader spawns outlives the transfer. `stor` itself cannot fix that: all it
+  // sees is a `&@io.Reader`, and it must not close a reader it was handed.
   let upload = @io.MemoryReader(w => w.write("ftps\n"))
   defer upload.close()
   @ftp.stor(client, scratch, upload) catch {

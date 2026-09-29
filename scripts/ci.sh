@@ -71,6 +71,41 @@ run moon build --target native --release
 
 run moon run cmd/ftp -- --help
 
+# ---------------------------------------------------------------------------
+# Logic checks that need a server but not a *real* one, so they run before any
+# Docker work and cannot be blamed on a flaky image pull.
+#
+# `probe-ftps.sh` is the readiness gate the whole FTPS block hangs off: when it
+# wrongly reports "unhealthy", `start-ftps.sh` fails, `.ftp-tls.env` is never
+# written and both `cmd/ftps/run.sh` calls fail after it -- with no hint that
+# the gate, not the server, was the problem. That is exactly how a pipeline that
+# never actually reached the FTPS assertions still looked like a TLS bug, so
+# the gate gets its own test against a mock that answers the same handshake.
+# ---------------------------------------------------------------------------
+run python3 "$SCRIPT_DIR/ftps/probe-ftps-selftest.py" \
+  "$SCRIPT_DIR/ftps/probe-ftps.sh"
+
+# Same rule for `cmd/ftps` itself. Its `plain` leg is the only thing that runs
+# the smoke test in the clear, and until now the earliest it ran was against a
+# real container -- so a defect in the *program* surfaced as a container-log
+# dump with no connection to its cause. That is exactly what happened: a
+# `MemoryReader` built inline at the `STOR` call site had no owner to close it,
+# so a refused `STOR` left its producer task alive and the event loop ended
+# with a deadlock panic, naming `cmd/ftps/main.mbt:202` and nothing else.
+#
+# The mock speaks the same slice of FTP the smoke test uses and binds ephemeral
+# ports, so this runs before any image is pulled and cannot be blamed on a
+# flaky pull. The refused-`STOR` case is the regression guard.
+run python3 "$SCRIPT_DIR/ftps/cmd-ftps-selftest.py" "$ROOT"
+
+# And the cross-container invariant, which no single-container test can see:
+# `bfren/ftps` recursively chowns its `/files` bind mount at init, so mounting
+# the shared `testdata/ftp/fixture` from both containers silently takes write
+# access away from the plaintext one and its `STOR` starts failing with `550`.
+# That only shows up once the FTPS container has run, i.e. after `cmd/example`
+# has already passed -- which is why it read as an inexplicable `plain` failure.
+run python3 "$SCRIPT_DIR/ftps/fixture-isolation-selftest.py" "$ROOT"
+
 # Code statistics. Best-effort: a registry hiccup must not fail the build.
 run docker run --rm -v "$ROOT:/src" ghcr.io/xampprocky/tokei:latest .
 

@@ -57,11 +57,17 @@ ENV_FILE="$ROOT/.ftp-tls.env"
 NAME="moonbit-ftps-explicit"
 
 # A private copy of the fixture, for the same reason `scripts/start-ftp.sh`
-# takes one: the FTP home has to be writable (the smoke tests upload into it),
-# and this image's init step `chown`s `/files` to its own user. Sharing one
-# host directory between this container and the plaintext one made the second
-# server to start unable to write, which surfaced as
-# `553 Could not create file.` in a test that has nothing to do with TLS.
+# takes one -- and it must be a *different* directory, not the same one.
+#
+# The FTP home has to be writable (the smoke test uploads into it), and this
+# image's init step `chown`s whatever is mounted at `/files` to its own user
+# (`FTPS_VSFTPD_UID`, 1000 by default). The plaintext container maps its virtual
+# user to the image's `ftp` (uid 100) and mounts the same checked-in fixture.
+# Sharing one directory therefore made whichever server started second unable to
+# write, and its `STOR` came back `553 Could not create file.` -- a failure that
+# reads like a plaintext-transport regression and has nothing to do with TLS.
+# Two private copies remove the coupling instead of papering over it, and a
+# crashed run cannot leave a root-owned scratch file behind for the next one.
 FIXTURE="$ROOT/.ftp-ftps-files"
 rm -rf "$FIXTURE"
 mkdir -p "$FIXTURE"

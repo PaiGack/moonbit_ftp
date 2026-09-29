@@ -24,11 +24,28 @@ You can browse and install extra skills here:
 - `scripts/ftps/` mirrors the `scripts/*.sh` lifecycle for the encrypted case:
   `gen-cert.sh` (self-signed CA + leaf, regenerated every run and gitignored),
   `probe-ftps.sh` (`AUTH TLS` readiness handshake, verified against the CA),
-  `start-ftps.sh` (the FTPS container on `127.0.0.1:2121`, endpoint written to
-  `.ftp-tls.env`) and `stop-ftps.sh` (dumps logs, removes the container, never
-  fails). There is no Python server: the FTPS container is `bfren/ftps`
-  (Alpine + vsftpd 3.0.5) configured with `force_local_data_ssl=YES`, which is
-  what makes a control-channel-only "upgrade" fail every transfer.
+  `probe-ftps-selftest.py` (runs that probe against a docker-free mock),
+  `ftp_mock.py` (the plaintext FTP mock those docker-free checks drive the real
+  binaries against), `cmd-ftps-selftest.py` (runs `cmd/ftps plain` against that
+  mock), `fixture-isolation-selftest.py` (asserts the two containers do not
+  share a writable fixture), `start-ftps.sh` (the FTPS container on `127.0.0.1:2121`, endpoint
+  written to `.ftp-tls.env`) and `stop-ftps.sh` (dumps logs, removes the
+  container, never fails). The FTPS container is `bfren/ftps` (Alpine + vsftpd
+  3.0.5) configured with `force_local_data_ssl=YES`, which is what makes a
+  control-channel-only "upgrade" fail every transfer.
+
+- **`probe-ftps.sh` must be tested against a mock, not only via the container.**
+  It is a gate whose failure mode is "says unhealthy about a healthy server", so
+  its bugs make CI fail *on success* and surface as a downstream symptom: the
+  probe fails, `start-ftps.sh` fails, `.ftp-tls.env` is never written, and both
+  `cmd/ftps/run.sh` calls die on the missing file — which reads like a TLS bug
+  while the FTPS assertions never ran at all. Two such bugs have already shipped
+  once each, both invisible to `bash -n` and to any real-server run:
+  `openssl s_client` never exits by itself, so a *successful* login looked like
+  a timeout inside the retry loop; and `-quiet` writes server replies to stderr,
+  so the `grep '^230 '` on the captured stdout could never match. Hence
+  `timeout` around `s_client`, `2>&1` on the capture, and
+  `probe-ftps-selftest.py` in `scripts/ci.sh` before any Docker step.
 
 - **Each container gets its own copy of `testdata/ftp/fixture`; never mount the
   checked-in directory into both.** The FTP home has to be writable (the smoke
@@ -77,6 +94,50 @@ You can browse and install extra skills here:
   `scripts/ftps/gen-cert.sh`, mounted into the container and injected into the
   client with `trust=@tls.TrustedRoot::CustomPemFile(...)` so verification
   stays **on** — never disable it to make the test pass.
+
+- **A `@io.MemoryReader` passed inline has no owner, and that is a deadlock.**
+  The reader spawns a background producer task; the only way to stop it is
+  `MemoryReader::close`. Build one as a temporary at a call site (`f(MemoryReader(...))`)
+  and nothing ever closes it, so the event loop can end with that task still
+  alive. The symptom is not a leak report but a deadlock panic from
+  `@moonbitlang/async`, naming the line of the argument and nothing else:
+
+  ```
+  Dead lock detected. Tasks spawned at the following locations are still alive:
+  ["cmd/ftps/main.mbt:202:30-202:70@PaiGack/ftp"]
+  ```
+
+  It only fires when the consumer *stops early* — a transfer the server rejects,
+  a raised error before the pipe drains — so it hides on the happy path and in
+  every unit test. `cmd/ftps` hit it: its `STOR` call built the reader inline, so
+  a refused `STOR` panicked instead of reporting the error, and the whole FTPS
+  block of `scripts/ci.sh` looked like a TLS bug. Bind the reader to a name and
+  `defer reader.close()`, as `cmd/ftps` now does.
+
+- **`scripts/ftps/cmd-ftps-selftest.py` runs `cmd/ftps` without Docker**, which
+  is where that deadlock is caught. `scripts/ftps/ftp_mock.py` is a plaintext
+  FTP mock on ephemeral ports; the self-test drives the real binary against it
+  twice, once with every transfer served and once with `STOR` refused. The
+  refused case is the regression guard: on the buggy code it reproduces the
+  exact CI deadlock, and it runs in `scripts/ci.sh` *before* any image is
+  pulled. The same rule as `probe-ftps.sh` applies — if `cmd/ftps` breaks, the
+  gate should say so, not the container log.
+
+- **The two containers must not share the fixture directory.** `bfren/ftps`'s
+  `11-user.nu` runs `bf ch --owner "test:test" --recurse $files` over `/files`
+  at init, with `FTPS_VSFTPD_UID` defaulting to 1000. `/files` is a bind mount,
+  so that recursive chown rewrites the *host* tree — and `scripts/start-ftp.sh`
+  mounts the same `testdata/ftp/fixture` directory as its FTP root, where the
+  virtual user maps to the image's `ftp` (uid 100). Once the FTPS container has
+  started, the plaintext container can no longer write there and its `STOR` is
+  refused with `550`. That is why `cmd/ftps/run.sh plain` fails *after*
+  `start-ftps.sh` has run while `cmd/example` — which runs before it — passes on
+  the same container. `start-ftps.sh` therefore mounts a per-run **copy** under
+  `.ftp-ftps-files/` (gitignored, rebuilt every run, removed by
+  `stop-ftps.sh`), and `scripts/start-ftp.sh` takes its own under
+  `.ftp-plain-root/` — so the two chowns can only ever touch their own
+  throwaway trees. `fixture-isolation-selftest.py` asserts that invariant with
+  no Docker, since no single-container test can see it.
 
 - **FTPS is the one capability whose failure mode is "the first read hangs"**,
   which no unit test and no plaintext server can reach. All four of the TLS
