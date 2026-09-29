@@ -8,10 +8,17 @@
 #   ca.pem      the CA certificate, PEM. Handed to the client as
 #               `trust=@tls.TrustedRoot::CustomPemFile(...)`, so the test also
 #               exercises certificate verification instead of turning it off.
-#   server.pem  the server certificate + key in one file, which is what the
+#   vsftpd.pem  the server certificate + key in one file, which is what the
 #               vsftpd image wants: it points `rsa_cert_file` and
 #               `rsa_private_key_file` at the *same* path, i.e. a single PEM
 #               that carries both halves.
+#
+# The leaf is named `vsftpd.pem`, not `server.pem`, because the *name* is the
+# contract with the image: `bfren/ftps` sets `FTPS_VSFTPD_CERT=/ssl/vsftpd.pem`
+# in its `10-env.nu`, its `13-vsftpd-ssl.nu` init script skips generating a
+# certificate only when that exact path exists, and its `vsftpd.conf.esh` points
+# both `rsa_cert_file` and `rsa_private_key_file` at it. A correctly shaped PEM
+# under any other name is invisible to it.
 #
 # The leaf carries `subjectAltName = IP:127.0.0.1, DNS:localhost`. SANs are not
 # decoration: every modern TLS stack, MoonBit's included, ignores the legacy
@@ -67,6 +74,6 @@ openssl x509 -req \
   2>/dev/null
 
 cp "$TMP/ca.pem" "$OUT_DIR/ca.pem"
-cat "$TMP/server.crt" "$TMP/server.key" > "$OUT_DIR/server.pem"
+cat "$TMP/server.crt" "$TMP/server.key" > "$OUT_DIR/vsftpd.pem"
 
-echo "gen-cert.sh: wrote $OUT_DIR/ca.pem and $OUT_DIR/server.pem"
+echo "gen-cert.sh: wrote $OUT_DIR/ca.pem and $OUT_DIR/vsftpd.pem"

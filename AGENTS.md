@@ -30,6 +30,19 @@ You can browse and install extra skills here:
   (Alpine + vsftpd 3.0.5) configured with `force_local_data_ssl=YES`, which is
   what makes a control-channel-only "upgrade" fail every transfer.
 
+- **The mounted leaf certificate must be named `/ssl/vsftpd.pem`, and `/ssl`
+  must stay read-only.** `bfren/ftps` hardcodes `FTPS_VSFTPD_CERT=/ssl/vsftpd.pem`
+  (`10-env.nu`), skips generating a certificate only when that exact path exists
+  (`13-vsftpd-ssl.nu`), and points both `rsa_cert_file` and
+  `rsa_private_key_file` at it (`vsftpd.conf.esh`). A correctly shaped PEM under
+  any other name is invisible, the image self-signs over the mount instead, and
+  with `/ssl:ro` that write fails during `init` — `bf-init` runs
+  `try { bf x $script } catch { exit 1 }`, so the container dies before vsftpd
+  ever listens. The whole symptom is then a probe that retries `Connection
+  refused` for the full timeout. `start-ftps.sh` runs its liveness check before
+  the readiness probe for that reason, and omits `--rm` so a dead container's
+  init log stays readable instead of answering `No such container`.
+
 - `cmd/example` is the real-FTP-server smoke program: it starts a single
   `jmoyer/vsftpd` container via `scripts/start-ftp.sh`, exercises dial / login
   / list / retr / stor / rename / mkdir / walk / quit against the fixture in

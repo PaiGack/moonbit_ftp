@@ -122,6 +122,12 @@ FTPS 端到端由 `scripts/ci.sh` 驱动，和明文演示共用同一套编排�
 `trust=@tls.TrustedRoot::CustomPemFile(ca)` 注入——**证书校验始终开启**，而不是为了跑通
 关掉 `verify`。
 
+挂载的**文件名是契约**，不是随手起的：`bfren/ftps` 把 `FTPS_VSFTPD_CERT` 硬编码成
+`/ssl/vsftpd.pem`，它的 init 脚本只在这条路径存在时才跳过自签，`rsa_cert_file` /
+`rsa_private_key_file` 也都指向它。所以 `gen-cert.sh` 写出的叶证书必须叫 `vsftpd.pem`。
+名字写错时镜像会去自签一张，落在只读挂载上直接失败、容器在 init 阶段退出——症状是
+probe 连不上，而不是一句能指向证书的报错。
+
 本地跑（需要 docker）：
 
 ```bash
