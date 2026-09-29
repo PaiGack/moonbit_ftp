@@ -22,11 +22,28 @@
 # non-zero exit instead of a warning -- which is what makes this a real gate
 # rather than a "did the port open" test.
 #
+# Two properties of `openssl s_client` are load bearing here, because getting
+# either wrong turns this gate into a liar rather than a failure:
+#
+#   * **It never exits on its own.** `s_client` keeps reading the socket until
+#     it sees EOF or an error, and `-starttls ftp` leaves it in a state where
+#     the server's `221 Goodbye.` and one `close_notify` do not add up to a
+#     clean EOF. Run without a deadline inside a shell loop, and the pipeline
+#     never returns: the probe hangs *even when the login succeeded*, and
+#     `$(...)` swallows both the hang and the exit status, so the symptom is a
+#     silent no-op rather than a failure. `timeout` below bounds it.
+#
+#   * **`-quiet` writes server replies to stderr, not stdout.** All of
+#     `s_client`'s own chatter shares one stream (it configures itself with
+#     `-quiet` by dropping its normal stdout bio), so the replies have to be
+#     captured with `2>&1` or `grep '^230 '` sees nothing but OpenSSL's own
+#     error text and fails forever against a perfectly healthy server.
+#
 # The verdict comes from the *transcript*, never from `openssl`'s exit code.
-# vsftpd closes the data/control socket after `QUIT` without sending a TLS
-# `close_notify`, so `s_client` always exits 1 with
+# vsftpd closes the control socket after `QUIT` without sending a TLS
+# `close_notify`, so `s_client` ends with
 # `ssl3_read_n:unexpected eof while reading` -- after a perfectly good
-# `230 Login successful.`. Treating that exit code as the verdict made this
+# `230 Login successful.`. Keying the verdict off that exit status made this
 # probe retry a healthy server until the timeout, and report "gave up ... last
 # error:" followed by a banner of the *successful* handshake, which is exactly
 # the confusing log that sent two earlier rounds hunting for a TLS bug. So:
@@ -40,21 +57,31 @@ PASS="${4:?}"
 CA="${5:?}"
 TIMEOUT="${6:?}"
 
+# Per-attempt bound for `s_client`, well inside the overall TIMEOUT so that one
+# wedged handshake costs a retry rather than the whole budget.
+S_CLIENT_TIMEOUT="${S_CLIENT_TIMEOUT:-10}"
+
 deadline=$((SECONDS + TIMEOUT))
 attempts=0
 last_out=""
 
 while [ "$SECONDS" -lt "$deadline" ]; do
   attempts=$((attempts + 1))
-  # `|| true` is load bearing: see the header. The exit code is not the verdict;
-  # the transcript below is. Without this, a successful login is discarded and
-  # an idle retry loop burns the whole timeout.
+
+  # `timeout` is what makes `s_client` finish; the header above explains why the
+  # reply stream has to be captured with `2>&1`.
+  #
+  # `|| true` is required rather than defensive: it is the only thing that keeps
+  # `set -e` from aborting here. The exit code is not the verdict -- a nonzero
+  # `s_client` is *expected* even on success, because the deadline-kill that
+  # ends a good run is also a nonzero exit -- the transcript below is.
   out="$(
     printf 'USER %s\r\nPASS %s\r\nQUIT\r\n' "$USER" "$PASS" \
-      | openssl s_client -starttls ftp -connect "$HOST:$PORT" \
+      | timeout "$S_CLIENT_TIMEOUT" openssl s_client -starttls ftp \
+          -connect "$HOST:$PORT" \
           -servername localhost \
-          -verifyCAfile "$CA" -verify_return_error -quiet 2>&1 || true
-  )"
+          -verifyCAfile "$CA" -verify_return_error -quiet 2>&1
+  )" || true
   last_out="$out"
 
   # A completed handshake plus the `220`/`230` replies is the pass. `AUTH TLS`
@@ -67,6 +94,19 @@ while [ "$SECONDS" -lt "$deadline" ]; do
     fi
     exit 0
   fi
+
+  # Keep only the lines worth reading: the server's rejection, or OpenSSL's own
+  # error. A full `s_client` transcript is hundreds of lines of certificate
+  # dump, and the retry loop discards every attempt but the last.
+  last_error="$(
+    printf '%s' "$out" \
+      | grep -E '^[45][0-9]{2} |error:|errno=' \
+      | tail -n 2 | tr '\n' ' '
+  )"
+  if [ -n "$last_error" ]; then
+    echo "  attempt $attempts: $last_error" >&2
+  fi
+
   sleep 0.5
 done
 

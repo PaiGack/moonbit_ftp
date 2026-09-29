@@ -183,6 +183,7 @@ scripts/stop-ftp.sh
 │   └── ftps/                  FTPS（显式 AUTH TLS）容器
 │       ├── gen-cert.sh        自签名 CA + 叶证书（每次重新签发）
 │       ├── probe-ftps.sh      就绪探测：AUTH TLS 握手 + 证书校验
+│       ├── probe-ftps-selftest.py  用 mock 服务器自测上面的探测（无需 Docker）
 │       ├── start-ftps.sh      启动 FTPS 容器（127.0.0.1:2121）并写 .ftp-tls.env
 │       └── stop-ftps.sh       导出容器日志并清理
 ├── testdata/ftp/              测试与演示使用的 fixture

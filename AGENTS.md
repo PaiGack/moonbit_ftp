@@ -24,11 +24,25 @@ You can browse and install extra skills here:
 - `scripts/ftps/` mirrors the `scripts/*.sh` lifecycle for the encrypted case:
   `gen-cert.sh` (self-signed CA + leaf, regenerated every run and gitignored),
   `probe-ftps.sh` (`AUTH TLS` readiness handshake, verified against the CA),
+  `probe-ftps-selftest.py` (runs that probe against a docker-free mock),
   `start-ftps.sh` (the FTPS container on `127.0.0.1:2121`, endpoint written to
   `.ftp-tls.env`) and `stop-ftps.sh` (dumps logs, removes the container, never
-  fails). There is no Python server: the FTPS container is `bfren/ftps`
-  (Alpine + vsftpd 3.0.5) configured with `force_local_data_ssl=YES`, which is
-  what makes a control-channel-only "upgrade" fail every transfer.
+  fails). The FTPS container is `bfren/ftps` (Alpine + vsftpd 3.0.5) configured
+  with `force_local_data_ssl=YES`, which is what makes a control-channel-only
+  "upgrade" fail every transfer.
+
+- **`probe-ftps.sh` must be tested against a mock, not only via the container.**
+  It is a gate whose failure mode is "says unhealthy about a healthy server", so
+  its bugs make CI fail *on success* and surface as a downstream symptom: the
+  probe fails, `start-ftps.sh` fails, `.ftp-tls.env` is never written, and both
+  `cmd/ftps/run.sh` calls die on the missing file — which reads like a TLS bug
+  while the FTPS assertions never ran at all. Two such bugs have already shipped
+  once each, both invisible to `bash -n` and to any real-server run:
+  `openssl s_client` never exits by itself, so a *successful* login looked like
+  a timeout inside the retry loop; and `-quiet` writes server replies to stderr,
+  so the `grep '^230 '` on the captured stdout could never match. Hence
+  `timeout` around `s_client`, `2>&1` on the capture, and
+  `probe-ftps-selftest.py` in `scripts/ci.sh` before any Docker step.
 
 - **Each container gets its own copy of `testdata/ftp/fixture`; never mount the
   checked-in directory into both.** The FTP home has to be writable (the smoke

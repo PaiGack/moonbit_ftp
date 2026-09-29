@@ -71,6 +71,20 @@ run moon build --target native --release
 
 run moon run cmd/ftp -- --help
 
+# ---------------------------------------------------------------------------
+# Logic checks that need a server but not a *real* one, so they run before any
+# Docker work and cannot be blamed on a flaky image pull.
+#
+# `probe-ftps.sh` is the readiness gate the whole FTPS block hangs off: when it
+# wrongly reports "unhealthy", `start-ftps.sh` fails, `.ftp-tls.env` is never
+# written and both `cmd/ftps/run.sh` calls fail after it -- with no hint that
+# the gate, not the server, was the problem. That is exactly how a pipeline that
+# never actually reached the FTPS assertions still looked like a TLS bug, so
+# the gate gets its own test against a mock that answers the same handshake.
+# ---------------------------------------------------------------------------
+run python3 "$SCRIPT_DIR/ftps/probe-ftps-selftest.py" \
+  "$SCRIPT_DIR/ftps/probe-ftps.sh"
+
 # Code statistics. Best-effort: a registry hiccup must not fail the build.
 run docker run --rm -v "$ROOT:/src" ghcr.io/xampprocky/tokei:latest .
 
