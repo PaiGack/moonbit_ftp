@@ -133,8 +133,11 @@ You can browse and install extra skills here:
   refused with `550`. That is why `cmd/ftps/run.sh plain` fails *after*
   `start-ftps.sh` has run while `cmd/example` — which runs before it — passes on
   the same container. `start-ftps.sh` therefore mounts a per-run **copy** under
-  `testdata/ftp/ftps-fixture` (gitignored, rebuilt every run, removed by
-  `stop-ftps.sh`), so the chown can only ever touch the throwaway tree.
+  `.ftp-ftps-files/` (gitignored, rebuilt every run, removed by
+  `stop-ftps.sh`), and `scripts/start-ftp.sh` takes its own under
+  `.ftp-plain-root/` — so the two chowns can only ever touch their own
+  throwaway trees. `fixture-isolation-selftest.py` asserts that invariant with
+  no Docker, since no single-container test can see it.
 
 - **FTPS is the one capability whose failure mode is "the first read hangs"**,
   which no unit test and no plaintext server can reach. All four of the TLS

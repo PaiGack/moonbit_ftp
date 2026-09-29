@@ -139,7 +139,8 @@ FTPS 端到端由 `scripts/ci.sh` 驱动，和明文演示共用同一套编排�
   目录。明文容器 `jmoyer/vsftpd` 的虚拟用户映射到镜像里的 `ftp`（uid 100），于是 FTPS
   容器一起来，明文容器就写不动自己的根目录了，`STOR` 直接被 `550` 拒掉。这就是
   `cmd/ftps/run.sh plain` 在 `start-ftps.sh` **之后**才失败、而更早跑的 `cmd/example` 在同一
-  个容器上却通过的原因。现在 `start-ftps.sh` 每次运行都复制一份私有 fixture 去挂载。
+  个容器上却通过的原因。现在两个 starter 各自复制一份私有 fixture 去挂载
+  （`.ftp-plain-root/` / `.ftp-ftps-files/`，都 gitignore，由对应的 `stop-*.sh` 清掉）。
 
 挂载的**文件名是契约**，不是随手起的：`bfren/ftps` 把 `FTPS_VSFTPD_CERT` 硬编码成
 `/ssl/vsftpd.pem`，它的 init 脚本只在这条路径存在时才跳过自签，`rsa_cert_file` /
