@@ -366,3 +366,203 @@ async test "set_transfer_type rejects a non 200 reply" {
   }
   assert_eq(raised, Some(504))
 }
+
+///|
+/// A `226` that never arrives turns the listing into an error carrying the
+/// closing failure, and `NLST` uses the same aggregation as `LIST`.
+async test "name_list reports a missing 226" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  // The data connection delivers a payload but the control channel never
+  // answers `226`; the wrap-up read then hits end of input.
+  let script = epsv_reply(port) + "150 Here comes the directory listing.\r\n"
+  let (client, sink) = scripted_client(script)
+  let raised = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      serve_payload(listener, "hello.txt\n")
+    })
+    try {
+      ignore(name_list(client, "/pub"))
+      false
+    } catch {
+      _ => true
+    }
+  })
+  assert_true(raised)
+  assert_eq(sink.lines, ["EPSV", "NLST /pub"])
+}
+
+///|
+/// In `MLSD` mode an unparsable line is *skipped*, not fatal: real servers
+/// interleave `total 1` headers and other noise that the RFC 3659 parser does
+/// not recognise.
+async test "list in MLSD mode skips unparsable lines" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let script = epsv_reply(port) +
+    "150 Here comes the directory listing.\r\n226 Directory send OK.\r\n"
+  let (client, sink) = scripted_client(script, mlst_supported=true)
+  let entries = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      // A blank line, a `total` header and a real fact line.
+      serve_payload(listener, "\ntotal 1\ntype=file;Size=42; hello.txt\n")
+    })
+    list(client, "/pub") catch {
+      _ => fail("list")
+    }
+  })
+  assert_eq(entries.length(), 1)
+  assert_eq(entries[0].name, "hello.txt")
+  assert_eq(entries[0].size, 42UL)
+  assert_eq(sink.lines, ["EPSV", "MLSD /pub"])
+}
+
+///|
+/// `get_entry` merges a multi line `MLST` reply into one entry, and ignores a
+/// blank fact line in the middle — some servers pad the reply.
+async test "get_entry merges the fact lines and skips a blank one" {
+  let script = "250-File details\r\n" +
+    " \r\n" +
+    " type=file;Size=1024;Modify=20220813133357; hello.txt\r\n" +
+    "250 End\r\n"
+  let (client, _) = scripted_client(script)
+  let entry = get_entry(client, "/hello.txt") catch { _ => fail("get_entry") }
+  assert_eq(entry.name, "hello.txt")
+  assert_eq(entry.size, 1024UL)
+  assert_eq(entry.type_, EntryType::File)
+}
+
+///|
+/// A `MLST` reply whose fact lines do not name the same file is a merge
+/// failure, not a silently wrong entry.
+async test "get_entry rejects mismatched continuation facts" {
+  let script = "250-File details\r\n" +
+    " type=file;Size=1; a\r\n" +
+    " type=file;Size=2; b\r\n" +
+    "250 End\r\n"
+  let (client, _) = scripted_client(script)
+  let raised = try {
+    ignore(get_entry(client, "/a"))
+    false
+  } catch {
+    _ => true
+  }
+  assert_true(raised)
+}
+
+///|
+/// A `MLST` reply with no fact line at all (just the framing) is rejected: it
+/// cannot describe a file.
+async test "get_entry rejects an empty fact body" {
+  let script = "250-File details\r\n250 End\r\n"
+  let (client, _) = scripted_client(script)
+  let raised = try {
+    ignore(get_entry(client, "/a"))
+    false
+  } catch {
+    _ => true
+  }
+  assert_true(raised)
+}
+
+///|
+/// A reply shorter than `<head>\n<facts>\n<tail>` is an invalid response, per
+/// upstream's `lc < 3` check.
+async test "get_entry rejects a two line reply" {
+  let script = "250-Nothing here\r\n250 End\r\n"
+  let (client, _) = scripted_client(script)
+  let raised = try {
+    ignore(get_entry(client, "/a"))
+    false
+  } catch {
+    FtpError::ParseError(msg~) => msg == "invalid response"
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
+/// A broken data connection is recorded and the listing still runs the `226`
+/// wrap-up, so the aggregated error names *both* failures — the transfer half
+/// and the control half. That is the `errors.Join` shape from upstream.
+async test "list aggregates a read failure and the wrap-up failure" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  // No `226` follows, so the wrap-up read fails too.
+  let script = epsv_reply(port) + "150 Here comes the directory listing.\r\n"
+  let (client, sink) = scripted_client(script)
+  let found = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      // Accept and close immediately: the read then sees a truncated stream
+      // rather than a clean end of payload.
+      let (conn, _) = listener.accept()
+      conn.close()
+    })
+    try {
+      ignore(list(client, "/pub"))
+      false
+    } catch {
+      _ => true
+    }
+  })
+  assert_true(found)
+  assert_eq(sink.lines, ["EPSV", "LIST /pub"])
+}
+
+///|
+/// A `read_payload` failure on `NLST` is reported the same way, and the
+/// command still went out with the substituted path.
+async test "name_list reports a data connection failure" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let script = epsv_reply(port) + "150 Here comes the directory listing.\r\n"
+  let (client, sink) = scripted_client(script)
+  let found = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      let (conn, _) = listener.accept()
+      conn.close()
+    })
+    try {
+      ignore(name_list(client, "/pub"))
+      false
+    } catch {
+      _ => true
+    }
+  })
+  assert_true(found)
+  assert_eq(sink.lines, ["EPSV", "NLST /pub"])
+}
+
+///|
+/// `read_payload` records a read failure and returns the empty payload so the
+/// caller can still run the `226` wrap-up: raising here would skip it and
+/// desynchronise the session for every later command.
+async test "read_payload records a broken reader and returns empty" {
+  let errors : Array[Error] = []
+  let conn : DataConn = {
+    reader: failing_source(),
+    writer: NullWriter::{ },
+    closer: () => (),
+  }
+  let payload = read_payload(conn, errors)
+  assert_eq(payload, "")
+  assert_eq(errors.length(), 1)
+}
+
+///|
+/// A writer that discards everything, for the `DataConn` fixtures that only
+/// ever read.
+struct NullWriter {}
+
+///|
+impl @io.Writer for NullWriter with fn write_once(
+  self : NullWriter,
+  buf : Bytes,
+  offset~ : Int,
+  len~ : Int,
+) -> Int {
+  ignore(self)
+  ignore(buf)
+  ignore(offset)
+  len
+}

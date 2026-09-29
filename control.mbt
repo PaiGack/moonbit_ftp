@@ -107,12 +107,26 @@ pub async fn cmd_format(
   args : Array[String],
   expected : Array[Int],
 ) -> Response {
+  cmd_expect(control, render_command(format, args), expected)
+}
+
+///|
+/// Apply `{}` substitution to `format` without sending anything, validating
+/// every argument first.
+///
+/// Split out of `cmd_format` because the `PRET` handshake needs the rendered
+/// command *before* it is sent: it announces the line that follows, so the two
+/// must be built by the same code or they drift.
+pub fn render_command(
+  format : String,
+  args : Array[String],
+) -> String raise FtpError {
   let mut rendered = format
   for arg in args {
     check_for_command_injection(arg)
     rendered = replace_first(rendered, "{}", arg)
   }
-  cmd_expect(control, rendered, expected)
+  rendered
 }
 
 ///|

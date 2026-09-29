@@ -325,9 +325,15 @@ pub async fn cmd_data_conn_from(
   args : Array[String],
 ) -> DataConn {
   if session.use_pret() {
+    // `PRET` announces the command *about to be sent*, so it must carry the
+    // same fully rendered line — including the substituted path — that the
+    // transfer command will. Building it from the raw `cmd` format would put
+    // a literal `{}` on the wire and announce a different command than the
+    // one that follows.
+    let preview = render_command(cmd, args)
     let _ = try {
       ignore(
-        cmd_expect(session.control(), "PRET \{cmd}", [
+        cmd_expect(session.control(), "PRET \{preview}", [
           status_cmd_ok, status_file_action_pending_further_info,
         ]),
       )
