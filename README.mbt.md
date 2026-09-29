@@ -43,16 +43,14 @@ async fn main {
   resp.close()
 
   // 4. 上传文件（任意 &@io.Reader 均可）
-  @ftp.stor(
-    client,
-    "/upload.txt",
-    @io.MemoryReader(w => w.write("demo upload")),
-  )
+  let upload = "/upload.txt"
+  @ftp.stor(client, upload, @io.MemoryReader(w => w.write("demo upload")))
 
-  // 5. 目录与文件操作
+  // 5. 重命名演示，创建的目录也要建了就有拆
+  let renamed = "/upload_renamed.txt"
+  @ftp.rename(client, upload, renamed)
   @ftp.make_dir(client, "/newdir")
-  @ftp.rename(client, "/a.txt", "/b.txt")
-  @ftp.delete(client, "/b.txt")
+  @ftp.remove_dir(client, "/newdir")
 
   // 6. 递归遍历目录树
   let w = @ftp.walk(client, "/")
@@ -60,7 +58,10 @@ async fn main {
     println(w.path())
   }
 
-  // 7. 退出并关闭连接
+  // 7. 遍历结束再删：上传的文件活到走完目录树才收拾，重复运行才安全（幂等）
+  @ftp.delete(client, renamed)
+
+  // 8. 退出并关闭连接
   @ftp.quit(client)
 }
 ```
