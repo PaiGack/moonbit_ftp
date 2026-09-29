@@ -20,7 +20,7 @@
 // otherwise would mean keeping the mock.
 //
 // The cases that *could* be moved to a real server live in `cmd/example`; see
-// `docs/porting/05-testing.md` section 3 for the list of mock-only cases that
+// `docs/porting.md` section 2.6 (testing strategy) for the list of mock-only cases that
 // were dropped and why.
 
 ///|

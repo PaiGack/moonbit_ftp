@@ -18,7 +18,7 @@
 ///
 /// The options mirror the Go `DialWith*` family; they are labels rather than
 /// a function-options variadic, which is the MoonBit idiom recorded in
-/// `docs/porting/04-api-mapping.md`.
+/// `docs/porting.md` section 2.4 (API mapping).
 ///
 /// Once connected the client reads the greeting (expecting `220`). When
 /// `explicit_tls` is set it then sends `AUTH TLS`, expects `234` and upgrades

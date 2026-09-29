@@ -141,7 +141,7 @@
 `parse` / `walker` / `pathutil` 不碰网络，可独立单测。
 
 平铺之后编译器不再按包隔离，分层约束改由文件头部的 `// Layer:` 标记 +
-`docs/porting/01-architecture.md` 第 2 节的分组目录树守住，review 与新增文件时按它核对。
+本节的分组目录树守住，review 与新增文件时按它核对。
 
 ### 2.4 API 映射示例
 
@@ -180,7 +180,7 @@ while w.next() {
 2. **真实 FTP 服务器端到端**：CI 中通过 `scripts/start-ftp.sh` 起 `jmoyer/vsftpd`（vsftpd 3.0.5）
    的四个能力画像（`full` / `no-mlst` / `no-time` / `no-epsv`），覆盖 `FEAT` 协商、
    `PASV`/`EPSV` 数据通道、`STOR`/`RETR`/`LIST`/`NLST`/`MDTM`、目录生命周期。
-   **仓库内不保留任何 mock 服务器**；命令序列断言改为副作用断言（见 05-testing.md 3.2）。
+   **仓库内不保留任何 mock 服务器**；命令序列断言改为副作用断言（见 2.6 测试策略）。
 3. **帧解析用例**：用 `@io.MemoryReader` 精确构造畸形响应（畸形状态行、空行续行、两行 MLST），
    不需要假服务器也不需要 socket。
 4. **边界用例**：命令注入、EPSV 被拒后回退、二次 `Close`、REST 断点续传、超时。
