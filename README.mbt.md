@@ -1,11 +1,8 @@
 # PaiGack/ftp
 
-FTP/FTPS client library for MoonBit with passive EPSV/PASV data connections,
-MLSD/LIST parsing, resume, directory tree walking, and explicit/implicit TLS.
+纯 MoonBit 实现的 FTP 客户端库，移植自 [jlaffaye/ftp](https://github.com/jlaffaye/ftp)。
 
-纯 MoonBit 实现的 FTP 客户端库，移植自 [jlaffaye/ftp](https://github.com/jlaffaye/ftp)，
-当前版本 `0.2.0`：被动模式、`MLSD` / `LIST` 四种列表格式解析、断点续传、
-目录树遍历与 FTPS（显式 / 隐式 TLS）。
+支持被动模式、`MLSD` / `LIST` 四种列表格式解析、断点续传、目录树遍历与 FTPS（显式 / 隐式 TLS）。
 
 ## 环境要求
 
