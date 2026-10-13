@@ -377,31 +377,8 @@ async test "stor_from drives the handshake for a zero byte TLS upload" {
       let (conn, _) = listener.accept()
       // Speak server-side TLS on the accepted socket: a client that never
       // handshakes just sees the connection closed, a client that handshakes
-      // completes one. The key and the certificate are the pair the FTPS
-      // smoke test uses, minted by `scripts/ftps/gen-cert.sh` into the
-      // gitignored `testdata/ftp/tls/`.
-      let completed = try {
-        let tls = @tls.Tls::server_from_pair(
-          conn,
-          conn,
-          private_key_file=tls_key_file(),
-          private_key_type=@tls.X509FileType::PEM,
-          certificate_file=tls_cert_file(),
-          certificate_type=@tls.X509FileType::PEM,
-        )
-        // Hold the data connection open until the client is done with it. The
-        // client sends a `close_notify`, which lands here as an EOF over the
-        // TLS session; a peer that only closed the socket lands as one too,
-        // because `Tls` reads that case as an ordinary EOF.
-        ignore(tls.read_all() catch { _ => empty_data() })
-        true
-      } catch {
-        // `ConnectionClosed` from a peer that hung up mid-handshake is the one
-        // failure that still proves the handshake was driven: nothing else in
-        // this branch touches the TLS session.
-        @tls.ConnectionClosed => true
-        e => fail("server tls handshake: \{e}")
-      }
+      // completes one.
+      let completed = accept_server_tls(conn)
       conn.close()
       completed
     })
