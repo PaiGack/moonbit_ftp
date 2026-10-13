@@ -37,7 +37,7 @@ pub let default_dial_timeout_ms : Int
 
 pub async fn delete(FTPClient, String) -> Unit
 
-pub async fn dial(String, timeout_ms? : Int, shut_timeout_ms? : Int, tls? : Bool, explicit_tls? : Bool, trust? : @tls.TrustedRoot, disable_epsv? : Bool, trust_pasv_ip? : Bool, disable_utf8? : Bool, disable_mlsd? : Bool, writing_mdtm? : Bool, force_list_hidden? : Bool, location? : @time.Zone, now_ms? : () -> UInt64) -> FTPClient
+pub async fn dial(String, timeout_ms? : Int, shut_timeout_ms? : Int, tls? : Bool, explicit_tls? : Bool, trust? : @tls.TrustedRoot, disable_epsv? : Bool, trust_pasv_ip? : Bool, disable_utf8? : Bool, disable_mlsd? : Bool, writing_mdtm? : Bool, force_list_hidden? : Bool, location? : @time.Zone, debug_sink? : &@io.Writer?, now_ms? : () -> UInt64) -> FTPClient
 
 pub let epoch : @time.ZonedDateTime
 
@@ -297,11 +297,14 @@ pub struct Control {
   mut writer : &@io.Writer
   host : String
   timeout_ms : Int
+  mut debug : DebugLog?
 }
+pub fn Control::debug_enabled(Self) -> Bool
 pub fn Control::host(Self) -> String
-pub fn Control::new(&@io.Reader, &@io.Writer, String, timeout_ms? : Int) -> Self
+pub fn Control::new(&@io.Reader, &@io.Writer, String, timeout_ms? : Int, debug? : DebugLog?) -> Self
 pub async fn Control::read_line(Self) -> String
 pub async fn Control::send_line(Self, String) -> Unit
+pub fn Control::set_debug(Self, DebugLog?) -> Unit
 pub fn Control::upgrade(Self, &@io.Reader, &@io.Writer) -> Unit
 
 pub struct DataConn {
@@ -324,6 +327,19 @@ pub struct DataResponse {
 pub async fn DataResponse::close(Self) -> Unit
 pub async fn DataResponse::read(Self, FixedArray[Byte], offset? : Int, max_len? : Int) -> Int
 
+pub(all) enum DebugDirection {
+  Command
+  Reply
+}
+
+pub(all) struct DebugLog {
+  sink : &@io.Writer
+  prefix : Bool
+}
+pub fn DebugLog::new(&@io.Writer, prefix? : Bool) -> Self
+pub fn DebugLog::render(Self, DebugDirection, String) -> String
+pub async fn DebugLog::write_line(Self, DebugDirection, String) -> Unit
+
 pub struct DialOptions {
   mut timeout_ms : Int
   mut shut_timeout_ms : Int
@@ -337,9 +353,12 @@ pub struct DialOptions {
   mut writing_mdtm : Bool
   mut force_list_hidden : Bool
   mut location : @time.Zone
+  mut debug_sink : &@io.Writer?
   mut now_ms : () -> UInt64
 }
+pub fn DialOptions::debug_sink(Self) -> &@io.Writer?
 pub fn DialOptions::default() -> Self
+pub fn DialOptions::set_debug_sink(Self, &@io.Writer?) -> Unit
 pub fn DialOptions::set_disable_epsv(Self, Bool) -> Unit
 pub fn DialOptions::set_disable_mlsd(Self, Bool) -> Unit
 pub fn DialOptions::set_disable_utf8(Self, Bool) -> Unit
@@ -432,6 +451,12 @@ pub fn ListFormat::equal(Self, Self) -> Bool
 pub fn ListFormat::not_equal(Self, Self) -> Bool
 pub fn ListFormat::to_repr(Self) -> @debug.Repr
 
+pub struct MirrorWriter {
+  inner : &@io.Writer
+  log : DebugLog
+}
+pub fn MirrorWriter::new(&@io.Writer, log~ : DebugLog) -> Self
+
 pub struct Options {
   disable_epsv : Bool
   trust_pasv_ip : Bool
@@ -481,6 +506,12 @@ pub fn Session::set_skip_epsv(Self, Bool) -> Unit
 pub fn Session::set_use_pret(Self, Bool) -> Unit
 pub fn Session::skip_epsv(Self) -> Bool
 pub fn Session::use_pret(Self) -> Bool
+
+pub struct TeeLogReader {
+  inner : &@io.Reader
+  log : DebugLog
+}
+pub fn TeeLogReader::new(&@io.Reader, log~ : DebugLog) -> Self
 
 pub(all) enum TransferType {
   Binary

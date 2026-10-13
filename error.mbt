@@ -10,7 +10,7 @@
 /// bubble up untouched so callers can still inspect the OS error).
 pub(all) suberror FtpError {
   /// The server answered with a status code we did not expect.
-  ServerError(code~ : Int, msg~ : String)
+  ServerError(code~ : Int32, msg~ : String)
   /// A command argument contains `\r` or `\n` and was refused before any
   /// byte reached the socket (command injection guard).
   InvalidCommand(arg~ : String)

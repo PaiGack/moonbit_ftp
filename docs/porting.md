@@ -30,7 +30,7 @@
 | `status.go` | 119 | RFC 959 状态码常量与文本 |
 | `scanner.go` | 58 | 按空白切分的字段扫描器 |
 | `walker.go` | 98 | 目录树遍历器（`Walk` / `SkipDir` / `Stat` / `Path`） |
-| `debug.go` | 37 | 调试输出包装（TeeReader / MultiWriter）——**不移植**，装饰器从未被接线 |
+| `debug.go` | 37 | 调试输出包装（TeeReader / MultiWriter）——**已移植**，见 `control.mbt` 的 `DebugLog` |
 
 ### 1.3 功能矩阵
 
@@ -39,7 +39,7 @@
 - `Dial` / `Connect` / `DialTimeout`，默认 30s 超时
 - 超时、上下文、自定义 dialer、自定义 dial 函数
 - TLS：隐式 TLS、显式 TLS（`AUTH TLS` 升级）
-- `EPSV` 禁用、`PASV` 返回 IP 信任开关（防 SSRF）、UTF8 禁用、MLSD 禁用、`MDTM` 写时间、强制 `LIST -a`、时区、调试输出
+- `EPSV` 禁用、`PASV` 返回 IP 信任开关（防 SSRF）、UTF8 禁用、MLSD 禁用、`MDTM` 写时间、强制 `LIST -a`、时区、调试输出（`set_debug_sink`，默认关闭）
 
 **认证**
 
@@ -251,6 +251,22 @@ while w.next() {
 ## 3. 与上游的差异与裁剪
 
 **保留**：RFC 959 全量命令、EPSV/PASV、FTPS、列表四解析器、Walker、防注入、防 SSRF、调试输出、时间操作。
+
+**调试输出**（`debug.go` → `control.mbt` 的 `DebugLog`）与上游形似而接线点不同，
+两处差异是刻意的，改动前请先读：
+
+- 上游把开关（`DialWithDebugOutput`）编进 `wrapConn` / `wrapStream`，在 dial 时就把
+  连接包成装饰器。本仓库改为**在 `Control` 上存开关、按行打点**：`AUTH TLS` 之后
+  `Control::upgrade` 会整体换掉 reader/writer，dial 时装的装饰器会继续记录明文 socket，
+  而真正在跑的 TLS 会话反而不进日志。按调用打点则两个方向自动同步。
+- 上游只把连接包装出一个 `io.ReadWriteCloser`，方向靠"读端 tee / 写端 fan-out"隐式表达；
+  本仓库给每条记录加显式方向标签（`>>> ` / `<<< `），两个方向即使被路由进不同的 sink
+  也仍然自解释。`MirrorWriter` / `TeeLogReader` 就是上游 `MultiWriter` / `TeeReader` 的
+  等价物，`Control` 直接走这两个装饰器。
+
+日志是诊断，因此**不得改变协议行为**：sink 抛错只丢日志行，不影响命令与回复；回复读
+的超时只包住 socket 读，装饰层不参与计时（AGENTS.md 的 deadline 规则），否则一个慢
+sink 会被误报成 `RequestTimeout`。默认关闭，不装 sink 时路径上只有一次 `Option` 判断。
 
 **明确不做（首版边界）**：
 

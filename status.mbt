@@ -18,154 +18,154 @@
 /// Values are kept byte-for-byte identical to upstream `status.go`. Several
 /// distinct constants intentionally share the same numeric value (the RFCs
 /// overload the code), which is fine because they are plain `Int` constants.
-pub let status_restart_marker_answer : Int = 110
+pub let status_restart_marker_answer : Int32 = 110
 
 ///|
-pub let status_restart_marker_reply : Int = 120
+pub let status_restart_marker_reply : Int32 = 120
 
 ///|
-pub let status_data_conn_already_in_use : Int = 125
+pub let status_data_conn_already_in_use : Int32 = 125
 
 ///|
 /// `221 Service closing control connection.` — the answer to `QUIT`.
-pub let status_closing_control_connection : Int = 221
+pub let status_closing_control_connection : Int32 = 221
 
 ///|
-pub let status_closing_data_connection : Int = 226
+pub let status_closing_data_connection : Int32 = 226
 
 ///|
-pub let status_auth_ok : Int = 234
+pub let status_auth_ok : Int32 = 234
 
 ///|
-pub let status_file_action_ok : Int = 250
+pub let status_file_action_ok : Int32 = 250
 
 ///|
-pub let status_dir_create : Int = 257
+pub let status_dir_create : Int32 = 257
 
 ///|
-pub let status_user_logged_in_proceed : Int = 230
+pub let status_user_logged_in_proceed : Int32 = 230
 
 ///|
-pub let status_username_ok_need_password : Int = 331
+pub let status_username_ok_need_password : Int32 = 331
 
 ///|
-pub let status_file_action_pending_further_info : Int = 350
+pub let status_file_action_pending_further_info : Int32 = 350
 
 ///|
-pub let status_service_ready_for_new_user : Int = 220
+pub let status_service_ready_for_new_user : Int32 = 220
 
 ///|
-pub let status_session_opened_data_connection : Int = 225
+pub let status_session_opened_data_connection : Int32 = 225
 
 ///|
-pub let status_data_connection_open_no_transfer : Int = 200
+pub let status_data_connection_open_no_transfer : Int32 = 200
 
 ///|
-pub let status_cmd_ok : Int = 200
+pub let status_cmd_ok : Int32 = 200
 
 ///|
-pub let status_cmd_not_implemented_superfluous : Int = 202
+pub let status_cmd_not_implemented_superfluous : Int32 = 202
 
 ///|
-pub let status_system_status : Int = 211
+pub let status_system_status : Int32 = 211
 
 ///|
-pub let status_dir_status : Int = 212
+pub let status_dir_status : Int32 = 212
 
 ///|
-pub let status_file_status : Int = 213
+pub let status_file_status : Int32 = 213
 
 ///|
-pub let status_help_message : Int = 214
+pub let status_help_message : Int32 = 214
 
 ///|
-pub let status_name_status : Int = 215
+pub let status_name_status : Int32 = 215
 
 ///|
-pub let status_service_ready_soon : Int = 120
+pub let status_service_ready_soon : Int32 = 120
 
 ///|
-pub let status_data_connection_already_open : Int = 125
+pub let status_data_connection_already_open : Int32 = 125
 
 ///|
-pub let status_enter_passive_mode : Int = 227
+pub let status_enter_passive_mode : Int32 = 227
 
 ///|
-pub let status_enter_extended_passive_mode : Int = 229
+pub let status_enter_extended_passive_mode : Int32 = 229
 
 ///|
-pub let status_entering_passive_mode_from_ip : Int = 227
+pub let status_entering_passive_mode_from_ip : Int32 = 227
 
 ///|
-pub let status_enter_port : Int = 200
+pub let status_enter_port : Int32 = 200
 
 ///|
-pub let status_enter_extended_port : Int = 200
+pub let status_enter_extended_port : Int32 = 200
 
 ///|
-pub let status_username_ok : Int = 331
+pub let status_username_ok : Int32 = 331
 
 ///|
-pub let status_need_account_for_login : Int = 332
+pub let status_need_account_for_login : Int32 = 332
 
 ///|
-pub let status_file_action_not_taken : Int = 450
+pub let status_file_action_not_taken : Int32 = 450
 
 ///|
-pub let status_file_action_aborted : Int = 550
+pub let status_file_action_aborted : Int32 = 550
 
 ///|
-pub let status_restart_marker_not_understood : Int = 501
+pub let status_restart_marker_not_understood : Int32 = 501
 
 ///|
-pub let status_service_unavailable : Int = 421
+pub let status_service_unavailable : Int32 = 421
 
 ///|
-pub let status_cannot_open_data_connection : Int = 425
+pub let status_cannot_open_data_connection : Int32 = 425
 
 ///|
-pub let status_transfer_aborted : Int = 426
+pub let status_transfer_aborted : Int32 = 426
 
 ///|
-pub let status_file_action_aborted_local_error : Int = 451
+pub let status_file_action_aborted_local_error : Int32 = 451
 
 ///|
-pub let status_syntax_error_unknown_cmd : Int = 500
+pub let status_syntax_error_unknown_cmd : Int32 = 500
 
 ///|
-pub let status_syntax_error_unknown_params : Int = 501
+pub let status_syntax_error_unknown_params : Int32 = 501
 
 ///|
-pub let status_not_implemented : Int = 502
+pub let status_not_implemented : Int32 = 502
 
 ///|
-pub let status_not_implemented_for_param : Int = 504
+pub let status_not_implemented_for_param : Int32 = 504
 
 ///|
-pub let status_not_logged_in : Int = 530
+pub let status_not_logged_in : Int32 = 530
 
 ///|
-pub let status_need_account : Int = 532
+pub let status_need_account : Int32 = 532
 
 ///|
-pub let status_request_denied : Int = 550
+pub let status_request_denied : Int32 = 550
 
 ///|
-pub let status_page_type_unknown : Int = 551
+pub let status_page_type_unknown : Int32 = 551
 
 ///|
-pub let status_exceeded_storage_allocation : Int = 552
+pub let status_exceeded_storage_allocation : Int32 = 552
 
 ///|
-pub let status_action_not_taken : Int = 450
+pub let status_action_not_taken : Int32 = 450
 
 ///|
-pub let status_bad_filename : Int = 553
+pub let status_bad_filename : Int32 = 553
 
 ///|
 /// The human readable text for every known status code, copied from
 /// upstream `status.go` (no localization on purpose).
-pub fn status_text(code : Int) -> String {
+pub fn status_text(code : Int32) -> String {
   match code {
     110 => "Restart marker reply."
     120 => "Service ready in 2 minutes."
@@ -215,17 +215,17 @@ pub fn status_text(code : Int) -> String {
 
 ///|
 /// Whether the code is a 2xx "positive completion" reply.
-pub fn is_positive_completion(code : Int) -> Bool {
+pub fn is_positive_completion(code : Int32) -> Bool {
   code >= 200 && code < 300
 }
 
 ///|
 /// Whether the code is a 1xx "positive intermediate" reply.
-pub fn is_positive_intermediate(code : Int) -> Bool {
+pub fn is_positive_intermediate(code : Int32) -> Bool {
   code >= 100 && code < 200
 }
 
 ///|
 /// Default timeout used when dialing a server, in milliseconds
 /// (upstream `ftp.DefaultDialTimeout`, 30s).
-pub let default_dial_timeout_ms : Int = 30 * 1000
+pub let default_dial_timeout_ms : Int32 = 30 * 1000

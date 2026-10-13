@@ -18,9 +18,9 @@
 ///|
 /// Build a `DialOptions` from the three flags that interact.
 fn dial_options(
-  tls? : Bool = false,
-  explicit_tls? : Bool = false,
-  trust_pasv_ip? : Bool = false,
+  tls~ : Bool = false,
+  explicit_tls~ : Bool = false,
+  trust_pasv_ip~ : Bool = false,
 ) -> @ftp.DialOptions {
   let options = @ftp.DialOptions::default()
   options.set_tls(tls)

@@ -562,9 +562,9 @@ struct NullWriter {}
 impl @io.Writer for NullWriter with fn write_once(
   self : NullWriter,
   buf : Bytes,
-  offset~ : Int,
-  len~ : Int,
-) -> Int {
+  offset~ : Int32,
+  len~ : Int32,
+) -> Int32 {
   ignore(self)
   ignore(buf)
   ignore(offset)

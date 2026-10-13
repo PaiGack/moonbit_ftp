@@ -37,12 +37,67 @@ fn recording_sink() -> RecordingSink {
 }
 
 ///|
+/// A traffic log sink that keeps whole decoded records.
+///
+/// The log renders `>>> CMD\r\n` / `<<< 220 ready\r\n`, so a `RecordingSink`
+/// needed only to decode bytes would work too -- but its `pending` re-splits on
+/// CRLF and would drop the trailing empty piece, which is exactly the boundary
+/// the log tests assert. This one reads bytes and keeps the raw text.
+struct LogSink {
+  text : StringBuilder
+}
+
+///|
+/// An empty traffic log sink.
+fn log_sink() -> LogSink {
+  { text: StringBuilder(), }
+}
+
+///|
+impl @io.Writer for LogSink with fn write_once(
+  self : LogSink,
+  buf : Bytes,
+  offset~ : Int32,
+  len~ : Int32,
+) -> Int32 {
+  for i = offset; i < offset + len; i = i + 1 {
+    self.text.write_char(buf[i].to_int().unsafe_to_char())
+  }
+  len
+}
+
+///|
+/// The captured transcript, as one string.
+fn LogSink::text(self : LogSink) -> String {
+  self.text.to_string()
+}
+
+///|
+/// A traffic log sink whose every write fails, to prove logging never changes
+/// the outcome of a command or a reply read.
+struct FailingSink {}
+
+///|
+impl @io.Writer for FailingSink with fn write_once(
+  self : FailingSink,
+  buf : Bytes,
+  offset~ : Int32,
+  len~ : Int32,
+) -> Int32 {
+  ignore(self)
+  ignore(buf)
+  ignore(offset)
+  ignore(len)
+  raise @io.ReaderClosed
+}
+
+///|
 impl @io.Writer for RecordingSink with fn write_once(
   self : RecordingSink,
   buf : Bytes,
-  offset~ : Int,
-  len~ : Int,
-) -> Int {
+  offset~ : Int32,
+  len~ : Int32,
+) -> Int32 {
   let mut decoded = ""
   for i = offset; i < offset + len; i = i + 1 {
     decoded = decoded + buf[i].to_int().unsafe_to_char().to_string()
@@ -64,10 +119,34 @@ impl @io.Writer for RecordingSink with fn write_once(
 /// was sent. The peer is `127.0.0.1`, the address the `PASV` SSRF guard
 /// compares against.
 fn scripted_control(script : String) -> (Control, RecordingSink) {
-  let reader : &@io.Reader = @io.MemoryReader(writer => writer.write(script))
+  let reader = @io.MemoryReader(writer => writer.write(script))
+  let reader_ref : &@io.Reader = reader
+  logged_control(reader_ref, None)
+}
+
+///|
+/// A control channel over `reader` plus the sink recording what was sent, with
+/// a traffic log installed.
+///
+/// The reader is taken as a parameter, not built here, on purpose: an
+/// `@io.MemoryReader` owns a background producer task that only
+/// `MemoryReader::close` stops, so whoever builds it must also close it (the
+/// rule in AGENTS.md). This stays a plain builder; the tests close their own
+/// reader.
+fn logged_control(
+  reader : &@io.Reader,
+  log : &@io.Writer?,
+) -> (Control, RecordingSink) {
   let sink = recording_sink()
   let writer : &@io.Writer = sink
-  (Control::new(reader, writer, "127.0.0.1"), sink)
+  let control = Control::new(reader, writer, "127.0.0.1")
+  control.set_debug(
+    match log {
+      None => None
+      Some(sink) => Some(DebugLog::new(sink))
+    },
+  )
+  (control, sink)
 }
 
 ///|
@@ -75,11 +154,11 @@ fn scripted_control(script : String) -> (Control, RecordingSink) {
 /// flags, so `list` picks `MLSD` or `LIST` deterministically.
 fn scripted_client(
   script : String,
-  mlst_supported? : Bool = false,
-  options? : Options = Options::default(),
-  location? : @time.Zone = @time.utc_zone,
-  dial_options? : DialOptions = DialOptions::default(),
-  now_ms? : () -> UInt64 = @env.now,
+  mlst_supported~ : Bool = false,
+  options~ : Options = Options::default(),
+  location~ : @time.Zone = @time.utc_zone,
+  dial_options~ : DialOptions = DialOptions::default(),
+  now_ms~ : () -> UInt64 = @env.now,
 ) -> (FTPClient, RecordingSink) {
   dial_options.set_now_ms(now_ms)
   let (control, sink) = scripted_control(script)
@@ -140,13 +219,13 @@ async fn connected_socket() -> @socket.Tcp {
 
 ///|
 /// The `EPSV` reply that points a client at `port` on the loopback interface.
-fn epsv_reply(port : Int) -> String {
+fn epsv_reply(port : Int32) -> String {
   "229 Entering Extended Passive Mode (|||" + port.to_string() + "|)\r\n"
 }
 
 ///|
 /// The `PASV` reply that points a client at `port` on `127.0.0.1`.
-fn pasv_reply(port : Int) -> String {
+fn pasv_reply(port : Int32) -> String {
   let high = port / 256
   let low = port % 256
   "227 Entering Passive Mode (127,0,0,1," +
@@ -196,7 +275,7 @@ fn empty_data() -> &@io.Data {
 /// `FTPClient`.
 fn scripted_session(
   script : String,
-  options? : Options = Options::default(),
+  options~ : Options = Options::default(),
 ) -> (Session, RecordingSink) {
   let (control, sink) = scripted_control(script)
   (Session::new(control, options~), sink)

@@ -335,6 +335,51 @@ async test "dial reads the greeting from a real socket" {
 }
 
 ///|
+/// `dial` installs the traffic log the caller asked for *before* it reads the
+/// greeting, so the first record in the transcript is what the server said
+/// first -- and no sink means no logging layer at all.
+async test "dial installs the traffic log before the greeting" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let sink = log_sink()
+  let log : &@io.Writer = sink
+  let client = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      let (conn, _) = listener.accept()
+      conn.write("220 Test server ready.\r\n")
+      ignore(conn.read_all() catch { _ => empty_data() })
+      conn.close()
+    })
+    dial("127.0.0.1:\{port}", debug_sink=Some(log)) catch {
+      _ => fail("dial")
+    }
+  })
+  assert_true(client.session().control().debug_enabled())
+  // The greeting is the one record: `dial` sends nothing before it.
+  assert_eq(sink.text(), "<<< 220 Test server ready.\r\n")
+}
+
+///|
+/// Without a sink the connection carries no logging layer at all, which is the
+/// default and what keeps every other test's output unchanged.
+async test "dial installs no log when no sink is given" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let client = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      let (conn, _) = listener.accept()
+      conn.write("220 Test server ready.\r\n")
+      ignore(conn.read_all() catch { _ => empty_data() })
+      conn.close()
+    })
+    dial("127.0.0.1:\{port}") catch {
+      _ => fail("dial")
+    }
+  })
+  assert_false(client.session().control().debug_enabled())
+}
+
+///|
 /// `dial` applies the implicit TLS default port (990) when the caller passes a
 /// bare host, and 21 otherwise. The port is not observable directly, so the
 /// proof is that a bare `127.0.0.1` with `tls=false` reaches a server on an

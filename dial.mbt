@@ -25,19 +25,20 @@
 /// the control connection.
 pub async fn dial(
   addr : String,
-  timeout_ms? : Int = default_dial_timeout_ms,
-  shut_timeout_ms? : Int = 0,
-  tls? : Bool = false,
-  explicit_tls? : Bool = false,
-  trust? : @tls.TrustedRoot = @tls.TrustedRoot::SystemRoot,
-  disable_epsv? : Bool = false,
-  trust_pasv_ip? : Bool = false,
-  disable_utf8? : Bool = false,
-  disable_mlsd? : Bool = false,
-  writing_mdtm? : Bool = false,
-  force_list_hidden? : Bool = false,
-  location? : @time.Zone = @time.utc_zone,
-  now_ms? : () -> UInt64 = @env.now,
+  timeout_ms~ : Int32 = default_dial_timeout_ms,
+  shut_timeout_ms~ : Int32 = 0,
+  tls~ : Bool = false,
+  explicit_tls~ : Bool = false,
+  trust~ : @tls.TrustedRoot = @tls.TrustedRoot::SystemRoot,
+  disable_epsv~ : Bool = false,
+  trust_pasv_ip~ : Bool = false,
+  disable_utf8~ : Bool = false,
+  disable_mlsd~ : Bool = false,
+  writing_mdtm~ : Bool = false,
+  force_list_hidden~ : Bool = false,
+  location~ : @time.Zone = @time.utc_zone,
+  debug_sink~ : &@io.Writer? = None,
+  now_ms~ : () -> UInt64 = @env.now,
 ) -> FTPClient {
   let options : DialOptions = {
     timeout_ms,
@@ -52,6 +53,7 @@ pub async fn dial(
     writing_mdtm,
     force_list_hidden,
     location,
+    debug_sink,
     now_ms,
   }
   let (host, port) = split_addr(addr, if tls { 990 } else { 21 })
@@ -82,6 +84,15 @@ pub async fn dial(
   } else {
     Control::new(tcp, tcp, host_text, timeout_ms~)
   }
+  // Attach the traffic log once the connection exists and before the greeting
+  // is read, so the first record is what the server said first. Nothing is
+  // installed when no sink was asked for.
+  control.set_debug(
+    match debug_sink {
+      None => None
+      Some(sink) => Some(DebugLog::new(sink))
+    },
+  )
   let state_options = options.to_state_options()
   let session = Session::new(control, options=state_options)
   let client : FTPClient = {
@@ -115,7 +126,7 @@ pub async fn dial(
 ///|
 /// Split `host` / `host:port` into its two components, applying `default_port`
 /// when the caller did not specify one.
-pub fn split_addr(addr : String, default_port : Int) -> (String, Int) {
+pub fn split_addr(addr : String, default_port : Int32) -> (String, Int32) {
   match addr.find(":") {
     Some(index) => {
       let host = addr[0:index].to_owned()
@@ -132,7 +143,7 @@ pub fn split_addr(addr : String, default_port : Int) -> (String, Int) {
 
 ///|
 /// Render a raw 32 bit IPv4 address in dotted quad notation.
-fn format_ip(ip : UInt) -> String {
+fn format_ip(ip : UInt32) -> String {
   let value = ip.reinterpret_as_int()
   let a = (value >> 24) & 0xFF
   let b = (value >> 16) & 0xFF
@@ -180,7 +191,7 @@ async fn auth_tls(client : FTPClient, socket : @socket.Tcp) -> Unit {
 
 ///|
 /// Parse a decimal string into an `Int`, returning `None` on any non-digit.
-pub fn parse_decimal(text : String) -> Int? {
+pub fn parse_decimal(text : String) -> Int32? {
   guard text != "" else { return None }
   let mut value = 0
   for i = 0; i < text.length(); i = i + 1 {

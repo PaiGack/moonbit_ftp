@@ -56,7 +56,7 @@ pub fn Walker::set_stack(self : Walker, stack : Array[(Entry, String)]) -> Unit 
 
 ///|
 /// The number of entries still to visit.
-pub fn Walker::pending(self : Walker) -> Int {
+pub fn Walker::pending(self : Walker) -> Int32 {
   self.stack.length()
 }
 

@@ -35,7 +35,7 @@ test "positive completion and intermediate predicates" {
 /// The whole table, one line per case. Copied from upstream `status.go`; a
 /// wrong string here means a user reads the wrong error message.
 test "every documented status code has its upstream text" {
-  let cases : Array[(Int, String)] = [
+  let cases : Array[(Int32, String)] = [
     (110, "Restart marker reply."),
     (120, "Service ready in 2 minutes."),
     (125, "Data connection already open, transfer starting."),

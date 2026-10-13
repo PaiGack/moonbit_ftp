@@ -125,7 +125,7 @@ fn usage() -> String {
 ///|
 /// The C `exit`, so a usage error reports a distinct status instead of the
 /// SIGABRT that `abort` would produce. Mirrors `cmd/ftp`.
-extern "c" fn exit(code : Int) = "exit"
+extern "c" fn exit(code : Int32) = "exit"
 
 ///|
 /// One full FTPS round trip against `addr`, printing each step.
@@ -139,7 +139,7 @@ async fn smoke(
   user : String,
   password : String,
   ca : String?,
-  explicit_tls? : Bool = false,
+  explicit_tls~ : Bool = false,
 ) -> Unit {
   println("==> \{label}: dial \{addr}")
   // With a CA the connection is verified against it; in the clear there is no
@@ -263,7 +263,7 @@ fn required_env(name : String) -> String {
 /// Used for the plaintext port, which has a sane fixed value (21) and therefore
 /// no need to be a hard requirement -- unlike the FTPS port, which the caller
 /// must not have to guess.
-fn optional_env(name : String, default : Int) -> Int {
+fn optional_env(name : String, default : Int32) -> Int32 {
   match @env.get_env_var(name) {
     Some(value) =>
       match parse_int(value) {
@@ -276,7 +276,7 @@ fn optional_env(name : String, default : Int) -> Int {
 
 ///|
 /// Parse a decimal integer, returning `None` on any non-digit byte.
-fn parse_int(text : String) -> Int? {
+fn parse_int(text : String) -> Int32? {
   guard text != "" else { return None }
   let mut value = 0
   for i = 0; i < text.length(); i = i + 1 {

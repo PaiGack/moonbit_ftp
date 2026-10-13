@@ -481,7 +481,7 @@ fn missing(name : String) -> String {
 ///|
 /// The C `exit`, so a usage error reports a distinct status instead of the
 /// SIGABRT `abort` would produce. Mirrors `cmd/ftp`.
-extern "c" fn exit(code : Int) = "exit"
+extern "c" fn exit(code : Int32) = "exit"
 
 ///|
 /// Render an array of names as `[a, b, c]`.

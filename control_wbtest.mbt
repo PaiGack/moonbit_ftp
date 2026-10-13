@@ -125,9 +125,9 @@ struct NullSink {}
 impl @io.Writer for NullSink with fn write_once(
   self : NullSink,
   buf : Bytes,
-  offset~ : Int,
-  len~ : Int,
-) -> Int {
+  offset~ : Int32,
+  len~ : Int32,
+) -> Int32 {
   ignore(self)
   ignore(buf)
   ignore(offset)
