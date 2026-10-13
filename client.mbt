@@ -41,10 +41,6 @@ pub struct FTPClient {
   mut location : @time.Zone
   /// Feature names advertised by `FEAT`, uppercased.
   mut features : Map[String, Bool]
-  /// The clock behind `FTPClient::now`, the reference instant of the `LIST`
-  /// six month rule. Injectable so a test can pin "now"; defaults to the
-  /// system clock (see `DialOptions::clock`).
-  mut clock : () -> @time.ZonedDateTime
 }
 
 ///|
@@ -150,15 +146,6 @@ pub fn FTPClient::location(self : FTPClient) -> @time.Zone {
 /// Replace the timezone used to interpret `LIST` timestamps.
 pub fn FTPClient::set_location(self : FTPClient, location : @time.Zone) -> Unit {
   self.location = location
-}
-
-///|
-/// Replace the clock behind `FTPClient::now`.
-pub fn FTPClient::set_clock(
-  self : FTPClient,
-  value : () -> @time.ZonedDateTime,
-) -> Unit {
-  self.clock = value
 }
 
 ///|
@@ -337,13 +324,11 @@ pub struct DialOptions {
   mut force_list_hidden : Bool
   /// Timezone used to interpret `LIST` timestamps, defaults to UTC.
   mut location : @time.Zone
-  /// Clock behind the `LIST` six month rule. Defaults to `system_clock`.
-  /// This is the injectable seam that keeps `list()` testable, and the one
-  /// that was missing while `FTPClient::now` returned a hard coded epoch:
-  /// the production call site had no way to pin "now", so every unit test
-  /// that looked at the half-year rule passed a reference instant by hand
-  /// and the bug survived.
-  mut clock : () -> @time.ZonedDateTime
+  /// Clock backing the `LIST` half-year rule, in milliseconds since the UNIX
+  /// epoch. Defaults to the system time; tests inject a fixed clock so the
+  /// rule can be asserted on the production path (`list`) instead of only in
+  /// the pure parsers.
+  mut now_ms : () -> UInt64
 }
 
 ///|
@@ -363,7 +348,7 @@ pub fn DialOptions::default() -> DialOptions {
     writing_mdtm: false,
     force_list_hidden: false,
     location: @time.utc_zone,
-    clock: system_clock,
+    now_ms: @env.now,
   }
 }
 
@@ -466,12 +451,16 @@ pub fn DialOptions::set_location(
 }
 
 ///|
-/// Replace the clock used by the `LIST` six month rule.
-pub fn DialOptions::set_clock(
+/// Replace the clock backing `FTPClient::now`.
+///
+/// The default reads the system time on every `list()`; a test injects a
+/// fixed clock to pin the half-year rule's reference instant. Go's epoch
+/// fallback is deliberately *not* an option here — see `FTPClient::now`.
+pub fn DialOptions::set_now_ms(
   self : DialOptions,
-  value : () -> @time.ZonedDateTime,
+  value : () -> UInt64,
 ) -> Unit {
-  self.clock = value
+  self.now_ms = value
 }
 
 ///|

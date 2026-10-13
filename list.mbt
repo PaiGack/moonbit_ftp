@@ -148,37 +148,23 @@ pub async fn set_transfer_type(
 }
 
 ///|
-/// The default clock: the current system time as a `ZonedDateTime` in UTC.
+/// The reference instant used by the `LIST` time parsers: the configured clock
+/// projected onto `self.location`.
 ///
-/// `@env.now()` reports milliseconds since the UNIX epoch and `@time.unix`
-/// takes seconds; the nanosecond remainder is dropped, which is all the `LIST`
-/// six month rule needs -- it resolves to the minute.
-///
-/// The zone is UTC rather than `location`: `parse_ls_time` rebuilds the instant
-/// in `now.zone()` and `probe_year` only reads the year off `now`, so the zone
-/// has to be consistent, not local. UTC also keeps the reference instant free
-/// of a DST edge at the year boundary.
-pub fn system_clock() -> @time.ZonedDateTime {
-  let millis = @env.now()
-  // `@env.now()` is a `UInt64`; divide there so the conversion stays exact,
-  // then reinterpret as the `Int64` `@time.unix` takes. A real clock never
-  // overflows `Int64`.
-  @time.unix((millis / 1000).reinterpret_as_int64(), zone=@time.utc_zone) catch {
+/// A yearless `MMM DD HH:MM` field is resolved by comparing the candidate
+/// against `now + 6 months`, so the parsers need a real "now". Handing them
+/// the epoch instead is not "off by a little": every such field fails the
+/// comparison against 1970 + 6 months and collapses to 1969. Hence a clock on
+/// `DialOptions` (system time by default, injectable in tests) rather than a
+/// constant; the epoch is only the impossible-clock fallback.
+fn FTPClient::now(self : FTPClient) -> @time.ZonedDateTime {
+  let millis = (self.options.now_ms)()
+  @time.ZonedDateTime::from_unix_second(
+    (millis / 1000).reinterpret_as_int64(),
+    zone=self.location,
+  ) catch {
     _ => epoch
   }
-}
-
-///|
-/// The reference instant used by the `LIST` time parsers: the client clock, so
-/// the six month rule compares against the real "now".
-///
-/// This used to return `epoch` unconditionally, which made every yearless
-/// `MMM DD HH:MM` field -- the form real servers use for recent files --
-/// resolve against 1970: an `Aug 15 05:49` line came out as 1969 instead of
-/// the current year. The rule in `apply_list_time` / `probe_year` was correct
-/// all along, only this call site never supplied a usable instant.
-fn FTPClient::now(self : FTPClient) -> @time.ZonedDateTime {
-  (self.clock)()
 }
 
 ///|
