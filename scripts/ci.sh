@@ -106,6 +106,15 @@ run python3 "$SCRIPT_DIR/ftps/cmd-ftps-selftest.py" "$ROOT"
 # has already passed -- which is why it read as an inexplicable `plain` failure.
 run python3 "$SCRIPT_DIR/ftps/fixture-isolation-selftest.py" "$ROOT"
 
+# And the plaintext container's own precondition, which no Docker-free test
+# below can reach: the `jmoyer/vsftpd` entrypoint interpolates ten environment
+# variables into `vsftpd.conf` and dies with the reason on fd 0 -- i.e. in no
+# log anyone reads -- when one is missing. Forgetting them made the server
+# answer the readiness probe and then vanish, so four later steps failed with
+# `Connection refused` while the actual fault was one `docker run` line.
+# Checking the variable list here costs nothing and needs no image.
+run python3 "$SCRIPT_DIR/vsftpd-env-selftest.py" "$ROOT"
+
 # Code statistics. Best-effort: a registry hiccup must not fail the build.
 run docker run --rm -v "$ROOT:/src" ghcr.io/xampprocky/tokei:latest .
 
