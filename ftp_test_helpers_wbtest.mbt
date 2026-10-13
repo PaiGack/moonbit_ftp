@@ -300,3 +300,43 @@ fn tls_key_file() -> String {
 fn tls_cert_file() -> String {
   "testdata/ftp/tls/vsftpd.pem"
 }
+
+///|
+/// Complete a server-side TLS handshake on an accepted data socket, returning
+/// whether the handshake was driven at all.
+///
+/// `#warnings("-alert_internal")` is not a shrug at the alert: MoonBit's
+/// `Tls::server` / `Tls::server_from_pair` are the *only* server-side TLS
+/// entry points, both marked `#internal("do not use, for internal testing
+/// only")`, and this file is exactly the internal test that marker is aimed
+/// at. There is no public API to reach for, so the choice is to silence the
+/// one category on this one declaration or to drop the assertion -- and
+/// dropping it is how the zero-byte `STOR` handshake went unverified before.
+/// Scoped here rather than via `warnings` in `moon.pkg` so every other file
+/// still trips `--deny-warn` on an internal API it should not be using.
+///
+/// `ConnectionClosed` from a peer that hung up mid-handshake counts as
+/// success: nothing else in this path touches the TLS session, so a
+/// `ClientHello` is the only way to get that far.
+#warnings("-alert_internal")
+async fn accept_server_tls(conn : @socket.Tcp) -> Bool {
+  try {
+    let tls = @tls.Tls::server_from_pair(
+      conn,
+      conn,
+      private_key_file=tls_key_file(),
+      private_key_type=@tls.X509FileType::PEM,
+      certificate_file=tls_cert_file(),
+      certificate_type=@tls.X509FileType::PEM,
+    )
+    // Hold the data connection open until the client is done with it. The
+    // client sends a `close_notify`, which lands here as an EOF over the TLS
+    // session; a peer that only closed the socket lands as one too, because
+    // `Tls` reads that case as an ordinary EOF.
+    ignore(tls.read_all() catch { _ => empty_data() })
+    true
+  } catch {
+    @tls.ConnectionClosed => true
+    e => fail("server tls handshake: \{e}")
+  }
+}
