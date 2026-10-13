@@ -131,7 +131,7 @@ moon info                                # 更新生成接口（.mbti）
 | **能力画像端到端** | `cmd/profiles/run.sh` | 同一个 vsftpd 上四个客户端画像（`full` / `no-mlst` / `no-time` / `no-epsv`）：`FEAT`、`MLSD`/`LIST`、`EPSV`/`PASV`、`STOR`/`RETR`/`NLST`、`MDTM` 读+写、`MKD`/`RMD`/`RemoveDirRecur` |
 | **FTPS 端到端** | `scripts/ftps/start-ftps.sh` + `cmd/ftps/run.sh` | 真实 vsftpd 上的**显式 `AUTH TLS`**：dial / login / LIST / RETR / STOR / DELE |
 | 明文回归 | `cmd/ftps/run.sh plain` | 同一个 `cmd/ftps` 二进制走明文链路，确保数据通道时序改动没有破坏无 TLS 路径 |
-| 无 Docker 自测 | `scripts/` 下的 `*-selftest.py` | 拉镜像之前就跑：FTPS 就绪探测、`cmd/ftps`（含 `STOR` 被拒回归）、`cmd/profiles` 的协议选择断言、两个容器不共用 fixture、`start-ftp.sh` 的环境变量清单、`ensure-ftp.sh` 的复检三分支与它在 `ci.sh` 中的位置、`cmd/ftp/run.sh` 不拼 flag |
+| 无 Docker 自测 | `scripts/` 下的 `*-selftest.py` | 拉镜像之前就跑：FTPS 就绪探测、`cmd/ftps`（含 `STOR` 被拒回归）、`cmd/profiles` 的协议选择断言、两个容器不共用 fixture、`start-ftp.sh` 传给镜像的 10 个环境变量非空、`ensure-ftp.sh` 的复检三分支与它在 `ci.sh` 中的位置、`cmd/ftp/run.sh` 不拼 flag |
 
 ### 本地端到端（需要 docker）
 
@@ -197,6 +197,7 @@ FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同
 │   ├── ensure-ftp.sh          第一个客户端之后复检明文容器，挂了就用 start-ftp.sh 重启
 │   ├── ensure-ftp-selftest.py 用桩 docker 自测上面的复检（无需 Docker）
 │   ├── ftp-wrapper-selftest.py    断言 cmd/ftp/run.sh 只传环境默认值、不拼 flag（无需 Docker）
+│   ├── vsftpd-env-selftest.py      断言 start-ftp.sh 传齐镜像入口要的 10 个变量（无需 Docker）
 │   ├── stop-ftp.sh            导出明文容器日志并清理
 │   ├── ftps/                  FTPS（显式 AUTH TLS）容器
 │   │   ├── gen-cert.sh        自签名 CA + 叶证书（每次重新签发）

@@ -15,9 +15,16 @@
 ///|
 /// RFC 959 / RFC 2228 / RFC 2428 / RFC 3659 status codes.
 ///
-/// Values are kept byte-for-byte identical to upstream `status.go`. Several
+/// The numeric values are kept identical to upstream `status.go`. Several
 /// distinct constants intentionally share the same numeric value (the RFCs
 /// overload the code), which is fine because they are plain `Int` constants.
+/// The *names* are this file's own spelling, not upstream's: upstream has one
+/// `StatusFileActionIgnored` for 450, where this file carries both
+/// `status_file_action_not_taken` and `status_action_not_taken`, because the
+/// two are read in different places and renaming either call site for a
+/// constant the client only compares by value would only hide which is which.
+/// Nothing here is matched by name across the module boundary, so a spelling
+/// difference cannot become a behaviour difference.
 pub let status_restart_marker_answer : Int32 = 110
 
 ///|
@@ -157,14 +164,21 @@ pub let status_page_type_unknown : Int32 = 551
 pub let status_exceeded_storage_allocation : Int32 = 552
 
 ///|
+/// The second spelling of 450. See the note in the file header: upstream
+/// calls this one `StatusFileActionIgnored`.
 pub let status_action_not_taken : Int32 = 450
 
 ///|
 pub let status_bad_filename : Int32 = 553
 
 ///|
-/// The human readable text for every known status code, copied from
-/// upstream `status.go` (no localization on purpose).
+/// The human readable text for every known status code.
+///
+/// The wording follows the RFC rather than upstream `status.go`: where upstream
+/// trimmed a sentence down (`226` as "Closing data connection." versus its
+/// "Closing data connection. Requested file action successful."), the RFC
+/// wording is kept, so the text a user reads is the one the code means. No
+/// localization on purpose.
 pub fn status_text(code : Int32) -> String {
   match code {
     110 => "Restart marker reply."

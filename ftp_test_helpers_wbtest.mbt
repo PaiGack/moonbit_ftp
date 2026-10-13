@@ -287,10 +287,11 @@ fn scripted_session(
 /// gitignored `testdata/ftp/tls/` (`vsftpd.pem` carries both halves, so the
 /// key and the certificate are the same file).
 ///
-/// A fixture on disk rather than an in-memory one, because `Tls::server_from_pair`
-/// only accepts file paths. The self-test below runs `gen-cert.sh` first, so
-/// `moon test` cannot be green while the files are missing -- a test that
-/// skipped itself would hide exactly the zero-byte TLS case it exists for.
+/// A fixture on disk rather than an in-memory one, because the server-side TLS
+/// entry point only accepts file paths. The self-test below runs
+/// `gen-cert.sh` first, so `moon test` cannot be green while the files are
+/// missing -- a test that skipped itself would hide exactly the zero-byte TLS
+/// case it exists for.
 fn tls_key_file() -> String {
   "testdata/ftp/tls/vsftpd.pem"
 }
@@ -305,15 +306,16 @@ fn tls_cert_file() -> String {
 /// Complete a server-side TLS handshake on an accepted data socket, returning
 /// whether the handshake was driven at all.
 ///
-/// `#warnings("-alert_internal")` is not a shrug at the alert: MoonBit's
-/// `Tls::server` / `Tls::server_from_pair` are the *only* server-side TLS
-/// entry points, both marked `#internal("do not use, for internal testing
-/// only")`, and this file is exactly the internal test that marker is aimed
-/// at. There is no public API to reach for, so the choice is to silence the
-/// one category on this one declaration or to drop the assertion -- and
-/// dropping it is how the zero-byte `STOR` handshake went unverified before.
-/// Scoped here rather than via `warnings` in `moon.pkg` so every other file
-/// still trips `--deny-warn` on an internal API it should not be using.
+/// `#warnings("-alert_internal")` is not a shrug at the alert: in
+/// `moonbitlang/async` every server-side TLS entry point carries
+/// `#internal(internal, "do not use, for internal testing only")` -- the
+/// `server` form as well as `server_from_pair` (it only forwards to the pair
+/// form), on the openssl, schannel and wasm backends alike. There is no public
+/// one to switch to, so the choice is to silence the one category on this one
+/// declaration or to drop the assertion -- and dropping it is how the zero-byte
+/// `STOR` handshake went unverified before. Scoped here rather than via
+/// `warnings` in `moon.pkg` so every other file still trips `--deny-warn` on
+/// an internal API it should not be using.
 ///
 /// `ConnectionClosed` from a peer that hung up mid-handshake counts as
 /// success: nothing else in this path touches the TLS session, so a

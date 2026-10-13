@@ -32,9 +32,10 @@ test "positive completion and intermediate predicates" {
 }
 
 ///|
-/// The whole table, one line per case. Copied from upstream `status.go`; a
-/// wrong string here means a user reads the wrong error message.
-test "every documented status code has its upstream text" {
+/// The whole table, one line per case. Wording follows the RFC (upstream
+/// trims some sentences down, see the note on `status_text`); a wrong string
+/// here means a user reads the wrong error message.
+test "every documented status code has its RFC text" {
   let cases : Array[(Int32, String)] = [
     (110, "Restart marker reply."),
     (120, "Service ready in 2 minutes."),

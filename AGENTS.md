@@ -169,6 +169,18 @@ You can browse and install extra skills here:
   throwaway trees. `fixture-isolation-selftest.py` asserts that invariant with
   no Docker, since no single-container test can see it.
 
+- **`scripts/start-ftp.sh` must pass every variable the image's entrypoint
+  interpolates, and `vsftpd-env-selftest.py` is what checks it without
+  Docker.** `jmoyer/vsftpd`'s entrypoint appends one directive per environment
+  variable to `vsftpd.conf` and interpolates the value straight in; vsftpd
+  exits 2 (`missing value in config file for: <name>`) when one is empty, and
+  that message goes to fd 0, which inside a container is not the log stream.
+  So a forgotten variable produces a server that answers the readiness probe
+  and is then gone, and four unrelated client steps fail with
+  `Connection refused` — the run that motivated the self-test. The ten names
+  are the entrypoint's list, written out in the self-test rather than inferred
+  from `start-ftp.sh`, because the point is that the two have to agree.
+
 - **The plaintext container can be gone by the time `plain` runs, and the
   client only says so about the port.** `cmd/ftps/run.sh plain` is the last
   step that needs `scripts/start-ftp.sh`'s container, and it is a whole FTPS
@@ -206,9 +218,13 @@ You can browse and install extra skills here:
   only the last of them was preceded by a check. `cmd/example` finishing is the
   earliest evidence that the endpoint works *and* the last moment a restart can
   still save the three steps behind it, so the call sits between
-  `cmd/example/run.sh` and `cmd/ftp/run.sh`. `ensure-ftp-selftest.py` asserts
-  that position against `scripts/ci.sh`, because an extra call is merely
-  redundant while a missing one is invisible.
+  `cmd/example/run.sh` and `cmd/ftp/run.sh`. A second call sits in front of the
+  `cmd/profiles` invocations, because `cmd/example` and `cmd/ftp` died in two
+  adjacent lines of a run once: one guard between them proved the server was up
+  for exactly one of the two. `ensure-ftp-selftest.py` asserts both positions
+  against `scripts/ci.sh` — every plaintext client's statement is preceded by a
+  guard, not merely somewhere earlier in the file — because an extra call is
+  merely redundant while a missing one is invisible.
 
 - **A guard in front of a client cannot cover a window *inside* it, and
   `cmd/profiles` opens four sessions.** The rule above — "the statement
@@ -292,7 +308,7 @@ You can browse and install extra skills here:
   add a per-provider copy of a script.
 
 - The root `moon.pkg` has one plain import block (shared by the pure logic
-  files, the IO files and the in-package tests, because MoonBit 0.1.20260904 has
+  files, the IO files and the in-package tests, because MoonBit 0.1.20260920 has
   no per-file imports) plus a `for "wbtest"` block. The async packages therefore
   sit in the plain block on purpose; the pure logic / IO split is carried by the
   per-file `// Layer:` markers and by the grouped file tree in
