@@ -20,25 +20,6 @@
 // these tests use; nothing here writes a real server's state.
 
 ///|
-/// The instant every scripted client pins "now" to, so a `LIST` case can
-/// assert an absolute year instead of "somewhere near the current one".
-///
-/// It is the same 2017-03-10 23:00 UTC that `parse_test.mbt` uses for the pure
-/// parser suite, which is what lets the production path (`list()`) and the
-/// parser agree on a hard coded expectation.
-let test_now : @time.ZonedDateTime = @time.ZonedDateTime::of(
-  2017,
-  3,
-  10,
-  hour=23,
-  minute=0,
-  second=0,
-  zone=@time.utc_zone,
-) catch {
-  _ => panic()
-}
-
-///|
 /// A writer that decodes every byte to ASCII and records each CRLF-terminated
 /// line, which is how the command encoding is asserted.
 ///
@@ -76,9 +57,9 @@ fn log_sink() -> LogSink {
 impl @io.Writer for LogSink with fn write_once(
   self : LogSink,
   buf : Bytes,
-  offset~ : Int,
-  len~ : Int,
-) -> Int {
+  offset~ : Int32,
+  len~ : Int32,
+) -> Int32 {
   for i = offset; i < offset + len; i = i + 1 {
     self.text.write_char(buf[i].to_int().unsafe_to_char())
   }
@@ -100,9 +81,9 @@ struct FailingSink {}
 impl @io.Writer for FailingSink with fn write_once(
   self : FailingSink,
   buf : Bytes,
-  offset~ : Int,
-  len~ : Int,
-) -> Int {
+  offset~ : Int32,
+  len~ : Int32,
+) -> Int32 {
   ignore(self)
   ignore(buf)
   ignore(offset)
@@ -114,9 +95,9 @@ impl @io.Writer for FailingSink with fn write_once(
 impl @io.Writer for RecordingSink with fn write_once(
   self : RecordingSink,
   buf : Bytes,
-  offset~ : Int,
-  len~ : Int,
-) -> Int {
+  offset~ : Int32,
+  len~ : Int32,
+) -> Int32 {
   let mut decoded = ""
   for i = offset; i < offset + len; i = i + 1 {
     decoded = decoded + buf[i].to_int().unsafe_to_char().to_string()
@@ -173,11 +154,13 @@ fn logged_control(
 /// flags, so `list` picks `MLSD` or `LIST` deterministically.
 fn scripted_client(
   script : String,
-  mlst_supported? : Bool = false,
-  options? : Options = Options::default(),
-  location? : @time.Zone = @time.utc_zone,
-  dial_options? : DialOptions = DialOptions::default(),
+  mlst_supported~ : Bool = false,
+  options~ : Options = Options::default(),
+  location~ : @time.Zone = @time.utc_zone,
+  dial_options~ : DialOptions = DialOptions::default(),
+  now_ms~ : () -> UInt64 = @env.now,
 ) -> (FTPClient, RecordingSink) {
+  dial_options.set_now_ms(now_ms)
   let (control, sink) = scripted_control(script)
   let client : FTPClient = {
     options: dial_options,
@@ -192,9 +175,6 @@ fn scripted_client(
     mdtm_can_write: false,
     location,
     features: {},
-    // Pinned, so a `LIST` case here can assert an absolute year rather than
-    // "whatever the machine's clock says".
-    clock: () => test_now,
   }
   (client, sink)
 }
@@ -239,13 +219,13 @@ async fn connected_socket() -> @socket.Tcp {
 
 ///|
 /// The `EPSV` reply that points a client at `port` on the loopback interface.
-fn epsv_reply(port : Int) -> String {
+fn epsv_reply(port : Int32) -> String {
   "229 Entering Extended Passive Mode (|||" + port.to_string() + "|)\r\n"
 }
 
 ///|
 /// The `PASV` reply that points a client at `port` on `127.0.0.1`.
-fn pasv_reply(port : Int) -> String {
+fn pasv_reply(port : Int32) -> String {
   let high = port / 256
   let low = port % 256
   "227 Entering Passive Mode (127,0,0,1," +
@@ -295,7 +275,7 @@ fn empty_data() -> &@io.Data {
 /// `FTPClient`.
 fn scripted_session(
   script : String,
-  options? : Options = Options::default(),
+  options~ : Options = Options::default(),
 ) -> (Session, RecordingSink) {
   let (control, sink) = scripted_control(script)
   (Session::new(control, options~), sink)

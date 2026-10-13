@@ -850,7 +850,7 @@ test "DOS date rejects malformed shapes" {
 /// (`12 PM` is noon, `12 AM` is midnight), and a bare `AM`/`PM`-less time is
 /// only accepted by the 24 hour layout.
 test "DOS time applies the AM and PM suffixes" {
-  let hours : Array[(String, Int)] = [
+  let hours : Array[(String, Int32)] = [
     ("01-02-06  12:00PM       1 a", 12),
     ("01-02-06  12:00AM       1 a", 0),
     ("01-02-06  01:00PM       1 a", 13),

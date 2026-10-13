@@ -18,7 +18,7 @@
 /// Send `PASV` and return the `(ip, port)` pair the server advertises.
 ///
 /// `227 Entering Passive Mode (127,0,0,1,196,6)`
-pub async fn pasv(session : Session) -> (String, Int) {
+pub async fn pasv(session : Session) -> (String, Int32) {
   let response = cmd_expect(session.control(), "PASV", [
     status_enter_passive_mode,
   ])
@@ -28,7 +28,7 @@ pub async fn pasv(session : Session) -> (String, Int) {
 ///|
 /// Parse the six comma separated numbers of a `PASV` reply into an IP and a
 /// port (`port = p1 * 256 + p2`). Fewer than six numbers is an error.
-pub fn parse_pasv(line : String) -> (String, Int) raise FtpError {
+pub fn parse_pasv(line : String) -> (String, Int32) raise FtpError {
   let open = match line.find("(") {
     Some(open) => open
     None => raise FtpError::ParseError(msg="invalid PASV response: \{line}")
@@ -45,7 +45,7 @@ pub fn parse_pasv(line : String) -> (String, Int) raise FtpError {
   guard parts.length() >= 6 else {
     raise FtpError::ParseError(msg="invalid PASV response: \{line}")
   }
-  let numbers : Array[Int] = []
+  let numbers : Array[Int32] = []
   for i = 0; i < 6; i = i + 1 {
     let text = parts[i].trim().to_owned()
     guard is_all_digits(text) else {
@@ -86,7 +86,7 @@ pub fn is_bogus_data_ip(cmd_ip : String, data_ip : String) -> Bool {
 
 ///|
 /// Parse a decimal byte value (0..255), returning `None` otherwise.
-pub fn parse_octet(text : String) -> Int? {
+pub fn parse_octet(text : String) -> Int32? {
   guard text != "" && text.length() <= 3 else { return None }
   let mut value = 0
   for i = 0; i < text.length(); i = i + 1 {
@@ -133,10 +133,10 @@ pub fn is_multicast(ip : String) -> Bool {
 ///|
 /// Split a dotted quad into four integers, returning `None` for IPv6 or a
 /// malformed input.
-fn ip_segments(ip : String) -> Array[Int]? {
+fn ip_segments(ip : String) -> Array[Int32]? {
   let parts = ip.split(".").collect()
   guard parts.length() == 4 else { return None }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   for part in parts {
     let part = part.to_owned()
     guard is_all_digits(part) else { return None }
@@ -153,7 +153,7 @@ fn ip_segments(ip : String) -> Array[Int]? {
 /// Send `EPSV` (RFC 2428) and return the data port the server opened.
 ///
 /// `229 Entering Extended Passive Mode (|||6446|)`
-pub async fn epsv(session : Session) -> Int {
+pub async fn epsv(session : Session) -> Int32 {
   let response = cmd_expect(session.control(), "EPSV", [
     status_enter_extended_passive_mode,
   ])
@@ -166,7 +166,7 @@ pub async fn epsv(session : Session) -> Int {
 /// The body is expected to contain `|||` followed by the port and a closing
 /// `|`. A malformed reply raises `ParseError` instead of silently using port
 /// 0, which would otherwise hang the connect.
-pub fn parse_epsv(line : String) -> Int raise FtpError {
+pub fn parse_epsv(line : String) -> Int32 raise FtpError {
   let marker = match line.find("|||") {
     Some(marker) => marker
     None => raise FtpError::ParseError(msg="invalid EPSV response: \{line}")
@@ -206,7 +206,7 @@ pub fn is_all_digits(src : String) -> Bool {
 ///|
 /// Parse a non-empty decimal string into an `Int`, returning `None` on any
 /// non-digit byte or on overflow.
-pub fn parse_port(digits : String) -> Int? {
+pub fn parse_port(digits : String) -> Int32? {
   guard digits != "" else { return None }
   let mut value = 0
   for i = 0; i < digits.length(); i = i + 1 {
@@ -328,7 +328,7 @@ pub async fn DataConn::close(self : DataConn) -> Unit {
 /// design choice: some servers answer `EPSV` with an error but also with a
 /// malformed `PASV` reply, and retrying `EPSV` on every transfer turns a fast
 /// failure into a timeout per file.
-pub async fn get_data_port(session : Session) -> (String, Int) {
+pub async fn get_data_port(session : Session) -> (String, Int32) {
   if session.options().disable_epsv() == false && session.skip_epsv() == false {
     let port = epsv(session) catch {
       _ => {

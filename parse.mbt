@@ -84,7 +84,7 @@ pub fn parse_list_line(
 pub fn set_size(raw : String) -> UInt64 raise FtpError {
   let text = raw.trim().to_owned()
   guard text != "" else { raise FtpError::ParseError(msg="empty size field") }
-  let (digits, radix) : (String, Int) = if text.length() > 2 &&
+  let (digits, radix) : (String, Int32) = if text.length() > 2 &&
     (text[0:2] == "0x" || text[0:2] == "0X") {
     (text[2:].to_owned(), 16)
   } else if text.length() > 2 && (text[0:2] == "0o" || text[0:2] == "0O") {
@@ -102,7 +102,7 @@ pub fn set_size(raw : String) -> UInt64 raise FtpError {
 ///|
 /// Parse an unsigned 64 bit integer in the given radix, rejecting empty input
 /// and overflowing values.
-pub fn parse_uint(digits : String, radix : Int) -> UInt64 raise FtpError {
+pub fn parse_uint(digits : String, radix : Int32) -> UInt64 raise FtpError {
   guard digits != "" else { raise FtpError::ParseError(msg="empty number") }
   let mut value : UInt64 = 0UL
   for i = 0; i < digits.length(); i = i + 1 {
@@ -319,12 +319,12 @@ pub fn parse_ls_line(
 
 ///|
 /// Index of the first `MMM DD ` date field at or after `start`.
-pub fn find_date_start_pub(line : String, start : Int) -> Int? {
+pub fn find_date_start_pub(line : String, start : Int32) -> Int32? {
   find_date_start(line, start)
 }
 
 ///|
-fn find_date_start(line : String, start : Int) -> Int? {
+fn find_date_start(line : String, start : Int32) -> Int32? {
   let mut i = start
   while i + 7 <= line.length() {
     if parse_month(line[i:i + 3].to_owned()) is Some(_) &&
@@ -378,7 +378,7 @@ fn is_unsigned_number(value : String) -> Bool {
 
 ///|
 /// Whether `src[i]` is an ASCII digit.
-fn is_digit_at(src : String, i : Int) -> Bool {
+fn is_digit_at(src : String, i : Int32) -> Bool {
   guard i < src.length() else { return false }
   let code = src.unsafe_get(i).to_int()
   code >= 48 && code <= 57
@@ -386,7 +386,7 @@ fn is_digit_at(src : String, i : Int) -> Bool {
 
 ///|
 /// Offset of the first non-space byte at or after `start`.
-fn leading_field_offset(src : String, start : Int) -> Int {
+fn leading_field_offset(src : String, start : Int32) -> Int32 {
   let mut i = start
   while i < src.length() && src.unsafe_get(i).to_int() == 32 {
     i += 1
@@ -485,11 +485,11 @@ fn parse_dos_date(
 /// DOS dates carry a two digit year. Upstream maps them into the current
 /// century by adding 2000, which is what every server in the wild does.
 fn resolve_dos_year(
-  month : Int,
-  day : Int,
-  year : Int,
-  hour : Int,
-  minute : Int,
+  month : Int32,
+  day : Int32,
+  year : Int32,
+  hour : Int32,
+  minute : Int32,
   now : @time.ZonedDateTime,
 ) -> @time.ZonedDateTime raise FtpError {
   let full_year = if year < 100 { year + 2000 } else { year }
@@ -503,7 +503,7 @@ fn parse_dos_parts(
   date_field : String,
   time_field : String,
   require_ampm : Bool,
-) -> (Int, Int, Int, Int, Int)? {
+) -> (Int32, Int32, Int32, Int32, Int32)? {
   let mut i = 0
   let month = parse_digits(date_field, i, 2)
   guard month is Some((month, next)) else { return None }
@@ -574,7 +574,7 @@ pub fn parse_hostedftp_line(
 ///|
 /// Whether the 10 (or 11, with an ACL `+`) bytes at `start` are a plausible
 /// permission field.
-fn is_permission_field(src : String, start : Int) -> Bool {
+fn is_permission_field(src : String, start : Int32) -> Bool {
   guard start + 10 <= src.length() else { return false }
   let first = src.unsafe_get(start).to_int()
   guard first == 100 || first == 45 || first == 108 else { return false }
@@ -592,7 +592,7 @@ pub let month_names : Array[String] = [
 
 ///|
 /// Parse a three letter month name case-insensitively, returning 1..12.
-pub fn parse_month(name : String) -> Int? {
+pub fn parse_month(name : String) -> Int32? {
   let lower = name.to_lower()
   for i = 0; i < month_names.length(); i = i + 1 {
     if month_names[i] == lower {
@@ -606,7 +606,7 @@ pub fn parse_month(name : String) -> Int? {
 /// Parse a strictly fixed-width decimal field. `width` is the expected number
 /// of digits; anything shorter is padded from the left, anything longer makes
 /// the whole date unrecognised.
-fn parse_fixed_digits(src : String, start : Int, width : Int) -> Int? {
+fn parse_fixed_digits(src : String, start : Int32, width : Int32) -> Int32? {
   guard start >= 0 && start + width <= src.length() else { return None }
   let mut value = 0
   for i = start; i < start + width; i = i + 1 {
@@ -620,7 +620,11 @@ fn parse_fixed_digits(src : String, start : Int, width : Int) -> Int? {
 ///|
 /// Parse a decimal field of 1..`max_width` digits starting at `start`,
 /// returning the value and the position right after the last digit.
-fn parse_digits(src : String, start : Int, max_width : Int) -> (Int, Int)? {
+fn parse_digits(
+  src : String,
+  start : Int32,
+  max_width : Int32,
+) -> (Int32, Int32)? {
   let mut i = start
   let mut value = 0
   let mut digits = 0
@@ -654,12 +658,12 @@ fn parse_digits(src : String, start : Int, max_width : Int) -> (Int, Int)? {
 /// - a missing time (`HH:MM`) defaults to midnight.
 pub fn apply_list_time(
   entry : Entry,
-  year : Int,
-  month : Int,
-  day : Int,
+  year : Int32,
+  month : Int32,
+  day : Int32,
   has_time : Bool,
-  hour : Int,
-  minute : Int,
+  hour : Int32,
+  minute : Int32,
   now : @time.ZonedDateTime,
 ) -> Unit raise FtpError {
   guard month >= 1 && month <= 12 else {
@@ -716,11 +720,11 @@ pub fn apply_list_time(
 /// Build a `ZonedDateTime` in `zone`, raising `UnsupportedListDate` when the
 /// calendar fields are not a valid date (e.g. Feb 30).
 pub fn new_datetime(
-  year : Int,
-  month : Int,
-  day : Int,
-  hour : Int,
-  minute : Int,
+  year : Int32,
+  month : Int32,
+  day : Int32,
+  hour : Int32,
+  minute : Int32,
   zone : @time.Zone,
 ) -> @time.ZonedDateTime raise FtpError {
   @time.ZonedDateTime::of(year, month, day, hour~, minute~, second=0, zone~) catch {
@@ -735,7 +739,7 @@ pub fn new_datetime(
 /// Returns `(year, month, day, has_time, hour, minute, next_index)`. `year` is
 /// `0` when the field carried no year at all (the `HH:MM` shape), the caller
 /// substitutes the current year.
-pub fn parse_list_date_field(src : String, start : Int) -> ListDateField? {
+pub fn parse_list_date_field(src : String, start : Int32) -> ListDateField? {
   // The month name is followed by one or more spaces before the day.
   let day_start = skip_spaces(src, start)
   let first = parse_digits(src, day_start, 2)
@@ -760,28 +764,28 @@ pub fn parse_list_date_field(src : String, start : Int) -> ListDateField? {
 /// The pieces of a `LIST` date field: `MMM` is consumed by the caller.
 struct ListDateField {
   /// The year, or `0` when the field carried none.
-  year : Int
+  year : Int32
   /// Day of month.
-  day : Int
+  day : Int32
   /// Whether the field used the `HH:MM` shape (and therefore has no year).
   has_time : Bool
   /// Hour, `0` when absent.
-  hour : Int
+  hour : Int32
   /// Minute, `0` when absent.
-  minute : Int
+  minute : Int32
   /// Index right after the field.
-  next : Int
+  next : Int32
 }
 
 ///|
 /// The year of a parsed date field, `0` when the field carried none.
-pub fn ListDateField::year(self : ListDateField) -> Int {
+pub fn ListDateField::year(self : ListDateField) -> Int32 {
   self.year
 }
 
 ///|
 /// The day of month of a parsed date field.
-pub fn ListDateField::day(self : ListDateField) -> Int {
+pub fn ListDateField::day(self : ListDateField) -> Int32 {
   self.day
 }
 
@@ -793,25 +797,25 @@ pub fn ListDateField::has_time(self : ListDateField) -> Bool {
 
 ///|
 /// The hour, `0` when the field carried none.
-pub fn ListDateField::hour(self : ListDateField) -> Int {
+pub fn ListDateField::hour(self : ListDateField) -> Int32 {
   self.hour
 }
 
 ///|
 /// The minute, `0` when the field carried none.
-pub fn ListDateField::minute(self : ListDateField) -> Int {
+pub fn ListDateField::minute(self : ListDateField) -> Int32 {
   self.minute
 }
 
 ///|
 /// The index right after the parsed date field.
-pub fn ListDateField::next(self : ListDateField) -> Int {
+pub fn ListDateField::next(self : ListDateField) -> Int32 {
   self.next
 }
 
 ///|
 /// Offset of the first non-space byte at or after `start`.
-fn skip_spaces(src : String, start : Int) -> Int {
+fn skip_spaces(src : String, start : Int32) -> Int32 {
   let mut i = start
   while i < src.length() && src.unsafe_get(i).to_int() == 32 {
     i += 1
@@ -821,7 +825,7 @@ fn skip_spaces(src : String, start : Int) -> Int {
 
 ///|
 /// Whether `src[i]` is an ASCII digit.
-fn is_digit(src : String, i : Int) -> Bool {
+fn is_digit(src : String, i : Int32) -> Bool {
   guard i < src.length() else { return false }
   let code = src.unsafe_get(i).to_int()
   code >= 48 && code <= 57
@@ -830,7 +834,7 @@ fn is_digit(src : String, i : Int) -> Bool {
 ///|
 /// Parse a strict `HH:MM` field. Returns `None` when the field is not exactly
 /// two digits, colon, two digits.
-fn parse_hh_mm(src : String, start : Int) -> (Int, Int, Int)? {
+fn parse_hh_mm(src : String, start : Int32) -> (Int32, Int32, Int32)? {
   guard start + 5 <= src.length() else { return None }
   let hour = parse_fixed_digits(src, start, 2)
   guard hour is Some(hour) else { return None }
@@ -846,9 +850,9 @@ fn parse_hh_mm(src : String, start : Int) -> (Int, Int, Int)? {
 /// Returns the resolved time and the index right after the field.
 pub fn parse_ls_time(
   src : String,
-  start : Int,
+  start : Int32,
   now : @time.ZonedDateTime,
-) -> (@time.ZonedDateTime, Int)? raise FtpError {
+) -> (@time.ZonedDateTime, Int32)? raise FtpError {
   guard start + 3 <= src.length() else { return None }
   let month = parse_month(src[start:start + 3].to_owned())
   guard month is Some(month) else { return None }
@@ -874,12 +878,12 @@ pub fn parse_ls_time(
 /// Apply the six month rule and return the year to use for a yearless
 /// `MMM DD HH:MM` field.
 fn probe_year(
-  month : Int,
-  day : Int,
-  hour : Int,
-  minute : Int,
+  month : Int32,
+  day : Int32,
+  hour : Int32,
+  minute : Int32,
   now : @time.ZonedDateTime,
-) -> Int {
+) -> Int32 {
   let candidate = @time.ZonedDateTime::of(
     now.year(),
     month,
@@ -921,7 +925,7 @@ fn probe_year(
 pub struct Scanner {
   src : String
   /// Byte offset of the next character to read.
-  mut offset : Int
+  mut offset : Int32
 }
 
 ///|
@@ -973,7 +977,7 @@ pub fn Scanner::next(self : Scanner) -> String {
 ///|
 /// Read up to `count` consecutive fields. Stops early (without raising) when
 /// the input is exhausted, exactly like upstream `nextFields`.
-pub fn Scanner::next_fields(self : Scanner, count : Int) -> Array[String] {
+pub fn Scanner::next_fields(self : Scanner, count : Int32) -> Array[String] {
   let fields : Array[String] = []
   for i = 0; i < count; i = i + 1 {
     let field = self.next()
@@ -988,6 +992,6 @@ pub fn Scanner::next_fields(self : Scanner, count : Int) -> Array[String] {
 ///|
 /// Whether `byte` is one of the ASCII whitespace characters used by FTP
 /// directory listings (` `, `\t`, `\r`, `\n`).
-fn is_space_byte(byte : Int) -> Bool {
+fn is_space_byte(byte : Int32) -> Bool {
   byte == 32 || byte == 9 || byte == 13 || byte == 10
 }

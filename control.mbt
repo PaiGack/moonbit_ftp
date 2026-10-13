@@ -39,7 +39,7 @@ pub struct Control {
   /// A deadline makes the wait bounded: the loop has a timer to expire, the
   /// deadlock check never runs, and a genuinely silent peer turns into a plain
   /// `FtpError` the caller can read.
-  timeout_ms : Int
+  timeout_ms : Int32
   /// Traffic log sink, `None` when logging is off.
   ///
   /// The switch lives on the connection rather than being baked into the
@@ -59,8 +59,8 @@ pub fn Control::new(
   reader : &@io.Reader,
   writer : &@io.Writer,
   host : String,
-  timeout_ms? : Int = 0,
-  debug? : DebugLog? = None,
+  timeout_ms~ : Int32 = 0,
+  debug~ : DebugLog? = None,
 ) -> Control {
   { reader, writer, host, timeout_ms, debug, }
 }
@@ -171,7 +171,7 @@ pub async fn cmd(control : Control, command : String) -> Response {
 pub async fn cmd_expect(
   control : Control,
   command : String,
-  expected : Array[Int],
+  expected : Array[Int32],
 ) -> Response {
   let response = cmd(control, command)
   if expected.length() == 0 || expected.contains(response.code()) {
@@ -188,7 +188,7 @@ pub async fn cmd_format(
   control : Control,
   format : String,
   args : Array[String],
-  expected : Array[Int],
+  expected : Array[Int32],
 ) -> Response {
   cmd_expect(control, render_command(format, args), expected)
 }
@@ -269,7 +269,7 @@ pub(all) struct DebugLog {
 
 ///|
 /// Build a traffic log over `sink`, tagging each line with its direction.
-pub fn DebugLog::new(sink : &@io.Writer, prefix? : Bool = true) -> DebugLog {
+pub fn DebugLog::new(sink : &@io.Writer, prefix~ : Bool = true) -> DebugLog {
   { sink, prefix, }
 }
 
@@ -329,9 +329,9 @@ pub fn MirrorWriter::new(inner : &@io.Writer, log~ : DebugLog) -> MirrorWriter {
 impl @io.Writer for MirrorWriter with fn write_once(
   self : MirrorWriter,
   buf : Bytes,
-  offset~ : Int,
-  len~ : Int,
-) -> Int {
+  offset~ : Int32,
+  len~ : Int32,
+) -> Int32 {
   // If the write raises, the command never reached the wire; log what we
   // tried so the failure shows up in the transcript, then let it through.
   errdefer log_lines(self.log, Command, buf[offset:offset + len]) |> ignore
@@ -374,9 +374,9 @@ impl @io.Reader for TeeLogReader with fn _get_internal_buffer(self) {
 impl @io.Reader for TeeLogReader with fn _direct_read(
   self : TeeLogReader,
   buf : FixedArray[Byte],
-  offset~ : Int,
-  max_len~ : Int,
-) -> Int {
+  offset~ : Int32,
+  max_len~ : Int32,
+) -> Int32 {
   let n = self.inner._direct_read(buf, offset~, max_len~)
   guard n > 0 else { return n }
   // Only the bytes the inner reader actually produced: `buf` beyond
@@ -453,7 +453,7 @@ fn encode_ascii(text : String) -> Bytes {
 /// depend on that.
 pub struct Response {
   /// The 3 digit status code of the reply.
-  code : Int
+  code : Int32
   /// The message, with continuation lines joined by `\n`.
   message : String
 } derive(@debug.Debug)
@@ -465,13 +465,13 @@ pub extend Response with @debug.Debug::{to_repr}
 
 ///|
 /// Build a reply value.
-pub fn Response::new(code : Int, message : String) -> Response {
+pub fn Response::new(code : Int32, message : String) -> Response {
   { code, message, }
 }
 
 ///|
 /// The status code of the reply.
-pub fn Response::code(self : Response) -> Int {
+pub fn Response::code(self : Response) -> Int32 {
   self.code
 }
 
@@ -530,7 +530,7 @@ pub async fn read_response(control : Control) -> Response {
 
 ///|
 /// Parse the leading three digits of a reply line.
-pub fn parse_code(line : String) -> Int? {
+pub fn parse_code(line : String) -> Int32? {
   guard line.length() >= 3 else { return None }
   let mut value = 0
   for i = 0; i < 3; i = i + 1 {

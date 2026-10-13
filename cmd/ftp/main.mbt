@@ -49,7 +49,7 @@ async fn main {
 ///|
 /// Terminate the process with `code`, used by the CLI's failure paths because a
 /// plain `return` from `main` always yields exit status 0.
-fn exit_with(code : Int) -> Unit {
+fn exit_with(code : Int32) -> Unit {
   exit(code)
 }
 
@@ -57,7 +57,7 @@ fn exit_with(code : Int) -> Unit {
 /// The C `exit`, so the CLI can report a non-zero status. MoonBit's `abort`
 /// panics (SIGABRT, 134), which is not what a command-line tool should return
 /// for an ordinary usage error.
-extern "c" fn exit(code : Int) = "exit"
+extern "c" fn exit(code : Int32) = "exit"
 
 ///|
 /// The parsed command line: the subcommand plus its positional arguments and
@@ -67,10 +67,10 @@ struct CliArgs {
   mut help : Bool
   positional : Array[String]
   mut host : String
-  mut port : Int?
+  mut port : Int32?
   mut user : String
   mut password : String
-  mut timeout_ms : Int
+  mut timeout_ms : Int32
   mut tls : Bool
   mut trust_pasv_ip : Bool
 } derive(@debug.Debug)
@@ -174,7 +174,7 @@ fn parse_args(args : Array[String]) -> Result[CliArgs, String] {
 /// Read the value that follows a flag, reporting a missing value as `Err`.
 fn next_value(
   args : Array[String],
-  index : Int,
+  index : Int32,
   flag : String,
 ) -> Result[String, String] {
   guard index + 1 < args.length() else {
@@ -185,7 +185,7 @@ fn next_value(
 
 ///|
 /// Parse a decimal integer, returning `None` on any non-digit byte.
-fn parse_int(text : String) -> Int? {
+fn parse_int(text : String) -> Int32? {
   guard text != "" else { return None }
   let mut value = 0
   for i = 0; i < text.length(); i = i + 1 {

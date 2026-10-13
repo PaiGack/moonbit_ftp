@@ -103,7 +103,7 @@ fn env_string(name : String) -> String? {
 ///|
 /// Read an integer setting, falling back to `default` when it is unset or not
 /// a plain decimal number.
-fn env_int(name : String, default : Int) -> Int {
+fn env_int(name : String, default : Int32) -> Int32 {
   match env_string(name) {
     Some(text) =>
       match @ftp.parse_decimal(text) {

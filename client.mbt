@@ -41,10 +41,6 @@ pub struct FTPClient {
   mut location : @time.Zone
   /// Feature names advertised by `FEAT`, uppercased.
   mut features : Map[String, Bool]
-  /// The clock behind `FTPClient::now`, the reference instant of the `LIST`
-  /// six month rule. Injectable so a test can pin "now"; defaults to the
-  /// system clock (see `DialOptions::clock`).
-  mut clock : () -> @time.ZonedDateTime
 }
 
 ///|
@@ -153,15 +149,6 @@ pub fn FTPClient::set_location(self : FTPClient, location : @time.Zone) -> Unit 
 }
 
 ///|
-/// Replace the clock behind `FTPClient::now`.
-pub fn FTPClient::set_clock(
-  self : FTPClient,
-  value : () -> @time.ZonedDateTime,
-) -> Unit {
-  self.clock = value
-}
-
-///|
 /// The connection options this client was dialed with.
 pub fn FTPClient::options(self : FTPClient) -> DialOptions {
   self.options
@@ -231,7 +218,11 @@ pub fn parse_mdtm(text : String) -> @time.ZonedDateTime raise FtpError {
 
 ///|
 /// Read a fixed width decimal field or raise.
-fn digit_field(src : String, start : Int, width : Int) -> Int raise FtpError {
+fn digit_field(
+  src : String,
+  start : Int32,
+  width : Int32,
+) -> Int32 raise FtpError {
   guard start + width <= src.length() else {
     raise FtpError::ParseError(msg="invalid date field")
   }
@@ -297,7 +288,7 @@ pub fn format_mdtm(timestamp : @time.ZonedDateTime) -> String {
 
 ///|
 /// Left-pad `value` with zeros to `width` digits.
-fn pad(value : Int, width : Int) -> String {
+fn pad(value : Int32, width : Int32) -> String {
   let text = value.to_string()
   let missing = width - text.length()
   guard missing > 0 else { return text }
@@ -314,9 +305,9 @@ fn pad(value : Int, width : Int) -> String {
 /// `dial(addr)` alone is a valid call.
 pub struct DialOptions {
   /// Connect timeout in milliseconds, default 30s.
-  mut timeout_ms : Int
+  mut timeout_ms : Int32
   /// Timeout applied before the 226 read that terminates a transfer.
-  mut shut_timeout_ms : Int
+  mut shut_timeout_ms : Int32
   /// Use implicit TLS (FTPS on port 990).
   mut tls : Bool
   /// Use explicit TLS (`AUTH TLS` on port 21).
@@ -341,13 +332,11 @@ pub struct DialOptions {
   /// users and CI output are unchanged; upstream spells this
   /// `DialWithDebugOutput`, here it is a `set_*` setter like the rest.
   mut debug_sink : &@io.Writer?
-  /// Clock behind the `LIST` six month rule. Defaults to `system_clock`.
-  /// This is the injectable seam that keeps `list()` testable, and the one
-  /// that was missing while `FTPClient::now` returned a hard coded epoch:
-  /// the production call site had no way to pin "now", so every unit test
-  /// that looked at the half-year rule passed a reference instant by hand
-  /// and the bug survived.
-  mut clock : () -> @time.ZonedDateTime
+  /// Clock backing the `LIST` half-year rule, in milliseconds since the UNIX
+  /// epoch. Defaults to the system time; tests inject a fixed clock so the
+  /// rule can be asserted on the production path (`list`) instead of only in
+  /// the pure parsers.
+  mut now_ms : () -> UInt64
 }
 
 ///|
@@ -368,7 +357,7 @@ pub fn DialOptions::default() -> DialOptions {
     force_list_hidden: false,
     location: @time.utc_zone,
     debug_sink: None,
-    clock: system_clock,
+    now_ms: @env.now,
   }
 }
 
@@ -388,7 +377,7 @@ pub fn DialOptions::to_state_options(self : DialOptions) -> Options {
 
 ///|
 /// Replace the connect timeout in milliseconds.
-pub fn DialOptions::set_timeout_ms(self : DialOptions, value : Int) -> Unit {
+pub fn DialOptions::set_timeout_ms(self : DialOptions, value : Int32) -> Unit {
   self.timeout_ms = value
 }
 
@@ -396,7 +385,7 @@ pub fn DialOptions::set_timeout_ms(self : DialOptions, value : Int) -> Unit {
 /// Replace the 226 wrap-up timeout in milliseconds.
 pub fn DialOptions::set_shut_timeout_ms(
   self : DialOptions,
-  value : Int,
+  value : Int32,
 ) -> Unit {
   self.shut_timeout_ms = value
 }
@@ -491,12 +480,16 @@ pub fn DialOptions::debug_sink(self : DialOptions) -> &@io.Writer? {
 }
 
 ///|
-/// Replace the clock used by the `LIST` six month rule.
-pub fn DialOptions::set_clock(
+/// Replace the clock backing `FTPClient::now`.
+///
+/// The default reads the system time on every `list()`; a test injects a
+/// fixed clock to pin the half-year rule's reference instant. Go's epoch
+/// fallback is deliberately *not* an option here — see `FTPClient::now`.
+pub fn DialOptions::set_now_ms(
   self : DialOptions,
-  value : () -> @time.ZonedDateTime,
+  value : () -> UInt64,
 ) -> Unit {
-  self.clock = value
+  self.now_ms = value
 }
 
 ///|
@@ -522,7 +515,7 @@ pub struct Session {
 /// Build a session around an already established control connection.
 pub fn Session::new(
   control : Control,
-  options? : Options = Options::default(),
+  options~ : Options = Options::default(),
 ) -> Session {
   { options, control, skip_epsv: false, use_pret: false, }
 }
@@ -575,9 +568,9 @@ pub struct Options {
   /// Enable TLS on the data connection as well.
   tls : Bool
   /// Timeout applied around opening the data connection, milliseconds.
-  timeout_ms : Int
+  timeout_ms : Int32
   /// Timeout "nudging" the control connection before the 226 read.
-  shut_timeout_ms : Int
+  shut_timeout_ms : Int32
   /// Certificate trust policy for TLS data connections.
   trust : @tls.TrustedRoot
 }
@@ -602,8 +595,8 @@ pub fn Options::new(
   disable_epsv : Bool,
   trust_pasv_ip : Bool,
   tls : Bool,
-  timeout_ms : Int,
-  shut_timeout_ms : Int,
+  timeout_ms : Int32,
+  shut_timeout_ms : Int32,
   trust : @tls.TrustedRoot,
 ) -> Options {
   { disable_epsv, trust_pasv_ip, tls, timeout_ms, shut_timeout_ms, trust, }
@@ -629,13 +622,13 @@ pub fn Options::tls(self : Options) -> Bool {
 
 ///|
 /// Connect timeout for the data connection, milliseconds.
-pub fn Options::timeout_ms(self : Options) -> Int {
+pub fn Options::timeout_ms(self : Options) -> Int32 {
   self.timeout_ms
 }
 
 ///|
 /// Timeout pushing the control connection before the 226 read, milliseconds.
-pub fn Options::shut_timeout_ms(self : Options) -> Int {
+pub fn Options::shut_timeout_ms(self : Options) -> Int32 {
   self.shut_timeout_ms
 }
 

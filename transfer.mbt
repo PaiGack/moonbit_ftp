@@ -16,7 +16,7 @@ pub struct DataResponse {
   session : Session
   /// Pushes the control connection deadline before the `226` read when the
   /// caller configured `shut_timeout_ms`.
-  shut_timeout_ms : Int
+  shut_timeout_ms : Int32
 }
 
 ///|
@@ -24,9 +24,9 @@ pub struct DataResponse {
 pub async fn DataResponse::read(
   self : DataResponse,
   dst : FixedArray[Byte],
-  offset? : Int = 0,
-  max_len? : Int = dst.length() - offset,
-) -> Int {
+  offset~ : Int32 = 0,
+  max_len~ : Int32 = dst.length() - offset,
+) -> Int32 {
   self.reader.read(dst, offset~, max_len~)
 }
 
@@ -78,7 +78,7 @@ pub async fn retr(client : FTPClient, path : String) -> DataResponse {
 pub async fn retr_from(
   client : FTPClient,
   path : String,
-  offset? : Int64 = 0,
+  offset~ : Int64 = 0,
 ) -> DataResponse {
   client.lock()
   defer client.unlock()
@@ -112,7 +112,7 @@ pub async fn stor_from(
   client : FTPClient,
   path : String,
   source : &@io.Reader,
-  offset? : Int64 = 0,
+  offset~ : Int64 = 0,
 ) -> Unit {
   client.lock()
   defer client.unlock()
@@ -169,7 +169,7 @@ pub async fn append(
 ///|
 /// Copy everything from `source` to `sink`, returning the number of bytes
 /// written.
-async fn stream(source : &@io.Reader, sink : &@io.Writer) -> Int {
+async fn stream(source : &@io.Reader, sink : &@io.Writer) -> Int32 {
   let mut total = 0
   while source.read_some() is Some(chunk) {
     sink.write(chunk)
