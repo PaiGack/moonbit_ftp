@@ -595,8 +595,7 @@ async test "list resolves a yearless LIST time against the clock, not the epoch"
   let entries = @async.with_task_group(async fn(group) {
     group.spawn_bg(no_wait=true, async fn() {
       serve_payload(
-        listener,
-        "-rw-r--r--    1 0        0              10 Aug 15 05:49 a.txt\r\n",
+        listener, "-rw-r--r--    1 0        0              10 Aug 15 05:49 a.txt\r\n",
       )
     })
     list(client, "/") catch {
@@ -633,8 +632,7 @@ async test "list applies the six month rule to a future month" {
   let entries = @async.with_task_group(async fn(group) {
     group.spawn_bg(no_wait=true, async fn() {
       serve_payload(
-        listener,
-        "-rw-r--r--    1 0        0              10 Dec 02 03:04 a.txt\r\n",
+        listener, "-rw-r--r--    1 0        0              10 Dec 02 03:04 a.txt\r\n",
       )
     })
     list(client, "/") catch {
