@@ -210,6 +210,33 @@ You can browse and install extra skills here:
   that position against `scripts/ci.sh`, because an extra call is merely
   redundant while a missing one is invisible.
 
+- **A guard in front of a client cannot cover a window *inside* it, and
+  `cmd/profiles` opens four sessions.** The rule above — "the statement
+  immediately preceding the client is the guard" — silently assumed one session
+  per invocation. `cmd/profiles` runs `full` / `no-mlst` / `no-time` /
+  `no-epsv` on four sequential connections, so a container that dies between
+  the third and the fourth is past the guard that just declared it healthy. In
+  `cnb-ake-1k4qn4ukc` that is exactly what happened: the guard before the step
+  passed, three profiles completed, and the fourth `dial` — which never read a
+  greeting, since with `disable_epsv` nothing passive is negotiated before the
+  greeting anyway — reported
+
+  ```
+  Failure(cmd/profiles/main.mbt:61:12-61:57@PaiGack/ftp FAILED: profile no-epsv: ReaderClosed)
+  ```
+
+  i.e. a dead server wearing a profile's name. The `ensure-ftp.sh` in front of
+  `cmd/ftps/run.sh plain` then found the container gone and its restart fixed
+  that step, which is how the fault was pinned on the server rather than on
+  `disable_epsv`. So `cmd/profiles` now takes an optional profile name
+  (no argument still runs all four) and `scripts/ci.sh` invokes it once per
+  profile, each behind its own `ensure-ftp.sh`; `ensure-ftp-selftest.py` checks
+  those names against `profiles()` in `cmd/profiles/main.mbt`, so adding a
+  profile there without a guarded invocation in `ci.sh` fails the gate.
+  `scripts/profiles/cmd-profiles-selftest.py` covers the named mode — one
+  session, one profile reported — so the split cannot quietly stop exercising
+  the other three.
+
 - **FTPS is the one capability whose failure mode is "the first read hangs"**,
   which no unit test and no plaintext server can reach. All four of the TLS
   bugs found so far lived in the seams: `AUTH TLS` sent without upgrading the

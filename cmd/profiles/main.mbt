@@ -29,17 +29,27 @@
 ///     `RemoveDirRecur`, with a `LIST` after each removal proving the tree is
 ///     really gone.
 ///
-/// Configuration comes from the environment; `cmd/profiles/run.sh` sources
-/// `.env`, and a missing variable is a hard failure -- the repo rule is no
-/// silent skips.
+/// Configuration comes from the environment; `cmd/profiles/run.sh` only
+/// *defaults* the four variables and exports them, and a missing one is a hard
+/// failure -- the repo rule is no silent skips.
+///
+/// A profile name as the sole argument restricts the run to that one profile,
+/// which is how CI drives it: one `cmd/profiles` invocation per profile, each
+/// preceded by its own container re-check. A client that opens four sessions
+/// cannot be covered by a guard in front of it alone -- the container can die
+/// between session three and session four, and four such sessions in one
+/// unguarded step is exactly how `profile no-epsv: ReaderClosed` was reported
+/// while the server was in fact gone. See `scripts/ensure-ftp.sh`.
 ///
 /// Usage:
 ///   scripts/start-ftp.sh
 ///   cmd/profiles/run.sh
+///   cmd/profiles/run.sh no-epsv
 ///   scripts/stop-ftp.sh
 async fn main {
-  if @env.args().length() > 1 {
-    println("error: cmd/profiles takes no arguments")
+  let args = @env.args()
+  guard args.length() <= 2 else {
+    println("error: cmd/profiles takes at most one argument: a profile name")
     println(usage())
     exit(2)
   }
@@ -49,7 +59,9 @@ async fn main {
   let password = required_env("FTP_TEST_PASS")
   let addr = "\{host}:\{port}"
 
-  for profile in profiles() {
+  let selected = select_profiles(args)
+
+  for profile in selected {
     // Each profile is caught and re-raised as a `Failure` carrying the profile
     // name and the real reason. Raising the `FtpError` straight out of `main`
     // prints only `PaiGack/ftp.FtpError.ParseError` -- no profile, no path, no
@@ -63,7 +75,37 @@ async fn main {
   }
 
   println("")
-  println("==> OK: full / no-mlst / no-time / no-epsv all passed")
+  if selected.length() == profiles().length() {
+    println("==> OK: full / no-mlst / no-time / no-epsv all passed")
+  } else {
+    println("==> OK: profile \{selected[0]}")
+  }
+}
+
+///|
+/// Which profiles this invocation runs: all four with no argument, exactly the
+/// named one otherwise. An unknown name is a usage error, not a silent empty
+/// run -- the repo rule is no silent skips.
+///
+/// A separate function rather than an `if` inside `main` because a usage error
+/// has to both print and exit, and MoonBit wants such a branch to diverge;
+/// `exit` returns `Unit`, so the arm cannot also be the expression that
+/// produces the profile list. Here the `if` statements only guard, and the
+/// single `return` at the end is the whole result.
+fn select_profiles(args : Array[String]) -> Array[String] {
+  let all = profiles()
+  if args.length() == 1 {
+    return all
+  }
+  let name = args[1]
+  if all.contains(name) == false {
+    println("error: unknown profile: \{name}")
+    println(usage())
+    exit(2)
+  }
+  let one : Array[String] = []
+  one.push(name)
+  one
 }
 
 ///|
@@ -466,9 +508,10 @@ fn required_env(name : String) -> String {
 ///|
 /// The usage banner, kept in one place with the doc comment above.
 fn usage() -> String {
-  "usage: cmd/profiles\n" +
-  "  no arguments; the endpoint comes from FTP_TEST_HOST / FTP_TEST_PORT /\n" +
-  "  FTP_TEST_USER / FTP_TEST_PASS, and the four profiles run in sequence."
+  "usage: cmd/profiles [profile]\n" +
+  "  with no argument the four profiles (full / no-mlst / no-time / no-epsv)\n" +
+  "  run in sequence; with a name only that one runs. The endpoint comes from\n" +
+  "  FTP_TEST_HOST / FTP_TEST_PORT / FTP_TEST_USER / FTP_TEST_PASS."
 }
 
 ///|

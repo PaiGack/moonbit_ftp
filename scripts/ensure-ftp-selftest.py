@@ -244,26 +244,60 @@ shutil.rmtree(scratch, ignore_errors=True)
 #    preceding each guarded client is a guard". `cmd/ftps/run.sh` (explicit) is
 #    left out on purpose: it talks to the *FTPS* container, and its own
 #    starter gates that one.
+#
+#    `cmd/profiles` gets a *per-profile* guard, not one for the step, since one
+#    guarded step still contains the window between its four sessions. In
+#    `cnb-ake-1k4qn4ukc` the guard passed, three profiles finished, and the
+#    fourth dialled into a container that was already gone -- reported as
+#    `profile no-epsv: ReaderClosed`, i.e. as a profile result. The check below
+#    therefore wants the profile list, every name from the binary's own
+#    `profiles()`, each one guarded on the line immediately before it.
 ci = (ROOT / "scripts" / "ci.sh").read_text()
 # `\`-continuations joined, so a wrapped invocation is still one statement.
 statements = [
     line.strip()
     for line in re.sub(r"\\\n\s*", " ", ci).splitlines()
-    if line.strip().startswith("run ")
+    if line.strip().startswith("run ") or line.strip().startswith(
+        'run "$ROOT/cmd/profiles/run.sh"')
 ]
-clients = {
+guard = 'run "$SCRIPT_DIR/ensure-ftp.sh"'
+
+single_clients = {
     'run "$ROOT/cmd/ftp/run.sh"': "cmd/ftp/run.sh",
-    'run "$ROOT/cmd/profiles/run.sh"': "cmd/profiles/run.sh",
     'run "$ROOT/cmd/ftps/run.sh" plain': "cmd/ftps/run.sh plain",
 }
-guard = 'run "$SCRIPT_DIR/ensure-ftp.sh"'
-for statement, name in clients.items():
+for statement, name in single_clients.items():
     index = statements.index(statement) if statement in statements else -1
     check(f"ci.sh calls every step the ordering check needs ({name})",
           index != -1, f"{statement!r} not found")
     check(f"ci.sh re-checks the container immediately before {name}",
           index > 0 and statements[index - 1] == guard,
           f"preceded by {statements[index - 1]!r}" if index > 0 else "missing")
+
+# The profile names come from `cmd/profiles/main.mbt`, so a name added there
+# without a line here is a profile CI never runs -- silently.
+profiles_mbt = (ROOT / "cmd" / "profiles" / "main.mbt").read_text()
+match = re.search(r"fn profiles\(\) -> Array\[String\] \{\s*\[(.*?)\]",
+                  profiles_mbt, re.S)
+check("cmd/profiles/main.mbt declares its profile list",
+      match is not None, "profiles() not found")
+if match:
+    expected = re.findall(r'"([^"]+)"', match.group(1))
+    guarded = set()
+    for index, statement in enumerate(statements):
+        if not statement.startswith('run "$ROOT/cmd/profiles/run.sh"'):
+            continue
+        name = statement.split('"')[-1].strip()
+        guarded.add(name)
+        check("ci.sh re-checks the container immediately before "
+              "cmd/profiles/run.sh " + name,
+              index > 0 and statements[index - 1] == guard,
+              ("preceded by " + repr(statements[index - 1])) if index > 0 else "missing")
+    for name in expected:
+        check(f"ci.sh runs profile {name} behind its own re-check",
+              name in guarded, f"not invoked: {sorted(guarded)}")
+    check("ci.sh runs no profile the binary does not know",
+          guarded <= set(expected), f"extra: {sorted(guarded - set(expected))}")
 
 if failures:
     print(f"\nensure-ftp.sh self-test FAILED: {len(failures)}", file=sys.stderr)

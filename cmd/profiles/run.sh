@@ -4,9 +4,16 @@
 # The four capability profiles run in sequence, each on its own connection, so
 # a failure names the profile it happened in.
 #
+# An optional profile name restricts the run to that one. CI uses that to put
+# one invocation *per profile* behind its own `scripts/ensure-ftp.sh` re-check:
+# four sessions inside a single guarded step still leave the window between
+# session three and session four open, which is how the container's death got
+# reported as `profile no-epsv: ReaderClosed`.
+#
 # Usage:
 #   scripts/start-ftp.sh
 #   cmd/profiles/run.sh
+#   cmd/profiles/run.sh no-epsv
 #   scripts/stop-ftp.sh
 #
 # No wrapper-owned configuration file. The endpoint comes from
@@ -27,5 +34,7 @@ export FTP_TEST_USER="${FTP_TEST_USER:-test}"
 export FTP_TEST_PASS="${FTP_TEST_PASS:-test}"
 
 # Build/run from the repo root so `moon run cmd/profiles` resolves the package.
+# The arguments are forwarded verbatim: an empty expansion adds nothing to the
+# argv, so the no-argument case still runs all four profiles.
 cd "$SCRIPT_DIR/../.."
-exec moon run cmd/profiles --target native
+exec moon run cmd/profiles --target native -- "$@"
