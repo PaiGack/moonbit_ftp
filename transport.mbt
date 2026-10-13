@@ -274,10 +274,20 @@ pub fn DataConn::writer(self : DataConn) -> &@io.Writer {
 /// Doing it here also keeps the plain path untouched: `start_tls` is a no-op
 /// when `Options::tls` is off, so a plaintext transfer connects no differently
 /// than before.
+///
+/// The call is idempotent (`self.tls is None` is the guard), because
+/// `stor_from` calls it again for a zero-byte upload -- the one case where
+/// nothing else would have driven the handshake. See that call site.
 pub async fn DataConn::start_tls(self : DataConn, session : Session) -> Unit {
   if session.options().tls() == false {
     return
   }
+  // Idempotent: `cmd_data_conn_from` already ran it right after the `150`, so
+  // the zero-byte `STOR` workaround in `stor_from` calls it a second time.
+  // Without this guard that would open a *new* TLS session over a socket whose
+  // peer is already mid-session, and the transfer would fail with a handshake
+  // error instead of the "nothing to upload" success it is meant to produce.
+  guard self.tls is None else { return }
   // A hang here would be indistinguishable from a stalled transfer, so the
   // handshake gets the same connect timeout as the socket itself.
   let tls = @async.with_timeout(session.options().timeout_ms(), async fn() {

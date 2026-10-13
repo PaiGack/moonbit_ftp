@@ -358,28 +358,62 @@ async test "DataResponse::close tolerates a timeout on the 226 read" {
 ///|
 /// A zero byte upload over a TLS-configured client is the ProFTPD case: the
 /// data connection was opened but never written to, so the TLS handshake never
-/// happened and the server answers `Unable to build data connection`. The
-/// explicit no-op keeps that from being an error.
-async test "stor_from accepts a zero byte TLS upload" {
+/// happened and the server answers `Unable to build data connection`.
+///
+/// The workaround is an explicit handshake call, and this test has to observe
+/// it: the branch used to be `ignore(written)`, a no-op that left the promise
+/// carried by nothing. A `MemoryReader` over the empty string never writes, so
+/// the only way the handshake can be driven here is that call -- and the only
+/// way to see it is a real TLS server on the other end of the data socket.
+async test "stor_from drives the handshake for a zero byte TLS upload" {
   let listener = data_listener()
   let port = listener.addr.port()
   let script = epsv_reply(port) +
     "150 Ok to send data.\r\n226 Transfer complete.\r\n"
   let (client, sink) = scripted_client(script)
-  // TLS on the options makes the zero byte branch reachable without a real
-  // TLS handshake: the branch is `written == 0 && options.tls`.
   client.options.tls = true
-  @async.with_task_group(async fn(group) {
-    group.spawn_bg(no_wait=true, async fn() {
+  let handshake = @async.with_task_group(async fn(group) {
+    let server = group.spawn(no_wait=true, async fn() {
       let (conn, _) = listener.accept()
-      ignore(conn.read_all() catch { _ => empty_data() })
+      // Speak server-side TLS on the accepted socket: a client that never
+      // handshakes just sees the connection closed, a client that handshakes
+      // completes one. The key and the certificate are the pair the FTPS
+      // smoke test uses, minted by `scripts/ftps/gen-cert.sh` into the
+      // gitignored `testdata/ftp/tls/`.
+      let completed = try {
+        let tls = @tls.Tls::server_from_pair(
+          conn,
+          conn,
+          private_key_file=tls_key_file(),
+          private_key_type=@tls.X509FileType::PEM,
+          certificate_file=tls_cert_file(),
+          certificate_type=@tls.X509FileType::PEM,
+        )
+        // Hold the data connection open until the client is done with it. The
+        // client sends a `close_notify`, which lands here as an EOF over the
+        // TLS session; a peer that only closed the socket lands as one too,
+        // because `Tls` reads that case as an ordinary EOF.
+        ignore(tls.read_all() catch { _ => empty_data() })
+        true
+      } catch {
+        // `ConnectionClosed` from a peer that hung up mid-handshake is the one
+        // failure that still proves the handshake was driven: nothing else in
+        // this branch touches the TLS session.
+        @tls.ConnectionClosed => true
+        e => fail("server tls handshake: \{e}")
+      }
       conn.close()
+      completed
     })
     stor_from(client, "/empty.bin", text_source("")) catch {
       e => fail("stor_from: \{e}")
     }
-    ()
+    server.wait()
   })
+  assert_true(handshake)
+  // Nothing extra goes on the wire: the handshake is on the *data* channel,
+  // so the control channel still carries exactly the passive-mode
+  // negotiation and the one transfer command.
   assert_eq(sink.lines, ["EPSV", "STOR /empty.bin"])
 }
 

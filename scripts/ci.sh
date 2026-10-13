@@ -61,6 +61,15 @@ trap cleanup EXIT
 run moon version
 run moon update
 
+# The throwaway TLS key + certificate. `moon test` needs them on disk for the
+# zero-byte `STOR` handshake assertion, which speaks server-side TLS over a
+# loopback data connection, and the FTPS block needs the CA to hand to the
+# client as `trust=CustomPemFile`. Regenerated here, before any test runs,
+# rather than being minted by the FTPS container step -- otherwise the file
+# only appears once Docker is already involved, and a missing certificate
+# reads like a TLS bug in the library instead of a fixture nobody generated.
+run "$SCRIPT_DIR/ftps/gen-cert.sh" "$ROOT/testdata/ftp/tls"
+
 # ---------------------------------------------------------------------------
 # check / test / build — the same commands as the GitHub Actions steps.
 # ---------------------------------------------------------------------------
