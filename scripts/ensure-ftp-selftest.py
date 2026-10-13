@@ -224,6 +224,30 @@ check(
 )
 shutil.rmtree(scratch, ignore_errors=True)
 
+# 6. `ensure-ftp.sh` has to be called at the *first* client that needs the
+#    container, not only at the last one. The run this gate exists for failed
+#    four steps in a row -- `cmd/ftp`, `cmd/profiles`, the FTPS smoke test and
+#    then `plain` -- because the re-check sat in front of `plain` alone, so the
+#    three steps before it died on a container nobody had looked at yet. The
+#    ordering is the whole value of the script: one call, after `cmd/example`
+#    has proved the endpoint works, covers every client behind it.
+#
+#    Asserted against `scripts/ci.sh` rather than by running it, because the
+#    claim is about *where in the sequence* the call sits.
+ci = (ROOT / "scripts" / "ci.sh").read_text()
+order = [
+    (ci.find('run "$ROOT/cmd/example/run.sh"'), "cmd/example/run.sh"),
+    (ci.find('run "$SCRIPT_DIR/ensure-ftp.sh"'), "ensure-ftp.sh"),
+    (ci.find('run "$ROOT/cmd/ftp/run.sh"'), "cmd/ftp/run.sh"),
+    (ci.find('run "$ROOT/cmd/profiles/run.sh"'), "cmd/profiles/run.sh"),
+]
+check("ci.sh calls every step the ordering check needs",
+      all(index != -1 for index, _ in order),
+      f"missing: {[name for index, name in order if index == -1]}")
+check("ci.sh re-checks the container after the first client and before the rest",
+      all(a < b for (a, _), (b, _) in zip(order, order[1:])),
+      f"order: {[(name, index) for index, name in order]}")
+
 if failures:
     print(f"\nensure-ftp.sh self-test FAILED: {len(failures)}", file=sys.stderr)
     for failure in failures:

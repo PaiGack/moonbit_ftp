@@ -25,6 +25,10 @@
 ///   --trust-pasv-ip        trust the IP returned by PASV
 ///   -h, --help             print this usage and exit
 ///
+/// The same five connection settings can come from the environment
+/// (`FTP_HOST` / `FTP_PORT` / `FTP_USER` / `FTP_PASS` / `FTP_TIMEOUT`); an
+/// explicit flag always wins. See `env_or` for why that layer exists.
+///
 /// Exit codes: 0 on success (including `--help`), 2 on a usage error such as an
 /// unknown option or a missing value, 1 on a failed FTP command.
 async fn main {
@@ -82,11 +86,11 @@ fn parse_args(args : Array[String]) -> Result[CliArgs, String] {
     command: None,
     help: false,
     positional: [],
-    host: "127.0.0.1",
-    port: None,
-    user: "anonymous",
-    password: "",
-    timeout_ms: 30000,
+    host: env_or("FTP_HOST", "127.0.0.1"),
+    port: env_port("FTP_PORT"),
+    user: env_or("FTP_USER", "anonymous"),
+    password: env_or("FTP_PASS", ""),
+    timeout_ms: env_timeout("FTP_TIMEOUT"),
     tls: false,
     trust_pasv_ip: false,
   }
@@ -171,6 +175,47 @@ fn parse_args(args : Array[String]) -> Result[CliArgs, String] {
 }
 
 ///|
+/// `@env.get_env_var` as a plain `String`, with `fallback` for an unset variable.
+///
+/// The environment is the *default* layer, and it is here so that a caller who
+/// knows the endpoint -- `cmd/ftp/run.sh` against the container it just started
+/// -- hands it over through the environment instead of through the command
+/// line. That matters when the command line is also data: a wrapper that builds
+/// `--host <value>` from an environment value passes a bare host name as one
+/// argv entry, and the CLI parses its argv, so a half-set environment turns
+/// "connect to 127.0.0.1" into a usage error on an argument the caller never
+/// typed. Here the same value is read as a *flag value*, which is the shape it
+/// was always meant to have.
+fn env_or(name : String, fallback : String) -> String {
+  match @env.get_env_var(name) {
+    Some(value) => value
+    None => fallback
+  }
+}
+
+///|
+/// Read `name` as a decimal number, or `None` when it is unset or not
+/// decimal. A malformed value is treated as unset rather than fatal: the
+/// environment here is a convenience default, and the CLI's own `--port` /
+/// `--timeout` remain the authority, so a typo in a shell profile must not make
+/// the tool unusable.
+fn env_port(name : String) -> Int32? {
+  match @env.get_env_var(name) {
+    Some(value) => parse_int(value)
+    None => None
+  }
+}
+
+///|
+/// `FTP_TIMEOUT` in milliseconds, falling back to the documented default.
+fn env_timeout(name : String) -> Int32 {
+  match env_port(name) {
+    Some(value) => value
+    None => 30000
+  }
+}
+
+///|
 /// Read the value that follows a flag, reporting a missing value as `Err`.
 fn next_value(
   args : Array[String],
@@ -219,6 +264,9 @@ fn print_usage() -> Unit {
     #|  --tls                  use implicit TLS
     #|  --trust-pasv-ip        trust the IP returned by PASV
     #|  -h, --help             print this usage and exit
+    #|
+    #|Environment (defaults only; the flags above win):
+    #|  FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_TIMEOUT
     #|
   println(banner)
 }
