@@ -120,19 +120,27 @@ moon info                                # 更新生成接口（.mbti）
 | --- | --- | --- |
 | 纯逻辑单测 | `moon test --target native` | 四种列表解析、状态码、路径 join、控制通道帧解析 |
 | 明文端到端 | `scripts/start-ftp.sh` + `cmd/example/run.sh` | 真实 vsftpd 上的 dial / login / list / retr / stor / rename / mkdir / walk |
+| **能力画像端到端** | `cmd/profiles/run.sh` | 同一个 vsftpd 上四个客户端画像（`full` / `no-mlst` / `no-time` / `no-epsv`）：`FEAT`、`MLSD`/`LIST`、`EPSV`/`PASV`、`STOR`/`RETR`/`NLST`、`MDTM` 读+写、`MKD`/`RMD`/`RemoveDirRecur` |
 | **FTPS 端到端** | `scripts/ftps/start-ftps.sh` + `cmd/ftps/run.sh` | 真实 vsftpd 上的**显式 `AUTH TLS`**：dial / login / LIST / RETR / STOR / DELE |
 | 明文回归 | `cmd/ftps/run.sh plain` | 同一个 `cmd/ftps` 二进制走明文链路，确保数据通道时序改动没有破坏无 TLS 路径 |
+| 无 Docker 自测 | `scripts/*/*-selftest.py` | 三个 mock 驱动的自测，拉镜像之前就跑：FTPS 就绪探测、`cmd/ftps`（含 `STOR` 被拒回归）、`cmd/profiles` 的协议选择断言 |
 
 ### 本地端到端（需要 docker）
 
 ```bash
 scripts/start-ftp.sh          # 明文 vsftpd，127.0.0.1:21
+cmd/profiles/run.sh           # 四个能力画像，都打这个容器
 scripts/ftps/start-ftps.sh    # FTPS vsftpd，127.0.0.1:2121
 cmd/ftps/run.sh               # 显式 AUTH TLS
 cmd/ftps/run.sh plain         # 明文回归
 scripts/ftps/stop-ftps.sh
 scripts/stop-ftp.sh
 ```
+
+不需要 Docker 也能跑其中一层：`scripts/profiles/ftp_profile_mock.py` 是一个带真实文件系统的
+FTP mock，`scripts/profiles/cmd-profiles-selftest.py` 用它驱动真的 `cmd/profiles`，并逐条核对
+每个画像实际发出的命令（`LIST` 还是 `MLSD`、`PASV` 还是 `EPSV`、有没有写时间戳）——
+这些在真实服务器上看不出来，因为它两种被动命令都支持、两种列表都出结果。
 
 FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同一个 `cmd/ftps` 二进制。
 
@@ -166,20 +174,26 @@ FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同
 ├── cmd/ftps/                  FTPS / 明文端到端冒烟：参数选择传输方式
 │   ├── main.mbt
 │   └── run.sh                 读 .ftp-tls.env 跑 cmd/ftps（可传 plain）
+├── cmd/profiles/              四个客户端能力画像的端到端测试（同一个容器）
+│   ├── main.mbt               full / no-mlst / no-time / no-epsv，各自的开关与断言
+│   └── run.sh                 按 .env 跑 cmd/profiles
 ├── scripts/
 │   ├── ci.sh                  CI 入口脚本
 │   ├── start-ftp.sh           启动明文 vsftpd 容器（127.0.0.1:21）
 │   ├── probe-ftp.py           明文容器就绪探测（登录 + 一次被动 LIST）
 │   ├── stop-ftp.sh            导出明文容器日志并清理
-│   └── ftps/                  FTPS（显式 AUTH TLS）容器
-│       ├── gen-cert.sh        自签名 CA + 叶证书（每次重新签发）
-│       ├── probe-ftps.sh      就绪探测：AUTH TLS 握手 + 证书校验
-│       ├── probe-ftps-selftest.py  用 mock 服务器自测上面的探测（无需 Docker）
-│       ├── ftp_mock.py        明文 FTP mock，供 cmd-ftps-selftest.py 驱动真实二进制
-│       ├── cmd-ftps-selftest.py    无 Docker 跑 cmd/ftps plain（含 STOR 被拒的回归用例）
-│       ├── fixture-isolation-selftest.py  断言两个容器不共用可写 fixture
-│       ├── start-ftps.sh      启动 FTPS 容器（127.0.0.1:2121）并写 .ftp-tls.env
-│       └── stop-ftps.sh       导出容器日志并清理
+│   ├── ftps/                  FTPS（显式 AUTH TLS）容器
+│   │   ├── gen-cert.sh        自签名 CA + 叶证书（每次重新签发）
+│   │   ├── probe-ftps.sh      就绪探测：AUTH TLS 握手 + 证书校验
+│   │   ├── probe-ftps-selftest.py  用 mock 服务器自测上面的探测（无需 Docker）
+│   │   ├── ftp_mock.py        明文 FTP mock，供 cmd-ftps-selftest.py 驱动真实二进制
+│   │   ├── cmd-ftps-selftest.py    无 Docker 跑 cmd/ftps plain（含 STOR 被拒的回归用例）
+│   │   ├── fixture-isolation-selftest.py  断言两个容器不共用可写 fixture
+│   │   ├── start-ftps.sh      启动 FTPS 容器（127.0.0.1:2121）并写 .ftp-tls.env
+│   │   └── stop-ftps.sh       导出容器日志并清理
+│   └── profiles/              cmd/profiles 的无 Docker 自测
+│       ├── ftp_profile_mock.py        带真实文件系统的 FTP mock
+│       └── cmd-profiles-selftest.py   驱动真程序并核对每个画像发出的命令
 ├── testdata/ftp/              测试与演示使用的 fixture
 ├── docs/                      移植方案与设计文档
 ├── moon.pkg                   根包清单

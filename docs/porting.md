@@ -179,10 +179,30 @@ while w.next() {
 
 1. **纯逻辑单测**：直接搬运上游 `parse_test.go` / `scanner_test.go` / `constants_test.go` 的用例集
    （UNIX ls、`ls -l` 变体、ACL `+` 权限、hostedftp、DOS DIR、RFC3659、符号链接、多空格文件名、非法行、半年时间规则）。
-2. **真实 FTP 服务器端到端**：CI 中通过 `scripts/start-ftp.sh` 起 `jmoyer/vsftpd`（vsftpd 3.0.5）
-   的四个能力画像（`full` / `no-mlst` / `no-time` / `no-epsv`），覆盖 `FEAT` 协商、
-   `PASV`/`EPSV` 数据通道、`STOR`/`RETR`/`LIST`/`NLST`/`MDTM`、目录生命周期。
-   **仓库内不保留任何 mock 服务器**；命令序列断言改为副作用断言（见 2.6 测试策略）。
+2. **真实 FTP 服务器端到端**：CI 中通过 `scripts/start-ftp.sh` 起**一个** `jmoyer/vsftpd`
+   （vsftpd 3.0.5）容器，`cmd/profiles` 用它跑四个**客户端**能力画像
+   （`full` / `no-mlst` / `no-time` / `no-epsv`）。画像是客户端的，不是服务器配置：
+   容器照常开满能力，四个画像各拨号一次、各自关掉一个客户端的开关，所以
+   "换掉一个能力"这件事只由客户端一侧构成，不需要多镜像、多容器。
+
+   一个画像验证什么，按效果而非命令序列断言：
+
+   | 画像 | 关掉什么 | 验证什么 |
+   | --- | --- | --- |
+   | `full` | — | `FEAT` 协商；`MLSD` 列表 + `EPSV` 传输；`MDTM` 读时间，并经 `MDTM <time> <path>` 写入后读回一致 |
+   | `no-mlst` | `disable_mlsd` | 客户端改用 `LIST`（四种解析器回退）并给出与 `MLSD` 相同的条目与大小 |
+   | `no-time` | `writing_mdtm=false` | `set_file_time` **如实拒绝**（`502`），且文件时间戳原样不动 |
+   | `no-epsv` | `disable_epsv` | 所有传输走 `PASV`，`EPSV` 一次都不发 |
+
+   每个画像都跑完 `FEAT` / `STOR` / `RETR` / `LIST` / `NLST` / `MDTM`（读+写）/
+   `MKD` / `RMD` / `RemoveDirRecur`，最后 `DELE` + `RMD` 收摊，并打印服务器上剩下的整棵树，
+   作为"改了什么、还剩什么"的副作用断言。
+
+   `no-mlst` 与 `no-epsv` 的断言语义在真实服务器上**看不见**：容器两种被动命令都支持、
+   `MLSD` 与 `LIST` 都能出结果，客户端选了哪一条在输出里没有痕迹。所以
+   `scripts/profiles/cmd-profiles-selftest.py` 用 `ftp_profile_mock.py`（一个带真实文件系统
+   的 mock）在**拉镜像之前**驱动真程序，再按画像逐条核对 mock 收到的命令流。
+   这条自测做过反向验证：把 `disable_epsv` / `disable_mlsd` 各自摘掉，对应断言立即变红。
 3. **帧解析用例**：用 `@io.MemoryReader` 精确构造畸形响应（畸形状态行、空行续行、两行 MLST），
    不需要假服务器也不需要 socket。
 4. **边界用例**：命令注入、EPSV 被拒后回退、二次 `Close`、REST 断点续传、超时。

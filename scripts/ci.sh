@@ -98,6 +98,16 @@ run python3 "$SCRIPT_DIR/ftps/probe-ftps-selftest.py" \
 # flaky pull. The refused-`STOR` case is the regression guard.
 run python3 "$SCRIPT_DIR/ftps/cmd-ftps-selftest.py" "$ROOT"
 
+# Same rule again for `cmd/profiles`, the four-capability-profile end-to-end
+# test. Each profile's claim is about the command the client *chose* -- `LIST`
+# instead of `MLSD`, `PASV` instead of `EPSV`, a refused timestamp write
+# instead of a silent no-op -- and a real vsftpd serves whatever it is asked
+# for, so against the container every one of those claims would look identical
+# whether it held or not. The mock keeps a real directory (the program's
+# assertions are effect-level) and logs every command, so the transport claims
+# can be read off the wire. It runs before any image is pulled.
+run python3 "$SCRIPT_DIR/profiles/cmd-profiles-selftest.py" "$ROOT"
+
 # And the cross-container invariant, which no single-container test can see:
 # `bfren/ftps` recursively chowns its `/files` bind mount at init, so mounting
 # the shared `testdata/ftp/fixture` from both containers silently takes write
@@ -116,6 +126,12 @@ run docker run --rm -v "$ROOT:/src" ghcr.io/xampprocky/tokei:latest .
 run "$SCRIPT_DIR/start-ftp.sh"
 run "$ROOT/cmd/example/run.sh"
 run "$ROOT/cmd/ftp/run.sh"
+
+# The four capability profiles, against that *same* container. One server that
+# advertises everything, dialled four times with different client options; see
+# cmd/profiles/main.mbt for why the profiles are client-side rather than four
+# container configurations.
+run "$ROOT/cmd/profiles/run.sh"
 
 # ---------------------------------------------------------------------------
 # FTPS (explicit AUTH TLS) end-to-end. The plaintext demo above cannot cover
