@@ -40,7 +40,9 @@ async fn main {
 
   // 3. 下载文件
   let resp = @ftp.retr(client, "/hello.txt")
+  // 读到的内容要接住：`let bytes` 不消费会触发 unused warning
   let bytes = resp.reader.read_all() catch { _ => b"" }
+  println(bytes.text() catch { _ => "<not utf8>" })
   resp.close()
 
   // 4. 上传文件（任意 &@io.Reader 均可）
@@ -79,6 +81,12 @@ async fn main {
   @ftp.quit(client)
 }
 ```
+
+> 例子按 `moon check --deny-warn` 的标准写：`async fn main` 不带返回标注（`main` 的
+> 返回类型必须是 `Unit`，标注它反而报错），读到的内容被 `println` 接住（`let bytes`
+> 不消费会触发 unused warning）。放进 `cmd/example/main.mbt` 那种可执行包里
+> （`moon.pkg` 声明 `pkgtype(kind: "executable")` + `supported_targets = "+native"`）
+> 即可直接 `moon run --target native`。
 
 ### 常用函数
 
@@ -161,7 +169,8 @@ FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同
 ├── parse.mbt                  RFC 3659 / UNIX ls / DOS DIR / hostedftp 解析器      纯逻辑
 │                              回退链 + LIST 时间字段解析 + 字段扫描器
 ├── pathutil.mbt               远端路径 join（对齐 Go path.Join 语义）             纯逻辑
-├── control.mbt                控制通道：命令编码、多行响应、状态码校验 + 流量日志    IO
+├── control.mbt                控制通道：命令编码、多行响应、状态码校验            IO
+├── debug.mbt                  流量日志（DebugLog / MirrorWriter / TeeLogReader）  IO
 ├── transport.mbt              EPSV / PASV / PRET / REST / 数据连接 / TLS 建立        IO
 ├── client.mbt                 FTPClient + Session / Options + DialOptions           IO
 ├── dial.mbt                   dial / 登录 / FEAT 能力协商                           IO

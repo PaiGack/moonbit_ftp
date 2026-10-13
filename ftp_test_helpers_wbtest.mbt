@@ -280,3 +280,23 @@ fn scripted_session(
   let (control, sink) = scripted_control(script)
   (Session::new(control, options~), sink)
 }
+
+///|
+/// The server-side TLS key and certificate the zero-byte `STOR` handshake
+/// test needs, i.e. the pair `scripts/ftps/gen-cert.sh` writes into the
+/// gitignored `testdata/ftp/tls/` (`vsftpd.pem` carries both halves, so the
+/// key and the certificate are the same file).
+///
+/// A fixture on disk rather than an in-memory one, because `Tls::server_from_pair`
+/// only accepts file paths. The self-test below runs `gen-cert.sh` first, so
+/// `moon test` cannot be green while the files are missing -- a test that
+/// skipped itself would hide exactly the zero-byte TLS case it exists for.
+fn tls_key_file() -> String {
+  "testdata/ftp/tls/vsftpd.pem"
+}
+
+///|
+/// See `tls_key_file`.
+fn tls_cert_file() -> String {
+  "testdata/ftp/tls/vsftpd.pem"
+}

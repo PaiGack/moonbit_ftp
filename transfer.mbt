@@ -108,6 +108,10 @@ pub async fn stor(
 /// `Unable to build data connection` when the data connection was never
 /// written to, because the TLS handshake never happened. Uploading nothing
 /// while triggering the handshake explicitly keeps the server happy.
+///
+/// See `DataConn::start_tls` for why the trigger is a real call here rather
+/// than a poke at a session that already exists: Go's `tls.Conn` handshakes
+/// lazily, `@tls.Tls::client` handshakes while it is being built.
 pub async fn stor_from(
   client : FTPClient,
   path : String,
@@ -125,7 +129,18 @@ pub async fn stor_from(
     }
   }
   if written == 0 && client.options.tls {
-    ignore(written)
+    // The upstream workaround, spelled as the call it always described: an
+    // explicit handshake. Go's `tls.Conn` handshakes lazily on the first read
+    // or write, so an upload that moved no bytes never touches the session and
+    // the server never sees a `ClientHello`; upstream therefore calls
+    // `Handshake()` here. `@tls.Tls::client` handshakes while it is being
+    // *built*, which `cmd_data_conn_from` already did right after the `150`, so
+    // on the happy path this call is a no-op rather than a second handshake.
+    // It stays because it is what makes the promise local: remove the handshake
+    // from `cmd_data_conn_from` and this is the line that still satisfies it.
+    conn.start_tls(client.session) catch {
+      err => errors.push(err)
+    }
   }
   conn.close()
   check_data_shut(client.session) catch {

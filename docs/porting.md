@@ -30,7 +30,7 @@
 | `status.go` | 119 | RFC 959 状态码常量与文本 |
 | `scanner.go` | 58 | 按空白切分的字段扫描器 |
 | `walker.go` | 98 | 目录树遍历器（`Walk` / `SkipDir` / `Stat` / `Path`） |
-| `debug.go` | 37 | 调试输出包装（TeeReader / MultiWriter）——**已移植**，见 `control.mbt` 的 `DebugLog` |
+| `debug.go` | 37 | 调试输出包装（TeeReader / MultiWriter）——**已移植**，重构后落在 `debug.mbt`，接线点见第 3 节 |
 
 ### 1.3 功能矩阵
 
@@ -48,7 +48,7 @@
 
 **数据传输**
 
-- 取文件：`Retr` / `RetrFrom(offset)` → `Response`（可读、可 `SetDeadline`、幂等 `Close`）
+- 取文件：`Retr` / `RetrFrom(offset)` → `Response`（可读、幂等 `Close`；**没有** `SetDeadline`，见下）
 - 存文件：`Stor` / `StorFrom(offset)` / `Append`
 - 目录列表：`List`（`MLSD` 优先，回退 `LIST [-a]`）、`NameList`（`NLST`）、`GetEntry`（`MLST`）
 
@@ -63,7 +63,7 @@
 
 - `Entry{Name, Target, Type, Size, Time}`，`EntryType ∈ {File, Folder, Link}`
 - `TransferType ∈ {Binary("I"), ASCII("A")}`
-- 约 50 个 `Status*` 状态码常量 + `StatusText(code)`
+- 48 个 `Status*` 状态码常量 + `StatusText(code)`
 
 ### 1.4 关键实现要点（移植时必须保留的"隐性知识"）
 
@@ -126,7 +126,7 @@
 │                             时间字段解析 + 空白字段扫描器
 ├── pathutil.mbt              远端路径 join                               纯逻辑
 ├── control.mbt               控制通道：命令编码、多行响应、状态码校验        IO
-│                             + 流量日志包装
+├── debug.mbt                 流量日志（DebugLog / MirrorWriter / TeeLogReader）IO
 ├── transport.mbt             EPSV / PASV / PRET / REST / 数据连接 / TLS   IO
 ├── client.mbt                FTPClient + Session/Options + DialOptions    IO
 ├── dial.mbt                  拨号 + 登录 + FEAT 能力协商                   IO
@@ -267,7 +267,7 @@ while w.next() {
 
 **保留**：RFC 959 全量命令、EPSV/PASV、FTPS、列表四解析器、Walker、防注入、防 SSRF、调试输出、时间操作。
 
-**调试输出**（`debug.go` → `control.mbt` 的 `DebugLog`）与上游形似而接线点不同，
+**调试输出**（`debug.go` → `debug.mbt` 的 `DebugLog`）与上游形似而接线点不同，
 两处差异是刻意的，改动前请先读：
 
 - 上游把开关（`DialWithDebugOutput`）编进 `wrapConn` / `wrapStream`，在 dial 时就把
@@ -279,9 +279,31 @@ while w.next() {
   也仍然自解释。`MirrorWriter` / `TeeLogReader` 就是上游 `MultiWriter` / `TeeReader` 的
   等价物，`Control` 直接走这两个装饰器。
 
+**文件归属**：开关在 `Control` 上（`Control::set_debug`），记录器与两个装饰器在
+`debug.mbt`。1.2 那张表里 `debug.go` 曾标注"已移植，见 `control.mbt`"，那既是过时的
+位置，也暗示了上游那种 dial 时包连接的做法；本仓库的接线点见上面两条，位置是
+`debug.mbt`。拆开的理由是这两个文件此后各自只有一个主题：`control.mbt` 讲命令成帧，
+`debug.mbt` 讲记录，而 `Control` 只保留"要不要记"这一个决定。
+
 日志是诊断，因此**不得改变协议行为**：sink 抛错只丢日志行，不影响命令与回复；回复读
 的超时只包住 socket 读，装饰层不参与计时（AGENTS.md 的 deadline 规则），否则一个慢
 sink 会被误报成 `RequestTimeout`。默认关闭，不装 sink 时路径上只有一次 `Option` 判断。
+
+**Go 到 MoonBit 的取舍**（不是漏实现，是有意的口径差）：
+
+- **`Response` 没有 `SetDeadline`。** 上游 `ftp.Response` 是 `net.Conn` 的包装， deadline
+  可以逐连接设置；这里 `DataResponse` 只有 `read` / `close`，超时统一由 `Control::timeout_ms`
+  管——而那条 deadline 只在**控制通道的回复读**上，数据通道的读写本身不计时（一个长列表
+  只要服务器还在发就正常跑完）。取舍的理由：MoonBit 的 `@io.Reader` trait 上没有 deadline
+  概念，把它加进来等于给每个 reader 装饰一层计时器，而 `AGENTS.md` 的 deadline 规则恰好要求
+  计时只包住"空闲等待"那一段。需要整体超时的调用方用 `@async.with_timeout` 包住整个传输。
+- **数据通道 TLS 握手是"调用即握手"，没有上游的惰性语义。** Go 的 `tls.Conn` 在首次读写时
+  才握手，所以上游要在零字节上传后补一句 `Handshake()`；`@tls.Tls::client` 在**构造时**就
+  握完，因此本仓库把握手放在 `cmd_data_conn_from` 收到 `150` 之后（RFC 4217 的正确时机），
+  并让 `DataConn::start_tls` 幂等，`stor_from` 在零字节分支再调一次——调了不重复握手，删了
+  也不影响行为。这一行保留是因为上游 1.4 第 7 条的承诺（"上传零字节文件时必须显式触发握手"）
+  在 Go 里要靠它兑现，在这里它是对同一条承诺的显式记账；`transfer_wbtest.mbt` 里有一条真的
+  TLS 服务器在数据口另一端断言它。
 
 **明确不做（首版边界）**：
 
