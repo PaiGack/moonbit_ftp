@@ -324,6 +324,11 @@ pub struct DialOptions {
   mut force_list_hidden : Bool
   /// Timezone used to interpret `LIST` timestamps, defaults to UTC.
   mut location : @time.Zone
+  /// Clock backing the `LIST` half-year rule, in milliseconds since the UNIX
+  /// epoch. Defaults to the system time; tests inject a fixed clock so the
+  /// rule can be asserted on the production path (`list`) instead of only in
+  /// the pure parsers.
+  mut now_ms : () -> UInt64
 }
 
 ///|
@@ -343,6 +348,7 @@ pub fn DialOptions::default() -> DialOptions {
     writing_mdtm: false,
     force_list_hidden: false,
     location: @time.utc_zone,
+    now_ms: @env.now,
   }
 }
 
@@ -442,6 +448,19 @@ pub fn DialOptions::set_location(
   value : @time.Zone,
 ) -> Unit {
   self.location = value
+}
+
+///|
+/// Replace the clock backing `FTPClient::now`.
+///
+/// The default reads the system time on every `list()`; a test injects a
+/// fixed clock to pin the half-year rule's reference instant. Go's epoch
+/// fallback is deliberately *not* an option here — see `FTPClient::now`.
+pub fn DialOptions::set_now_ms(
+  self : DialOptions,
+  value : () -> UInt64,
+) -> Unit {
+  self.now_ms = value
 }
 
 ///|

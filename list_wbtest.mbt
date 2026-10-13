@@ -570,3 +570,74 @@ impl @io.Writer for NullWriter with fn write_once(
   ignore(offset)
   len
 }
+
+///|
+/// The reference instant `list()` hands the parsers must be the *real* now,
+/// not the epoch.
+///
+/// `MMM DD HH:MM` carries no year, so the parsers resolve it against
+/// `now + 6 months` (the GNU `ls` half-year rule). With the epoch as the
+/// reference every such field fails that comparison and collapses to 1969,
+/// which is what `FTPClient::now` returning `epoch` used to do. The clock is
+/// injectable through `DialOptions` precisely so this can be asserted on
+/// `list()` — the production path where the bug lived — and not only through
+/// `parse_list_line`, whose own tests always passed.
+async test "list resolves a yearless LIST field against the injected now" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let script = epsv_reply(port) +
+    "150 Here comes the directory listing.\r\n226 Directory send OK.\r\n"
+  // 2017-03-10 23:00:00 UTC, the instant the upstream suite pins.
+  let pinned : () -> UInt64 = fn() {
+    (1489186800L).reinterpret_as_uint64() * 1000UL
+  }
+  let (client, sink) = scripted_client(script, now_ms=pinned)
+  let entries = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      // Both fields sit inside the six months after 2017-03-10, so the rule
+      // keeps them in 2017. Under the epoch reference the window started at
+      // 1970-07-01 and both read 1969.
+      serve_payload(
+        listener,
+        "-rw-r--r--    1 0 0 10 Apr 01 05:49 a.txt\r\n" +
+        "-rw-r--r--    1 0 0 10 Aug 19 05:49 b.txt\r\n",
+      )
+    })
+    list(client, "/") catch {
+      e => fail("list: \{e}")
+    }
+  })
+  assert_eq(sink.lines, ["EPSV", "LIST /"])
+  assert_eq(entries.length(), 2)
+  assert_eq(entries[0].time.year(), 2017)
+  assert_eq(entries[1].time.year(), 2017)
+}
+
+///|
+/// The other half of the half-year rule: a field beyond the six month window
+/// belongs to the previous year.
+///
+/// This is the assertion a frozen reference instant cannot satisfy — with the
+/// epoch the comparison never decrements — so it pins that the injected clock
+/// is really driving `list()`, in both directions.
+async test "list applies the half-year rule in the previous year direction" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let script = epsv_reply(port) +
+    "150 Here comes the directory listing.\r\n226 Directory send OK.\r\n"
+  let pinned : () -> UInt64 = fn() {
+    (1489186800L).reinterpret_as_uint64() * 1000UL
+  }
+  let (client, _) = scripted_client(script, now_ms=pinned)
+  let entries = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      // Nov 15 is more than six months past 2017-03-10, so it must be 2016.
+      serve_payload(listener, "-rw-r--r--    1 0 0 10 Nov 15 05:49 c.txt\r\n")
+    })
+    list(client, "/") catch {
+      e => fail("list: \{e}")
+    }
+  })
+  assert_eq(entries.length(), 1)
+  assert_eq(entries[0].time.year(), 2016)
+}

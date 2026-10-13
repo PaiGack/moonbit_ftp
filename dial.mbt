@@ -37,6 +37,7 @@ pub async fn dial(
   writing_mdtm? : Bool = false,
   force_list_hidden? : Bool = false,
   location? : @time.Zone = @time.utc_zone,
+  now_ms? : () -> UInt64 = @env.now,
 ) -> FTPClient {
   let options : DialOptions = {
     timeout_ms,
@@ -51,6 +52,7 @@ pub async fn dial(
     writing_mdtm,
     force_list_hidden,
     location,
+    now_ms,
   }
   let (host, port) = split_addr(addr, if tls { 990 } else { 21 })
   let socket_addr = @socket.Addr::parse("\{host}:\{port}") catch {

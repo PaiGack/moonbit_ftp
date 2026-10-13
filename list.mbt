@@ -148,11 +148,23 @@ pub async fn set_transfer_type(
 }
 
 ///|
-/// The reference instant used by the `LIST` time parsers, taken from the
-/// configured location.
+/// The reference instant used by the `LIST` time parsers: the configured clock
+/// projected onto `self.location`.
+///
+/// A yearless `MMM DD HH:MM` field is resolved by comparing the candidate
+/// against `now + 6 months`, so the parsers need a real "now". Handing them
+/// the epoch instead is not "off by a little": every such field fails the
+/// comparison against 1970 + 6 months and collapses to 1969. Hence a clock on
+/// `DialOptions` (system time by default, injectable in tests) rather than a
+/// constant; the epoch is only the impossible-clock fallback.
 fn FTPClient::now(self : FTPClient) -> @time.ZonedDateTime {
-  ignore(self.location)
-  epoch
+  let millis = (self.options.now_ms)()
+  @time.ZonedDateTime::from_unix_second(
+    (millis / 1000).reinterpret_as_int64(),
+    zone=self.location,
+  ) catch {
+    _ => epoch
+  }
 }
 
 ///|

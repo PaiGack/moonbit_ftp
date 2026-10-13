@@ -79,7 +79,9 @@ fn scripted_client(
   options? : Options = Options::default(),
   location? : @time.Zone = @time.utc_zone,
   dial_options? : DialOptions = DialOptions::default(),
+  now_ms? : () -> UInt64 = @env.now,
 ) -> (FTPClient, RecordingSink) {
+  dial_options.set_now_ms(now_ms)
   let (control, sink) = scripted_control(script)
   let client : FTPClient = {
     options: dial_options,

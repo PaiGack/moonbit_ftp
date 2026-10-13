@@ -16,6 +16,7 @@ import {
   "moonbitlang/async/tls",
   "moonbitlang/x/time",
   "moonbitlang/core/debug",
+  "moonbitlang/core/env",
 }
 
 // Test-only import block, shared by the blackbox `*_test.mbt` files and the
@@ -36,6 +37,7 @@ import {
   "moonbitlang/async/socket",
   "moonbitlang/x/time",
   "moonbitlang/core/debug",
+  "moonbitlang/core/env",
 } for "wbtest"
 
 // The blackbox `*_test.mbt` files spell the library symbols `@ftp.…`, so the
