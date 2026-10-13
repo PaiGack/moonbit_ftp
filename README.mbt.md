@@ -57,16 +57,25 @@ async fn main {
   @ftp.make_dir(client, "/newdir")
   @ftp.remove_dir(client, "/newdir")
 
-  // 6. 递归遍历目录树
+  // 6. 递归删除非空目录：`remove_dir` 只删空目录，`remove_dir_recur` 先删光
+  //    内容再删目录本身（对应上游的 RemoveDirRecur）
+  @ftp.make_dir(client, "/tree")
+  @ftp.make_dir(client, "/tree/sub")
+  let nested = @io.MemoryReader(w => w.write("nested"))
+  defer nested.close()
+  @ftp.stor(client, "/tree/sub/f.txt", nested)
+  @ftp.remove_dir_recur(client, "/tree")
+
+  // 7. 递归遍历目录树
   let w = @ftp.walk(client, "/")
   while w.next() {
     println(w.path())
   }
 
-  // 7. 遍历结束再删：上传的文件活到走完目录树才收拾，重复运行才安全（幂等）
+  // 8. 遍历结束再删：上传的文件活到走完目录树才收拾，重复运行才安全（幂等）
   @ftp.delete(client, renamed)
 
-  // 8. 退出并关闭连接
+  // 9. 退出并关闭连接
   @ftp.quit(client)
 }
 ```
@@ -81,7 +90,7 @@ async fn main {
 | `get_entry(client, path)` | 取单个条目的 facts |
 | `retr` / `retr_from(client, path, offset)` | 下载 / 断点续传下载 |
 | `stor` / `append(client, path, reader)` | 上传 / 追加 |
-| `make_dir` / `remove_dir` / `delete` / `rename` / `change_dir` / `current_dir` | 目录与文件管理 |
+| `make_dir` / `remove_dir` / `remove_dir_recur` / `delete` / `rename` / `change_dir` / `current_dir` | 目录与文件管理（`remove_dir_recur` 递归删除非空目录） |
 | `walk(client, root)` | 深度优先遍历目录树，`next()` 失败时不抛错而是返回 `false` |
 | `quit(client)` | 发 `QUIT` 并关闭连接 |
 

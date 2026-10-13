@@ -61,6 +61,19 @@ async fn main {
   @ftp.make_dir(client, "/moonbit_demo_dir")
   @ftp.remove_dir(client, "/moonbit_demo_dir")
 
+  // RemoveDirRecur: build a nested tree, then delete it in one call. The empty
+  // `RMD` above only proves the directory is gone; this proves the recursion
+  // deletes the *contents* first, which is what a plain `RMD` refuses with
+  // `550`.
+  println("==> MKD /moonbit_demo_tree/{sub,sub/deep} ; RemoveDirRecur")
+  @ftp.make_dir(client, "/moonbit_demo_tree")
+  @ftp.make_dir(client, "/moonbit_demo_tree/sub")
+  @ftp.make_dir(client, "/moonbit_demo_tree/sub/deep")
+  let nested = "/moonbit_demo_tree/sub/nested.txt"
+  @ftp.stor(client, nested, text_reader("nested payload\n"))
+  println("    nested SIZE: \{@ftp.file_size(client, nested)}")
+  @ftp.remove_dir_recur(client, "/moonbit_demo_tree")
+
   // Walk the directory tree once (just the fixture sub/ subtree, to keep
   // the demo's output short).
   println("==> WALK /sub")

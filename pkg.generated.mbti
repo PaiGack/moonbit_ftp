@@ -153,6 +153,8 @@ pub async fn read_response(Control) -> Response
 
 pub async fn remove_dir(FTPClient, String) -> Unit
 
+pub async fn remove_dir_recur(FTPClient, String) -> Unit
+
 pub async fn rename(FTPClient, String, String) -> Unit
 
 pub fn render_command(String, Array[String]) -> String raise FtpError

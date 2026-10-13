@@ -84,6 +84,45 @@ pub async fn remove_dir(client : FTPClient, dir : String) -> Unit {
 }
 
 ///|
+/// Delete a non-empty directory recursively, the port of upstream
+/// `RemoveDirRecur`.
+///
+/// The sequence is upstream's, and it is a `cd`-in / `cd ..`-out dance rather
+/// than a walk of the tree, because a plain FTP server has no way to name a
+/// child relative to a directory the client is not currently *in*: every
+/// `LIST` / `RMD` argument is resolved against the session's working directory.
+///
+/// 1. `CWD path`, then `PWD` to learn the absolute name the server assigned —
+///    not the caller's string, which may be relative or a symlink.
+/// 2. `LIST` that absolute path and recurse into every folder child, `DELE`
+///    every file child. `.` and `..` are skipped.
+/// 3. `CDUP` out, then `RMD` the directory itself — bottom up, so a directory
+///    is only removed once it is empty.
+///
+/// The client lock is deliberately **not** held across the recursion: `list` /
+/// `delete` / `remove_dir` each take it themselves and the lock is not
+/// reentrant, so wrapping the body would deadlock on the first child.
+pub async fn remove_dir_recur(client : FTPClient, path : String) -> Unit {
+  change_dir(client, path)
+  let current_dir = current_dir(client)
+  let entries = list(client, current_dir)
+  for entry in entries {
+    if entry.name == "." || entry.name == ".." {
+      continue
+    }
+    if entry.type_ is EntryType::Folder {
+      remove_dir_recur(client, current_dir + "/" + entry.name)
+    } else {
+      // A bare name is enough: the recursion just `CWD`-ed into
+      // `current_dir`, and upstream relies on that too.
+      delete(client, entry.name)
+    }
+  }
+  change_dir_to_parent(client)
+  remove_dir(client, current_dir)
+}
+
+///|
 /// `DELE <path>`, expecting `250`.
 pub async fn delete(client : FTPClient, path : String) -> Unit {
   client.lock()
