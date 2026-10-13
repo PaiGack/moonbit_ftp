@@ -214,6 +214,20 @@ while w.next() {
 
    程序里每个画像的失败都被 `fail` 重新抛出，带上画像名与真实原因；直接把 `FtpError` 抛到
    `main` 之外只会打印 `PaiGack/ftp.FtpError.ParseError`，没有画像、没有路径、没有解释。
+
+   在 CI 里，四个画像**各自作为一次独立的 `cmd/profiles/run.sh <画像>` 调用**，每次调用前
+   都插一次 `scripts/ensure-ftp.sh`。原因是这个程序一次开四个会话，而 `ensure-ftp.sh` 的
+   守卫只能覆盖"客户端启动之前"那个窗口；四个会话**之间**的窗口它看不见。
+   `cnb-ake-1k4qn4ukc` 就是这个形状：步骤前的守卫通过、`full` / `no-mlst` / `no-time` 全部
+   跑完，第四次 `dial` 撞上一个已经死掉的容器，报出来却是
+
+       Failure(cmd/profiles/main.mbt:61:12-61:57 FAILED: profile no-epsv: ReaderClosed)
+
+   ——一个连问候语都没读到的 `dial`，被当成画像结果。紧跟着的
+   `cmd/ftps/run.sh plain` 前的守卫发现容器没了、重启后该步通过，这才坐实问题在服务器而不在
+   `disable_epsv`。`cmd/profiles` 因此接受一个可选的画像名参数（缺省仍跑全部四个），
+   `ci.sh` 按名字逐个调用、逐个守卫；`ensure-ftp-selftest.py` 把 `ci.sh` 里的画像名与
+   `profiles()` 对照，多一个少一个都是失败。
 3. **帧解析用例**：用 `@io.MemoryReader` 精确构造畸形响应（畸形状态行、空行续行、两行 MLST），
    不需要假服务器也不需要 socket。
 4. **边界用例**：命令注入、EPSV 被拒后回退、二次 `Close`、REST 断点续传、超时。

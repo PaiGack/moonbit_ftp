@@ -188,24 +188,40 @@ run "$ROOT/cmd/example/run.sh"
 run "$SCRIPT_DIR/ensure-ftp.sh"
 run "$ROOT/cmd/ftp/run.sh"
 
-# And once more before `cmd/profiles`. A single guard *before* a client only
-# covers the window that opened before it -- not the one that opens while it
-# runs, and not the one after it. `cmd/example` and `cmd/ftp` failed on
-# *adjacent lines* in `cnb-cgc-1k4qajlu6`, so the container died in exactly
-# that gap, and the same gap exists here: `cmd/ftp` opens its own sessions, so
-# the server can be gone by the time `cmd/profiles` dials it.
+# And once more before each capability profile. A single guard *before* a
+# client only covers the window that opened before it -- not the one that opens
+# while it runs, and not the one after it. `cmd/example` and `cmd/ftp` failed
+# on *adjacent lines* in `cnb-cgc-1k4qajlu6`, so the container died in exactly
+# that gap, and `cmd/profiles` adds a wider one of its own: it opens four
+# sessions in sequence, so the server can be gone by the fourth one even though
+# the guard in front of the step just proved it healthy.
 #
-# `cmd/profiles` is the most exposed step on the chain -- it opens four
-# sessions in sequence -- which is why the second guard sits right in front of
-# it rather than one step later. `ensure-ftp.sh` is idempotent (a healthy
-# container is a no-op), so an extra call costs one probe, not a restart.
+# That is not hypothetical. In `cnb-ake-1k4qn4ukc` the guard passed, `full` /
+# `no-mlst` / `no-time` all completed, and the run then died with
+#
+#   Failure(cmd/profiles/main.mbt:61:12-61:57 FAILED: profile no-epsv: ReaderClosed)
+#
+# -- a `dial` that never saw a greeting, reported as a profile result. The next
+# guard, in front of `cmd/ftps/run.sh plain`, found the container gone and its
+# restart fixed that step, which is how the fault was confirmed to be the
+# server rather than `disable_epsv`. Hence one invocation per profile, each
+# behind its own re-check: `ensure-ftp.sh` is idempotent (a healthy container is
+# a no-op), so the extra calls cost one probe each, not a restart.
+#
+# Named one at a time rather than looped over a list: the guard rule this file
+# keeps is "the statement immediately preceding the client is the guard", and a
+# loop body hides the names behind a variable, so neither a reader nor
+# `ensure-ftp-selftest.py` can see which profiles are covered. Both check the
+# list against `profiles()` in cmd/profiles/main.mbt, so a profile added there
+# and forgotten here is a failure rather than a silent omission.
 run "$SCRIPT_DIR/ensure-ftp.sh"
-
-# The four capability profiles, against that *same* container. One server that
-# advertises everything, dialled four times with different client options; see
-# cmd/profiles/main.mbt for why the profiles are client-side rather than four
-# container configurations.
-run "$ROOT/cmd/profiles/run.sh"
+run "$ROOT/cmd/profiles/run.sh" full
+run "$SCRIPT_DIR/ensure-ftp.sh"
+run "$ROOT/cmd/profiles/run.sh" no-mlst
+run "$SCRIPT_DIR/ensure-ftp.sh"
+run "$ROOT/cmd/profiles/run.sh" no-time
+run "$SCRIPT_DIR/ensure-ftp.sh"
+run "$ROOT/cmd/profiles/run.sh" no-epsv
 
 # ---------------------------------------------------------------------------
 # FTPS (explicit AUTH TLS) end-to-end. The plaintext demo above cannot cover

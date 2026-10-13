@@ -117,8 +117,13 @@ class Mock:
         self.handle.close()
 
 
-def run_profiles(mock):
-    """Run the real `cmd/profiles` against `mock`; return (rc, output)."""
+def run_profiles(mock, profile=None):
+    """Run the real `cmd/profiles` against `mock`; return (rc, output).
+
+    `profile` names the single profile to run, i.e. the argv CI uses to put one
+    invocation per profile behind its own container re-check. `None` runs all
+    four, which is what the rest of this file asserts on.
+    """
     env = {
         "PATH": "/usr/bin:/bin:/usr/local/bin:" + str(Path.home() / ".moon/bin"),
         "HOME": str(Path.home()),
@@ -127,9 +132,11 @@ def run_profiles(mock):
         "FTP_TEST_USER": "test",
         "FTP_TEST_PASS": "test",
     }
+    argv = ["moon", "run", "cmd/profiles", "--target", "native"]
+    if profile is not None:
+        argv += ["--", profile]
     proc = subprocess.run(
-        ["moon", "run", "cmd/profiles", "--target", "native"],
-        cwd=ROOT, env=env, capture_output=True, text=True, timeout=600,
+        argv, cwd=ROOT, env=env, capture_output=True, text=True, timeout=600,
     )
     return proc.returncode, proc.stdout + proc.stderr
 
@@ -229,6 +236,26 @@ def main():
         sessions = mock.sessions()
         check("one session per profile", len(sessions) == len(PROFILES),
               f"got {len(sessions)}: {[s[0] for s in sessions]}")
+
+        # The per-profile argv CI drives, and the reason it exists: one guarded
+        # step with four sessions inside still leaves the window between two of
+        # them open, so each profile gets its own invocation (and its own
+        # `ensure-ftp.sh` in ci.sh). A named run must open exactly one session
+        # and still report OK for that profile -- otherwise the per-profile
+        # split would quietly stop testing the other three.
+        for name in PROFILES:
+            before = len(mock.sessions())
+            rc_one, out_one = run_profiles(mock, name)
+            check(f"a named run of {name} succeeds", rc_one == 0,
+                  f"rc={rc_one} output={out_one.strip()!r}")
+            check(f"a named run of {name} reports only {name}",
+                  f"profile {name}: OK" in out_one
+                  and all(f"profile {other}: OK" not in out_one
+                          for other in PROFILES if other != name),
+                  f"output={out_one.strip()!r}")
+            opened = len(mock.sessions()) - before
+            check(f"a named run of {name} opens exactly one session",
+                  opened == 1, f"opened {opened}")
 
         if len(sessions) != len(PROFILES):
             raise SystemExit(1)
