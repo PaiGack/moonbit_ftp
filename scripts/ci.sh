@@ -172,6 +172,19 @@ run "$ROOT/cmd/example/run.sh"
 run "$SCRIPT_DIR/ensure-ftp.sh"
 run "$ROOT/cmd/ftp/run.sh"
 
+# And once more before `cmd/profiles`. A single guard *before* a client only
+# covers the window that opened before it -- not the one that opens while it
+# runs, and not the one after it. `cmd/example` and `cmd/ftp` failed on
+# *adjacent lines* in `cnb-cgc-1k4qajlu6`, so the container died in exactly
+# that gap, and the same gap exists here: `cmd/ftp` opens its own sessions, so
+# the server can be gone by the time `cmd/profiles` dials it.
+#
+# `cmd/profiles` is the most exposed step on the chain -- it opens four
+# sessions in sequence -- which is why the second guard sits right in front of
+# it rather than one step later. `ensure-ftp.sh` is idempotent (a healthy
+# container is a no-op), so an extra call costs one probe, not a restart.
+run "$SCRIPT_DIR/ensure-ftp.sh"
+
 # The four capability profiles, against that *same* container. One server that
 # advertises everything, dialled four times with different client options; see
 # cmd/profiles/main.mbt for why the profiles are client-side rather than four
