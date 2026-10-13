@@ -30,6 +30,10 @@ vsftpd where the profiles care:
     it. Only the `writing_mdtm` profile sends the two-argument form.
   * `EPSV` is answered normally. `no-epsv` is a *client* switch, so the server
     has to be able to do both for the profile to mean anything.
+  * `NLST <dir>` answers with the **full path** of each entry, because that is
+    what vsftpd does and it was the one shape no test reproduced. The profiles
+    read that listing looking for a bare name, which is what made the whole
+    file fail against the container while this mock stayed green.
 
 One control connection per socket, one data connection per passive command on
 a fresh ephemeral port -- which is what `PASV` / `EPSV` are for.
@@ -284,6 +288,13 @@ class Session:
         else:
             reply(control, 550, "not a directory")
             return
+        # vsftpd answers `NLST <dir>` with the full path of every entry
+        # (`/profiles_full/sample.txt`), not the bare name, and RFC 3659 §4.1
+        # allows either. That difference is invisible against any server that
+        # picks the other shape -- which is how `cmd/profiles` came to require
+        # a bare name and still pass every test here.
+        prefix = self.path_of(argument).rstrip("/")
+        names = [f"{prefix}/{name}" for name in names]
         body = ("\r\n".join(names) + "\r\n").encode()
         self.transfer(control, lambda data: data.sendall(body))
 

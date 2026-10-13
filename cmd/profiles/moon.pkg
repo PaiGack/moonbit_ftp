@@ -2,6 +2,7 @@ import {
   "PaiGack/ftp",
   "moonbitlang/async",
   "moonbitlang/async/io",
+  "moonbitlang/core/debug",
   "moonbitlang/core/env",
   "moonbitlang/x/time",
 }

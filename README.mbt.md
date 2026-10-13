@@ -142,6 +142,10 @@ FTP mock，`scripts/profiles/cmd-profiles-selftest.py` 用它驱动真的 `cmd/p
 每个画像实际发出的命令（`LIST` 还是 `MLSD`、`PASV` 还是 `EPSV`、有没有写时间戳）——
 这些在真实服务器上看不出来，因为它两种被动命令都支持、两种列表都出结果。
 
+mock 还必须按**容器**的形状回答 `NLST`：vsftpd 对 `NLST <dir>` 返回完整路径而不是裸文件名
+（RFC 3659 §4.1 两者都允许），而这个差别在只跑 mock 时是隐形的——所以自测会直接向 mock
+探测它的 `NLST` 形状，两边一旦不一致就立刻报错。
+
 FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同一个 `cmd/ftps` 二进制。
 
 ## 目录结构

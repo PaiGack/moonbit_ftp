@@ -50,7 +50,16 @@ async fn main {
   let addr = "\{host}:\{port}"
 
   for profile in profiles() {
-    run_profile(profile, addr, user, password)
+    // Each profile is caught and re-raised as a `Failure` carrying the profile
+    // name and the real reason. Raising the `FtpError` straight out of `main`
+    // prints only `PaiGack/ftp.FtpError.ParseError` -- no profile, no path, no
+    // explanation -- which turns a wrong assertion into a grep hunt through
+    // the library. Every assertion in this file already builds a message
+    // naming what it looked for; this is what puts that message on the
+    // console instead of into the void.
+    run_profile(profile, addr, user, password) catch {
+      e => fail("profile \{profile}: \{@debug.Repr(e)}")
+    }
   }
 
   println("")
@@ -185,12 +194,19 @@ async fn run_profile(
     "    MLSD path \{if @ftp.FTPClient::is_mlst_supported(client) { "on" } else { "off" }}, size \{payload.length()}",
   )
 
-  // --- NLST: the bare-name listing, never called end to end before --------
+  // --- NLST: the listing, never called end to end before ------------------
+  //
+  // `NLST <dir>` is the one command whose *shape* differs between servers:
+  // vsftpd answers with the full path of each entry (`/profiles_full/sample.txt`),
+  // while most others answer with the bare name, and RFC 3659 §4.1 lets a
+  // server do either. So the assertion is about the last path component and
+  // never about the whole line -- matching on the bare name is precisely the
+  // bug this call is here to catch.
   println("==> NLST \{scratch}")
   let names = @ftp.name_list(client, scratch)
-  guard names.contains("sample.txt") else {
+  guard names.contains("sample.txt") || names.contains(file) else {
     raise @ftp.FtpError::ParseError(
-      msg="NLST did not report sample.txt: \{format_repr(join_named(names))}",
+      msg="NLST did not report sample.txt (nor \{file}): \{format_repr(join_named(names))}",
     )
   }
   println("    NLST -> \{join_named(names)}")

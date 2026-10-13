@@ -20,9 +20,16 @@ program makes are real) and then reads the mock's transcript per profile:
   * `no-epsv` uses `PASV` and never `EPSV`
   * `no-time` reads a timestamp but never writes one
 
-The last two are the ones a real-server-only test cannot see: both `EPSV` and
-`PASV` work against the container, so "the fallback happened" is invisible in
-the program's output and only the server's command log can prove it.
+One shape is the *server's* choice rather than the client's, and it has to be
+asserted separately: `NLST <dir>` is answered with the full path of each entry
+by vsftpd and with the bare name by most others, and the profiles are judged
+against whichever the mock picked. `check_nlst_shape` asks the mock directly,
+so the mock cannot silently drift to the shape that makes the profiles pass.
+
+The protocol-choice checks are the ones a real-server-only test cannot see:
+both `EPSV` and `PASV` work against the container, so "the fallback happened"
+is invisible in the program's output and only the server's command log can
+prove it.
 
 The mock binds an ephemeral port, so nothing here needs Docker, root or a fixed
 port, and it runs in `scripts/ci.sh` before any image is pulled.
@@ -152,6 +159,53 @@ def writes_time(session):
     return False
 
 
+def check_nlst_shape(mock):
+    """Probe `NLST` on the mock and report whether it answers full paths.
+
+    `cmd/profiles` asserts on the entry it looked for, so it passes against a
+    mock that answers bare names and fails against vsftpd, which answers full
+    paths -- which is precisely how a green self-test shipped a red pipeline.
+    Asking the mock directly is the only way to see which of the two shapes the
+    profiles are being judged against, so that mismatch is caught here.
+    """
+    control = socket.create_connection(("127.0.0.1", mock.port), timeout=10)
+    control.settimeout(10)
+    try:
+        def expect(prefix):
+            line = control.recv(4096).decode(errors="replace").strip()
+            assert line.startswith(prefix), f"expected {prefix}, got {line!r}"
+            return line
+
+        def send(command):
+            control.sendall(f"{command}\r\n".encode())
+
+        expect("220")
+        send("USER test")
+        expect("331")
+        send("PASS test")
+        expect("230")
+
+        send("EPSV")
+        reply = expect("229")
+        port = int(reply.rsplit("|||", 2)[1].split("|")[0])
+
+        data = socket.create_connection(("127.0.0.1", port), timeout=10)
+        send("NLST /")
+        expect("150")
+        payload = b""
+        while True:
+            chunk = data.recv(4096)
+            if not chunk:
+                break
+            payload += chunk
+        data.close()
+        expect("226")
+        names = [line for line in payload.decode().splitlines() if line.strip()]
+        return bool(names) and all(name.startswith("/") for name in names)
+    finally:
+        control.close()
+
+
 def main():
     failures = []
 
@@ -221,6 +275,11 @@ def main():
               "set_file_time must refuse rather than send MDTM <time> <path>")
         check("no-time: never sends MFMT", count(no_time, "MFMT") == 0,
               "the mock does not advertise MFMT, so it must not be sent")
+
+        # The mock's own `NLST` shape, probed straight over a socket rather
+        # than inferred from the program's log. See `check_nlst_shape`.
+        check("the mock answers NLST with full paths, like vsftpd",
+              check_nlst_shape(mock), "the mock must match the container")
 
         # And the effect-level statement the program itself makes: the scratch
         # tree is gone, so the fixture is all that is left.

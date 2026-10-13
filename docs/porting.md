@@ -198,11 +198,22 @@ while w.next() {
    `MKD` / `RMD` / `RemoveDirRecur`，最后 `DELE` + `RMD` 收摊，并打印服务器上剩下的整棵树，
    作为"改了什么、还剩什么"的副作用断言。
 
+   `NLST` 的**形状由服务器决定**，不是客户端能选的：`NLST <dir>` 在 vsftpd 上返回每一项的
+   完整路径（`/profiles_full/sample.txt`），在多数其它服务器上返回裸文件名，RFC 3659 §4.1
+   两者都允许。所以断言只针对最后一段路径，绝不匹配整行——按裸名字匹配正是这个调用要抓的
+   那类 bug。`cmd-profiles-selftest.py` 必须让 mock 按**容器**的形状回答（多一层
+   `check_nlst_shape` 直接向 mock 探测），否则 mock 用裸名字、程序也按裸名字断言，两边一起
+   绿，而真实容器上必红。
+
    `no-mlst` 与 `no-epsv` 的断言语义在真实服务器上**看不见**：容器两种被动命令都支持、
    `MLSD` 与 `LIST` 都能出结果，客户端选了哪一条在输出里没有痕迹。所以
    `scripts/profiles/cmd-profiles-selftest.py` 用 `ftp_profile_mock.py`（一个带真实文件系统
    的 mock）在**拉镜像之前**驱动真程序，再按画像逐条核对 mock 收到的命令流。
-   这条自测做过反向验证：把 `disable_epsv` / `disable_mlsd` 各自摘掉，对应断言立即变红。
+   这条自测做过反向验证：把 `disable_epsv` / `disable_mlsd` 各自摘掉，或把 mock 的 `NLST`
+   换回裸名字，对应断言立即变红。
+
+   程序里每个画像的失败都被 `fail` 重新抛出，带上画像名与真实原因；直接把 `FtpError` 抛到
+   `main` 之外只会打印 `PaiGack/ftp.FtpError.ParseError`，没有画像、没有路径、没有解释。
 3. **帧解析用例**：用 `@io.MemoryReader` 精确构造畸形响应（畸形状态行、空行续行、两行 MLST），
    不需要假服务器也不需要 socket。
 4. **边界用例**：命令注入、EPSV 被拒后回退、二次 `Close`、REST 断点续传、超时。
