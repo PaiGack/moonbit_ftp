@@ -38,6 +38,7 @@ pub async fn dial(
   force_list_hidden? : Bool = false,
   location? : @time.Zone = @time.utc_zone,
   debug_sink? : &@io.Writer? = None,
+  clock? : () -> @time.ZonedDateTime = system_clock,
 ) -> FTPClient {
   let options : DialOptions = {
     timeout_ms,
@@ -53,6 +54,7 @@ pub async fn dial(
     force_list_hidden,
     location,
     debug_sink,
+    clock,
   }
   let (host, port) = split_addr(addr, if tls { 990 } else { 21 })
   let socket_addr = @socket.Addr::parse("\{host}:\{port}") catch {
@@ -106,6 +108,7 @@ pub async fn dial(
     mdtm_can_write: false,
     location,
     features: {},
+    clock,
   }
   // Greeting: the server speaks first, so this only *reads* the `220` line.
   // Sending a command here (`cmd_expect(control, "", ...)`) would push an

@@ -38,6 +38,7 @@ pub let default_dial_timeout_ms : Int
 pub async fn delete(FTPClient, String) -> Unit
 
 pub async fn dial(String, timeout_ms? : Int, shut_timeout_ms? : Int, tls? : Bool, explicit_tls? : Bool, trust? : @tls.TrustedRoot, disable_epsv? : Bool, trust_pasv_ip? : Bool, disable_utf8? : Bool, disable_mlsd? : Bool, writing_mdtm? : Bool, force_list_hidden? : Bool, location? : @time.Zone, debug_sink? : &@io.Writer?) -> FTPClient
+pub async fn dial(String, timeout_ms? : Int, shut_timeout_ms? : Int, tls? : Bool, explicit_tls? : Bool, trust? : @tls.TrustedRoot, disable_epsv? : Bool, trust_pasv_ip? : Bool, disable_utf8? : Bool, disable_mlsd? : Bool, writing_mdtm? : Bool, force_list_hidden? : Bool, location? : @time.Zone, clock? : () -> @time.ZonedDateTime) -> FTPClient
 
 pub let epoch : @time.ZonedDateTime
 
@@ -273,6 +274,8 @@ pub async fn stor(FTPClient, String, &@io.Reader) -> Unit
 
 pub async fn stor_from(FTPClient, String, &@io.Reader, offset? : Int64) -> Unit
 
+pub fn system_clock() -> @time.ZonedDateTime
+
 pub fn walk(FTPClient, String) -> Walker
 
 // Errors
@@ -354,10 +357,12 @@ pub struct DialOptions {
   mut force_list_hidden : Bool
   mut location : @time.Zone
   mut debug_sink : &@io.Writer?
+  mut clock : () -> @time.ZonedDateTime
 }
 pub fn DialOptions::debug_sink(Self) -> &@io.Writer?
 pub fn DialOptions::default() -> Self
 pub fn DialOptions::set_debug_sink(Self, &@io.Writer?) -> Unit
+pub fn DialOptions::set_clock(Self, () -> @time.ZonedDateTime) -> Unit
 pub fn DialOptions::set_disable_epsv(Self, Bool) -> Unit
 pub fn DialOptions::set_disable_mlsd(Self, Bool) -> Unit
 pub fn DialOptions::set_disable_utf8(Self, Bool) -> Unit
@@ -409,6 +414,7 @@ pub struct FTPClient {
   mut mdtm_can_write : Bool
   mut location : @time.Zone
   mut features : Map[String, Bool]
+  mut clock : () -> @time.ZonedDateTime
 }
 pub fn FTPClient::has_feature(Self, String) -> Bool
 pub fn FTPClient::is_closed(Self) -> Bool
@@ -421,6 +427,7 @@ pub fn FTPClient::location(Self) -> @time.Zone
 pub async fn FTPClient::lock(Self) -> Unit
 pub fn FTPClient::options(Self) -> DialOptions
 pub fn FTPClient::session(Self) -> Session
+pub fn FTPClient::set_clock(Self, () -> @time.ZonedDateTime) -> Unit
 pub fn FTPClient::set_closed(Self, Bool) -> Unit
 pub fn FTPClient::set_features(Self, Map[String, Bool]) -> Unit
 pub fn FTPClient::set_location(Self, @time.Zone) -> Unit

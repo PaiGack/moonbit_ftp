@@ -570,3 +570,90 @@ impl @io.Writer for NullWriter with fn write_once(
   ignore(offset)
   len
 }
+
+///|
+/// A yearless `MMM DD HH:MM` field must resolve against the client clock, not
+/// the epoch.
+///
+/// This is the regression guard for `FTPClient::now` returning `epoch`: with
+/// that bug the `Aug 15 05:49` line below came out as **1969**, because the
+/// six month rule compared an August date against 1970-01-01. The parser
+/// itself was always right -- `parse_test.mbt` pins `test_now` to 2017 -- and
+/// that is exactly why the bug survived: no test drove the production `list()`
+/// call site, the only place `now` was read.
+///
+/// The assertions sit after the task group on purpose: one that fires *inside*
+/// it panics while the payload producer is still parked, and the deadlock
+/// check then aborts the test binary instead of reporting this one failure
+/// (AGENTS.md, the parked task rule). Only `list()` below is inside the group.
+async test "list resolves a yearless LIST time against the clock, not the epoch" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let script = epsv_reply(port) +
+    "150 Here comes the directory listing.\r\n226 Directory send OK.\r\n"
+  let (client, sink) = scripted_client(script)
+  let entries = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      serve_payload(
+        listener, "-rw-r--r--    1 0        0              10 Aug 15 05:49 a.txt\r\n",
+      )
+    })
+    list(client, "/") catch {
+      e => fail("list: \{e}")
+    }
+  })
+  // The white box seam: `now` reads the injected clock, not the epoch.
+  assert_eq(client.now().year(), 2017)
+  assert_eq(sink.lines, ["EPSV", "LIST /"])
+  assert_eq(entries.length(), 1)
+  assert_eq(entries[0].name, "a.txt")
+  // 2017-08-15 is *after* test_now (2017-03-10) but well inside the six month
+  // window, so the year stays 2017. With `epoch` as "now" it would be 1969.
+  assert_eq(entries[0].time.year(), 2017)
+  assert_eq(entries[0].time.month(), 8)
+  assert_eq(entries[0].time.day(), 15)
+  assert_eq(entries[0].time.hour(), 5)
+  assert_eq(entries[0].time.minute(), 49)
+}
+
+///|
+/// The other half of the six month rule, driven through `list()`: a month/day
+/// that falls beyond `now + 6 months` must belong to the previous year.
+///
+/// `test_now` is March 2017, so a yearless `Dec 02` is more than six months
+/// ahead and must come out as December 2016. Together with the test above this
+/// pins both branches of the rule on the production path.
+async test "list applies the six month rule to a future month" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let script = epsv_reply(port) +
+    "150 Here comes the directory listing.\r\n226 Directory send OK.\r\n"
+  let (client, _) = scripted_client(script)
+  let entries = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      serve_payload(
+        listener, "-rw-r--r--    1 0        0              10 Dec 02 03:04 a.txt\r\n",
+      )
+    })
+    list(client, "/") catch {
+      e => fail("list: \{e}")
+    }
+  })
+  assert_eq(entries.length(), 1)
+  assert_eq(entries[0].time.year(), 2016)
+  assert_eq(entries[0].time.month(), 12)
+}
+
+///|
+/// The default clock reports a plausible current time, so it is not a constant.
+///
+/// A clock stuck at a fixed instant would pass every test that injects its own
+/// clock, so the default itself gets one assertion: the year has to be in this
+/// century. The bounds are deliberately loose -- the value floats with the
+/// machine -- but they separate "the real clock" from "1970" and from a
+/// millisecond/second mix-up.
+test "system_clock returns the real current time, not a fixed instant" {
+  let now = system_clock()
+  assert_true(now.year() >= 2024)
+  assert_true(now.year() < 3000)
+}
