@@ -234,7 +234,7 @@ while w.next() {
    > 没有能同时讲好显式与隐式、且允许换成我们证书的镜像；在容器前套 `stunnel` 会把
    > "客户端握手时机是否正确"这个待测问题本身掩盖掉，所以宁可不跑，也不跑个假的绿灯。
 
-   同一段编排里还有三道**无 Docker 的闸门自测**，都在任何容器之前跑：
+   同一段编排里还有五道**无 Docker 的闸门自测**，都在任何容器之前跑：
    `probe-ftps-selftest.py` 驱动 `probe-ftps.sh`，`cmd-ftps-selftest.py` 用 `ftp_mock.py`
    驱动真实的 `cmd/ftps plain`，`fixture-isolation-selftest.py` 断言两个容器不共用可写的
    fixture 目录。第二条是这次 CI 失败的教训：`cmd/ftps` 把 `@io.MemoryReader` 直接写成
@@ -245,6 +245,21 @@ while w.next() {
    `/files` bind mount（`FTPS_VSFTPD_UID` 默认 1000），而那个目录正是明文容器的根目录，
    明文容器（uid 100）随即失去写权限、`STOR` 吃 `550`。跨容器的约定没有单容器测试看得见，
    所以单独写一条断言。
+
+   `plain` 段还有一条自己的编排约束：它是最后一个需要明文容器的步骤，和「容器刚被探测为
+   健康」之间隔着整段 FTPS（拉镜像、签 CA、二次握手、又一次 `docker run`）。在 CNB 的
+   DinD 上容器确实在这中间死过，而客户端只会说
+
+       ==> plain: dial 127.0.0.1:21
+       OSError("@socket.Tcp::connect(): Connection refused")
+
+   ——报的是端口，不是容器，看起来像明文链路回归，尽管 `cmd/example`、`cmd/ftp`、
+   `cmd/profiles` 刚在同一端点上跑通。所以 `ensure-ftp.sh` 在这一步之前复检容器（既看
+   是否在跑，也看是否答得出登录 + 一次被动 `LIST`；端口被发布不等于 vsftpd 在服务），
+   不行就用 `start-ftp.sh` 重启，只有重启也救不回来才带着容器日志失败。
+   `ensure-ftp-selftest.py` 用桩 `docker` 覆盖它的三个分支——放着健康的服务器不动、
+   重启死掉的、重启无效就响亮地失败——这三者在真实容器上都看不出来，因为那里容器通常
+   就是好的。
 
 ---
 

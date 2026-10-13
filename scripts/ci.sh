@@ -125,6 +125,14 @@ run python3 "$SCRIPT_DIR/ftps/fixture-isolation-selftest.py" "$ROOT"
 # Checking the variable list here costs nothing and needs no image.
 run python3 "$SCRIPT_DIR/vsftpd-env-selftest.py" "$ROOT"
 
+# And the recoverability of that same container once the run has moved on.
+# `scripts/ensure-ftp.sh` re-checks it before the last step that needs it and
+# restarts it if it is gone; the three outcomes it has -- leave a healthy server
+# alone, restart a dead one, fail loudly when the restart does not help -- are
+# exactly the ones a real-container run cannot distinguish, because there the
+# container is usually up. Its stub `docker` makes all three reachable.
+run python3 "$SCRIPT_DIR/ensure-ftp-selftest.py" "$ROOT"
+
 # Code statistics. Best-effort: a registry hiccup must not fail the build.
 run docker run --rm -v "$ROOT:/src" ghcr.io/xampprocky/tokei:latest .
 
@@ -159,6 +167,15 @@ run "$ROOT/cmd/profiles/run.sh"
 # ---------------------------------------------------------------------------
 run "$SCRIPT_DIR/ftps/start-ftps.sh"
 run "$ROOT/cmd/ftps/run.sh"
+
+# Re-verify the plaintext container first. `plain` is the last step that needs
+# it, and by now it is a full FTPS block -- an image pull, a generated CA, a
+# second handshake, one more `docker run` -- away from the probe that declared
+# it healthy. On CNB's DinD the `jmoyer/vsftpd` container can be gone by then,
+# and the client then reports only `dial 127.0.0.1:21: Connection refused`,
+# which names the port rather than the container and looks exactly like a
+# plaintext-transport regression. See scripts/ensure-ftp.sh.
+run "$SCRIPT_DIR/ensure-ftp.sh"
 run "$ROOT/cmd/ftps/run.sh" plain
 run "$SCRIPT_DIR/ftps/stop-ftps.sh"
 

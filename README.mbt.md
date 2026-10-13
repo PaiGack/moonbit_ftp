@@ -123,7 +123,7 @@ moon info                                # 更新生成接口（.mbti）
 | **能力画像端到端** | `cmd/profiles/run.sh` | 同一个 vsftpd 上四个客户端画像（`full` / `no-mlst` / `no-time` / `no-epsv`）：`FEAT`、`MLSD`/`LIST`、`EPSV`/`PASV`、`STOR`/`RETR`/`NLST`、`MDTM` 读+写、`MKD`/`RMD`/`RemoveDirRecur` |
 | **FTPS 端到端** | `scripts/ftps/start-ftps.sh` + `cmd/ftps/run.sh` | 真实 vsftpd 上的**显式 `AUTH TLS`**：dial / login / LIST / RETR / STOR / DELE |
 | 明文回归 | `cmd/ftps/run.sh plain` | 同一个 `cmd/ftps` 二进制走明文链路，确保数据通道时序改动没有破坏无 TLS 路径 |
-| 无 Docker 自测 | `scripts/*/*-selftest.py` | 三个 mock 驱动的自测，拉镜像之前就跑：FTPS 就绪探测、`cmd/ftps`（含 `STOR` 被拒回归）、`cmd/profiles` 的协议选择断言 |
+| 无 Docker 自测 | `scripts/*/*-selftest.py` | 拉镜像之前就跑的自测：FTPS 就绪探测、`cmd/ftps`（含 `STOR` 被拒回归）、`cmd/profiles` 的协议选择断言、`ensure-ftp.sh` 的复检三分支、以及 `start-ftp.sh` 的环境变量清单 |
 
 ### 本地端到端（需要 docker）
 
@@ -185,6 +185,8 @@ FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同
 │   ├── ci.sh                  CI 入口脚本
 │   ├── start-ftp.sh           启动明文 vsftpd 容器（127.0.0.1:21）
 │   ├── probe-ftp.py           明文容器就绪探测（登录 + 一次被动 LIST）
+│   ├── ensure-ftp.sh          plain 段之前复检明文容器，挂了就用 start-ftp.sh 重启
+│   ├── ensure-ftp-selftest.py 用桩 docker 自测上面的复检（无需 Docker）
 │   ├── stop-ftp.sh            导出明文容器日志并清理
 │   ├── ftps/                  FTPS（显式 AUTH TLS）容器
 │   │   ├── gen-cert.sh        自签名 CA + 叶证书（每次重新签发）
