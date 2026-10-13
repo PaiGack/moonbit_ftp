@@ -20,6 +20,25 @@
 // these tests use; nothing here writes a real server's state.
 
 ///|
+/// The instant every scripted client pins "now" to, so a `LIST` case can
+/// assert an absolute year instead of "somewhere near the current one".
+///
+/// It is the same 2017-03-10 23:00 UTC that `parse_test.mbt` uses for the pure
+/// parser suite, which is what lets the production path (`list()`) and the
+/// parser agree on a hard coded expectation.
+let test_now : @time.ZonedDateTime = @time.ZonedDateTime::of(
+  2017,
+  3,
+  10,
+  hour=23,
+  minute=0,
+  second=0,
+  zone=@time.utc_zone,
+) catch {
+  _ => panic()
+}
+
+///|
 /// A writer that decodes every byte to ASCII and records each CRLF-terminated
 /// line, which is how the command encoding is asserted.
 ///
@@ -94,6 +113,9 @@ fn scripted_client(
     mdtm_can_write: false,
     location,
     features: {},
+    // Pinned, so a `LIST` case here can assert an absolute year rather than
+    // "whatever the machine's clock says".
+    clock: () => test_now,
   }
   (client, sink)
 }
