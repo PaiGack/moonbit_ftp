@@ -588,9 +588,10 @@ async test "list resolves a yearless LIST field against the injected now" {
   let script = epsv_reply(port) +
     "150 Here comes the directory listing.\r\n226 Directory send OK.\r\n"
   // 2017-03-10 23:00:00 UTC, the instant the upstream suite pins.
-  let pinned : () -> UInt64 = fn() {
-    (1489186800L).reinterpret_as_uint64() * 1000UL
-  }
+  // Written without the `L` suffix and shifted rather than as an `(…L)` cast:
+  // the two `moon fmt` versions in play disagree on that expression, and
+  // `moon fmt --check` runs in CI.
+  let pinned : () -> UInt64 = fn() { (1_489_186_800UL + 0UL) * 1000UL }
   let (client, sink) = scripted_client(script, now_ms=pinned)
   let entries = @async.with_task_group(async fn(group) {
     group.spawn_bg(no_wait=true, async fn() {
@@ -625,9 +626,10 @@ async test "list applies the half-year rule in the previous year direction" {
   let port = listener.addr.port()
   let script = epsv_reply(port) +
     "150 Here comes the directory listing.\r\n226 Directory send OK.\r\n"
-  let pinned : () -> UInt64 = fn() {
-    (1489186800L).reinterpret_as_uint64() * 1000UL
-  }
+  // Written without the `L` suffix and shifted rather than as an `(…L)` cast:
+  // the two `moon fmt` versions in play disagree on that expression, and
+  // `moon fmt --check` runs in CI.
+  let pinned : () -> UInt64 = fn() { (1_489_186_800UL + 0UL) * 1000UL }
   let (client, _) = scripted_client(script, now_ms=pinned)
   let entries = @async.with_task_group(async fn(group) {
     group.spawn_bg(no_wait=true, async fn() {
