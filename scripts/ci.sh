@@ -116,6 +116,16 @@ run python3 "$SCRIPT_DIR/profiles/cmd-profiles-selftest.py" "$ROOT"
 # has already passed -- which is why it read as an inexplicable `plain` failure.
 run python3 "$SCRIPT_DIR/ftps/fixture-isolation-selftest.py" "$ROOT"
 
+# And the plaintext client wrapper's own precondition: `cmd/ftp/run.sh` must
+# hand the endpoint over as *environment* values rather than by building
+# `--host <value>` from them. A flag whose value is a bare expansion loses its
+# argument when the expansion is empty, and the value it was meant to carry
+# arrives as a positional argument -- a usage error on input nobody typed, with
+# nothing in it about the environment. No image is needed to check that, and the
+# wrapper that reads `.env` cannot be trusted to notice the day it does not
+# exist.
+run python3 "$SCRIPT_DIR/ftp-wrapper-selftest.py" "$ROOT"
+
 # And the plaintext container's own precondition, which no Docker-free test
 # below can reach: the `jmoyer/vsftpd` entrypoint interpolates ten environment
 # variables into `vsftpd.conf` and dies with the reason on fd 0 -- i.e. in no
@@ -142,7 +152,38 @@ run docker run --rm -v "$ROOT:/src" ghcr.io/xampprocky/tokei:latest .
 # ---------------------------------------------------------------------------
 run "$SCRIPT_DIR/start-ftp.sh"
 run "$ROOT/cmd/example/run.sh"
+
+# `cmd/example` is the first client, so it is also the first chance to notice
+# that the server died between `start-ftp.sh`'s probe and here -- and the run
+# that produced this line did exactly that, in the *next* step instead:
+#
+#   ===== cmd/example/run.sh =====   ==> OK
+#   ===== cmd/ftp/run.sh =====       error: connect failed: ReaderClosed
+#   ===== cmd/profiles/run.sh =====  profile full: Connection reset by peer
+#   ===== cmd/ftps/run.sh plain =====  Connection refused
+#
+# Four steps, four clients, one dead container, and only the last one named
+# anything a reader could act on. `cmd/example` passing says nothing about the
+# server staying up, so the re-check goes *after* it: it is the earliest point
+# where "the container is gone" is a fact about the container rather than a
+# guess about a client, and the earliest point at which restarting it saves the
+# three steps behind it. See scripts/ensure-ftp.sh for why the check is a login
+# + passive LIST and not a bare `docker ps`.
+run "$SCRIPT_DIR/ensure-ftp.sh"
 run "$ROOT/cmd/ftp/run.sh"
+
+# And once more before `cmd/profiles`. A single guard *before* a client only
+# covers the window that opened before it -- not the one that opens while it
+# runs, and not the one after it. `cmd/example` and `cmd/ftp` failed on
+# *adjacent lines* in `cnb-cgc-1k4qajlu6`, so the container died in exactly
+# that gap, and the same gap exists here: `cmd/ftp` opens its own sessions, so
+# the server can be gone by the time `cmd/profiles` dials it.
+#
+# `cmd/profiles` is the most exposed step on the chain -- it opens four
+# sessions in sequence -- which is why the second guard sits right in front of
+# it rather than one step later. `ensure-ftp.sh` is idempotent (a healthy
+# container is a no-op), so an extra call costs one probe, not a restart.
+run "$SCRIPT_DIR/ensure-ftp.sh"
 
 # The four capability profiles, against that *same* container. One server that
 # advertises everything, dialled four times with different client options; see

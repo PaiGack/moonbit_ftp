@@ -28,6 +28,7 @@ is a stub on PATH that just answers `ps`.
 """
 
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -223,6 +224,46 @@ check(
     done.stderr.strip(),
 )
 shutil.rmtree(scratch, ignore_errors=True)
+
+# 6. Every plaintext client needs a re-check *directly in front of it*, not one
+#    somewhere earlier in the file.
+#
+#    The run this gate exists for failed four steps in a row -- `cmd/ftp`,
+#    `cmd/profiles`, the FTPS smoke test and then `plain` -- because the
+#    re-check sat in front of `plain` alone, so the three steps before it died
+#    on a container nobody had looked at yet. A single guard after
+#    `cmd/example` fixes *those* three steps but not the shape: `cmd/example`
+#    and `cmd/ftp` failed on adjacent lines in `cnb-cgc-1k4qajlu6`, so the
+#    container died inside the window between two consecutive clients. A guard
+#    is only worth as much as the window it covers, and the only window that
+#    cannot be missed is the one immediately before the client.
+#
+#    So the assertion is not "a guard appears once" -- a bare `ci.find` would
+#    be satisfied by the `plain` guard alone, or by one guard before the first
+#    client, and leave the rest bare. It is "the statement immediately
+#    preceding each guarded client is a guard". `cmd/ftps/run.sh` (explicit) is
+#    left out on purpose: it talks to the *FTPS* container, and its own
+#    starter gates that one.
+ci = (ROOT / "scripts" / "ci.sh").read_text()
+# `\`-continuations joined, so a wrapped invocation is still one statement.
+statements = [
+    line.strip()
+    for line in re.sub(r"\\\n\s*", " ", ci).splitlines()
+    if line.strip().startswith("run ")
+]
+clients = {
+    'run "$ROOT/cmd/ftp/run.sh"': "cmd/ftp/run.sh",
+    'run "$ROOT/cmd/profiles/run.sh"': "cmd/profiles/run.sh",
+    'run "$ROOT/cmd/ftps/run.sh" plain': "cmd/ftps/run.sh plain",
+}
+guard = 'run "$SCRIPT_DIR/ensure-ftp.sh"'
+for statement, name in clients.items():
+    index = statements.index(statement) if statement in statements else -1
+    check(f"ci.sh calls every step the ordering check needs ({name})",
+          index != -1, f"{statement!r} not found")
+    check(f"ci.sh re-checks the container immediately before {name}",
+          index > 0 and statements[index - 1] == guard,
+          f"preceded by {statements[index - 1]!r}" if index > 0 else "missing")
 
 if failures:
     print(f"\nensure-ftp.sh self-test FAILED: {len(failures)}", file=sys.stderr)

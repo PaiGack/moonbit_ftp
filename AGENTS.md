@@ -82,8 +82,37 @@ You can browse and install extra skills here:
   `testdata/ftp/fixture/`, and prints each step to stdout. `cmd/example/run.sh`
   is its entry point (a plain `moon run` wrapper) and takes no arguments, so CI
   can call it directly; `cmd/ftp/run.sh` runs the CLI against the same
-  container, and with no arguments falls back to the `FTP_COMMAND` in `.env`.
-  A failure is a hard failure — never soften it into a skip.
+  container as a plain argv-forwarding wrapper, and with no arguments the CLI
+  prints its own usage. A failure is a hard failure — never soften it into a
+  skip.
+
+- **A wrapper must default the endpoint in the environment, never build
+  `--flag <value>` pairs from it.** `cmd/ftp/run.sh` used to source the `.env`
+  its own `[ ! -f .env ] && cp .env.example .env` had just written, then emit
+  `--host "$FTP_HOST"`. A flag's value is a *separate argv entry*, so the two
+  ways that can go wrong are both silent about their cause: an unset variable
+  leaves `--host` to take the next argument with it, and a bare expansion that
+  survives becomes a positional argument the CLI reports as a usage error on
+  input nobody typed. There is no `.env` now — `FTP_HOST` / `FTP_PORT` /
+  `FTP_USER` / `FTP_PASS` / `FTP_TIMEOUT` are read *as defaults* inside
+  `cmd/ftp/main.mbt` (`env_or` / `env_port` / `env_timeout`), so an unset
+  variable means "keep the built-in default" and can never consume a flag.
+  `cmd/profiles/run.sh` exports `FTP_TEST_*` the same way, and `cmd/profiles`
+  still fails loudly on a missing one. `cmd/example/run.sh` needs no
+  configuration at all — `cmd/example/main.mbt` already defaults every variable
+  it reads, so its `.env` could only restate them.
+  `scripts/ftp-wrapper-selftest.py`
+  (Docker-free, in `scripts/ci.sh`) asserts both that the `.env` files are gone
+  and that every emitted flag value is a `${VAR:-literal}` expansion, with a
+  *literal* default rather than another expansion, which would put the footgun
+  straight back.
+
+  Note this is *not* the explanation for the `ReaderClosed` /
+  `Connection reset by peer` / `Connection refused` triple seen in
+  `cnb-cgc-1k4qajlu6`. A later run, `cnb-hka-1k4qa65hk`, shows `cmd/ftp/run.sh`
+  completing normally (`file 12 hello.txt`), which rules the `.env` race out for
+  that signature. Those three are the plaintext container dying mid-run — one
+  symptom per client, differing only in which syscall caught it.
 
 - `cmd/ftps` is the **FTPS end-to-end smoke test**, the encrypted counterpart of
   `cmd/example`. It takes a transport argument: `explicit` (default, `AUTH TLS`
@@ -165,6 +194,21 @@ You can browse and install extra skills here:
   against a real container that is usually simply up. Do not replace this with
   a bare `docker ps`: that is exactly the check that calls a published-but-not-
   serving port healthy.
+
+- **That re-check belongs after the *first* client, not only before `plain`.**
+  It originally sat in front of `cmd/ftps/run.sh plain` alone, on the reasoning
+  that `plain` is the last step needing the container. The run it was written
+  for (`cnb-cgc-1k4qajlu6`) says otherwise: `cmd/example` passed, and then
+  `cmd/ftp` died with `connect failed: ReaderClosed`, `cmd/profiles` with
+  `Connection reset by peer`, the FTPS smoke test passed against its *own*
+  container, and `plain` with `Connection refused` — one dead container
+  reported four times, once per client, in four different vocabularies, because
+  only the last of them was preceded by a check. `cmd/example` finishing is the
+  earliest evidence that the endpoint works *and* the last moment a restart can
+  still save the three steps behind it, so the call sits between
+  `cmd/example/run.sh` and `cmd/ftp/run.sh`. `ensure-ftp-selftest.py` asserts
+  that position against `scripts/ci.sh`, because an extra call is merely
+  redundant while a missing one is invisible.
 
 - **FTPS is the one capability whose failure mode is "the first read hangs"**,
   which no unit test and no plaintext server can reach. All four of the TLS
