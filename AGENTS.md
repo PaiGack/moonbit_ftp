@@ -140,6 +140,32 @@ You can browse and install extra skills here:
   throwaway trees. `fixture-isolation-selftest.py` asserts that invariant with
   no Docker, since no single-container test can see it.
 
+- **The plaintext container can be gone by the time `plain` runs, and the
+  client only says so about the port.** `cmd/ftps/run.sh plain` is the last
+  step that needs `scripts/start-ftp.sh`'s container, and it is a whole FTPS
+  block — an image pull, a generated CA, a second handshake, one more
+  `docker run` — away from the probe that declared it healthy. On CNB's DinD
+  the `jmoyer/vsftpd` container has twice been dead by then, and all the client
+  reports is
+
+  ```
+  ==> plain: dial 127.0.0.1:21
+  OSError("@socket.Tcp::connect(): Connection refused")
+  ```
+
+  which names the port rather than the container, and reads like a plaintext
+  regression even though `cmd/example`, `cmd/ftp` and `cmd/profiles` had just
+  passed against the same endpoint. `scripts/ensure-ftp.sh` therefore re-checks
+  the container immediately before that leg — running *and* answering a login +
+  passive `LIST`, since a published port is not a serving vsftpd — and
+  restarts it with `start-ftp.sh` when it is not, failing with the container log
+  only when the restart does not help. `ensure-ftp-selftest.py` drives that
+  script through a stub `docker`, because the three outcomes (leave a healthy
+  server alone, restart a dead one, give up loudly) are indistinguishable
+  against a real container that is usually simply up. Do not replace this with
+  a bare `docker ps`: that is exactly the check that calls a published-but-not-
+  serving port healthy.
+
 - **FTPS is the one capability whose failure mode is "the first read hangs"**,
   which no unit test and no plaintext server can reach. All four of the TLS
   bugs found so far lived in the seams: `AUTH TLS` sent without upgrading the
