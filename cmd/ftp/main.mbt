@@ -13,7 +13,7 @@
 ///   put <local> [remote]   upload a file
 ///   walk <root>            walk a remote directory tree
 ///   mkdir <path>           create a directory
-///   rm <path>              remove a file or empty directory
+///   rm [-r] <path>         remove a file, an empty directory, or a whole tree with -r
 ///
 /// Options:
 ///   --host <host>          server host (default 127.0.0.1)
@@ -208,7 +208,7 @@ fn print_usage() -> Unit {
     #|  put <local> [remote]   upload a file
     #|  walk <root>            walk a remote directory tree
     #|  mkdir <path>           create a directory
-    #|  rm <path>              remove a file or empty directory
+    #|  rm [-r] <path>         remove a file, an empty directory, or a whole tree with -r
     #|
     #|Options:
     #|  --host <host>          server host (default 127.0.0.1)
@@ -372,8 +372,19 @@ async fn cmd_mkdir(client : @lib.FTPClient, positional : Array[String]) -> Unit 
 
 ///|
 async fn cmd_rm(client : @lib.FTPClient, positional : Array[String]) -> Unit {
-  guard positional is [path, ..] else {
-    println("usage: rm <path>")
+  // `-r` is peeled off here rather than in the shared option parser, which
+  // would otherwise make it a global flag for every subcommand.
+  let (recursive, rest) = match positional {
+    ["-r", .. rest] => (true, rest)
+    _ => (false, positional)
+  }
+  guard rest is [path, ..] else {
+    println("usage: rm [-r] <path>")
+    return
+  }
+  if recursive {
+    @lib.remove_dir_recur(client, path)
+    println("removed directory tree \{path}")
     return
   }
   let entry = @lib.get_entry(client, path) catch {
@@ -394,7 +405,7 @@ async fn cmd_rm(client : @lib.FTPClient, positional : Array[String]) -> Unit {
       } catch {
         e =>
           println(
-            "error: cannot remove non-empty directory '\{path}': \{e}. Use a recursive tool for nested directories.",
+            "error: cannot remove non-empty directory '\{path}': \{e}. Re-run with -r to remove it recursively.",
           )
       }
   }

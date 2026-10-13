@@ -268,3 +268,121 @@ test "extract_quoted takes the first quoted substring" {
 test "extract_quoted stops at the closing quote" {
   assert_eq(extract_quoted("257 \"/pub\" and \"/other\" too"), Some("/pub"))
 }
+
+///|
+/// `remove_dir_recur` is the `cd`-in / `cd ..`-out dance of upstream
+/// `RemoveDirRecur`: `CWD` into the target, `PWD` to learn the absolute name,
+/// `LIST` it, recurse into folders (`CWD` again) and `DELE` files, then `CDUP`
+/// and `RMD` the directory itself.
+///
+/// The tree is one level deep with a file and an empty folder, the smallest
+/// shape that takes both branches while keeping the command log readable:
+///
+/// ```text
+/// /tree
+///   a.txt        -> DELE a.txt
+///   sub/         -> CWD /tree/sub, PWD, LIST, CDUP, RMD /tree/sub
+/// ```
+async test "remove_dir_recur descends, lists, deletes and removes bottom up" {
+  let tree = data_listener()
+  let tree_port = tree.addr.port()
+  let sub = data_listener()
+  let script = "250 Directory successfully changed.\r\n" +
+    "257 \"/tree\" is the current directory\r\n" +
+    epsv_reply(tree_port) +
+    "150 Here comes the directory listing.\r\n226 Directory send OK.\r\n" +
+    // Recurse into `sub`: `CWD`, `PWD`, `LIST`, `CDUP`, `RMD`.
+    "250 Directory successfully changed.\r\n" +
+    "257 \"/tree/sub\" is the current directory\r\n" +
+    epsv_reply(sub.addr.port()) +
+    "150 Here comes the directory listing.\r\n226 Directory send OK.\r\n" +
+    "250 Directory successfully changed.\r\n" +
+    "250 Remove directory operation successful.\r\n" +
+    // The file child of `/tree`.
+    "250 Delete operation successful.\r\n" +
+    // Back out and remove `/tree` itself.
+    "250 Directory successfully changed.\r\n" +
+    "250 Remove directory operation successful.\r\n"
+  let (client, sink) = scripted_client(script, mlst_supported=true)
+  @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      serve_payload(tree, "type=dir; sub\r\ntype=file; a.txt\r\n")
+    })
+    group.spawn_bg(no_wait=true, async fn() { serve_payload(sub, "") })
+    remove_dir_recur(client, "/tree") catch {
+      e => fail("remove_dir_recur: \{e}")
+    }
+  })
+  assert_eq(sink.lines, [
+    "CWD /tree", "PWD", "EPSV", "MLSD /tree", "CWD /tree/sub", "PWD", "EPSV", "MLSD /tree/sub",
+    "CDUP", "RMD /tree/sub", "DELE a.txt", "CDUP", "RMD /tree",
+  ])
+}
+
+///|
+/// `.` and `..` are skipped, so a server that lists them does not turn into a
+/// recursive descent into the parent — which would either delete the wrong tree
+/// or loop forever.
+async test "remove_dir_recur skips dot entries" {
+  let dir = data_listener()
+  let port = dir.addr.port()
+  let script = "250 Directory successfully changed.\r\n" +
+    "257 \"/d\" is the current directory\r\n" +
+    epsv_reply(port) +
+    "150 Here comes the directory listing.\r\n226 Directory send OK.\r\n" +
+    "250 Directory successfully changed.\r\n" +
+    "250 Remove directory operation successful.\r\n"
+  let (client, sink) = scripted_client(script, mlst_supported=true)
+  @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      serve_payload(dir, "type=dir; .\r\ntype=dir; ..\r\n")
+    })
+    remove_dir_recur(client, "/d") catch {
+      e => fail("remove_dir_recur: \{e}")
+    }
+  })
+  // No `CWD /d/.` or `CWD /d/..`: nothing but the directory removal went out.
+  assert_eq(sink.lines, ["CWD /d", "PWD", "EPSV", "MLSD /d", "CDUP", "RMD /d"])
+}
+
+///|
+/// `PWD` is what names the directory, not the caller's argument: the recursion
+/// has since moved the working directory, so a relative argument must not be
+/// handed to `RMD` where it would resolve somewhere else.
+async test "remove_dir_recur removes the PWD name, not the caller argument" {
+  let dir = data_listener()
+  let port = dir.addr.port()
+  let script = "250 Directory successfully changed.\r\n" +
+    "257 \"/abs/target\" is the current directory\r\n" +
+    epsv_reply(port) +
+    "150 Here comes the directory listing.\r\n226 Directory send OK.\r\n" +
+    "250 Directory successfully changed.\r\n" +
+    "250 Remove directory operation successful.\r\n"
+  let (client, sink) = scripted_client(script, mlst_supported=true)
+  @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() { serve_payload(dir, "") })
+    remove_dir_recur(client, "target") catch {
+      e => fail("remove_dir_recur: \{e}")
+    }
+  })
+  assert_eq(sink.lines, [
+    "CWD target", "PWD", "EPSV", "MLSD /abs/target", "CDUP", "RMD /abs/target",
+  ])
+}
+
+///|
+/// A failed `CWD` stops before anything is deleted: a refused entry must not be
+/// followed by `LIST` / `DELE` against whatever directory the session was left
+/// in.
+async test "remove_dir_recur aborts on a refused CWD" {
+  let (client, sink) = scripted_client("550 Failed to change directory.\r\n")
+  let raised = try {
+    remove_dir_recur(client, "/nope")
+    None
+  } catch {
+    FtpError::ServerError(code~, ..) => Some(code)
+    _ => None
+  }
+  assert_eq(raised, Some(550))
+  assert_eq(sink.lines, ["CWD /nope"])
+}
