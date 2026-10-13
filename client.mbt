@@ -41,6 +41,10 @@ pub struct FTPClient {
   mut location : @time.Zone
   /// Feature names advertised by `FEAT`, uppercased.
   mut features : Map[String, Bool]
+  /// The clock behind `FTPClient::now`, the reference instant of the `LIST`
+  /// six month rule. Injectable so a test can pin "now"; defaults to the
+  /// system clock (see `DialOptions::clock`).
+  mut clock : () -> @time.ZonedDateTime
 }
 
 ///|
@@ -146,6 +150,15 @@ pub fn FTPClient::location(self : FTPClient) -> @time.Zone {
 /// Replace the timezone used to interpret `LIST` timestamps.
 pub fn FTPClient::set_location(self : FTPClient, location : @time.Zone) -> Unit {
   self.location = location
+}
+
+///|
+/// Replace the clock behind `FTPClient::now`.
+pub fn FTPClient::set_clock(
+  self : FTPClient,
+  value : () -> @time.ZonedDateTime,
+) -> Unit {
+  self.clock = value
 }
 
 ///|
@@ -324,6 +337,13 @@ pub struct DialOptions {
   mut force_list_hidden : Bool
   /// Timezone used to interpret `LIST` timestamps, defaults to UTC.
   mut location : @time.Zone
+  /// Clock behind the `LIST` six month rule. Defaults to `system_clock`.
+  /// This is the injectable seam that keeps `list()` testable, and the one
+  /// that was missing while `FTPClient::now` returned a hard coded epoch:
+  /// the production call site had no way to pin "now", so every unit test
+  /// that looked at the half-year rule passed a reference instant by hand
+  /// and the bug survived.
+  mut clock : () -> @time.ZonedDateTime
 }
 
 ///|
@@ -343,6 +363,7 @@ pub fn DialOptions::default() -> DialOptions {
     writing_mdtm: false,
     force_list_hidden: false,
     location: @time.utc_zone,
+    clock: system_clock,
   }
 }
 
@@ -442,6 +463,15 @@ pub fn DialOptions::set_location(
   value : @time.Zone,
 ) -> Unit {
   self.location = value
+}
+
+///|
+/// Replace the clock used by the `LIST` six month rule.
+pub fn DialOptions::set_clock(
+  self : DialOptions,
+  value : () -> @time.ZonedDateTime,
+) -> Unit {
+  self.clock = value
 }
 
 ///|
