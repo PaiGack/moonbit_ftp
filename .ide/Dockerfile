@@ -9,7 +9,21 @@ FROM cnbcool/default-dev-env:latest
 RUN apt-get update && apt-get install -y \
       gcc libc6-dev libssl-dev strace python3 openssl
 
+# The MoonBit toolchain.
+#
+# `install/unix.sh` with no version installs `latest`, and a dated version is
+# not fetchable in this environment (`binaries/<version>/...` answers 403/404;
+# only `latest` and `nightly` resolve), so the image cannot pin it here.
+#
+# That matters because `latest` moved backwards once: on 2026-10-13 a rebuilt
+# image carried `moon 0.1.20260920`, older than the `0.1.20261012` that had
+# passed twenty minutes earlier, and the pipeline failed from `moon fmt
+# --check` down with "The type Int32 is undefined" 187 times, naming sources
+# that had not changed. Since the version cannot be pinned at build time, the
+# surface is checked at run time instead: `scripts/moon-toolchain.sh` is the
+# first step of `scripts/ci.sh` and fails in one message about the toolchain.
 RUN curl -fsSL https://cli.moonbitlang.cn/install/unix.sh | bash \
+     && "$HOME/.moon/bin/moon" version \
      && code-server --install-extension moonbit.moonbit-lang
 
 RUN curl -fsSL https://downloads.claude.ai/claude-code-releases/bootstrap.sh | bash

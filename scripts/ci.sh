@@ -48,9 +48,29 @@ cleanup() {
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
-# Toolchain. `moon update` is required in a clean container: without the
-# registry index `moon check` fails with "module was not found in the registry".
+# Toolchain, checked before it is used.
+#
+# `.ide/Dockerfile` installs MoonBit with `install/unix.sh` and no version, so
+# the image carries whatever `latest` meant when it was last built -- nothing
+# here pins it. On 2026-10-13 that image was rebuilt onto `moon 0.1.20260920`
+# (an older toolchain than 0.1.20261012, which had been passing minutes
+# earlier), and every step from `moon fmt --check` down failed with
+#
+#     The type Int32 is undefined.
+#
+# 187 times, naming `client.mbt`, `transport.mbt` and the rest -- i.e. the
+# sources, which were never the problem.
+#
+# The guard below compiles a two-line probe of the surface those sources are
+# written in, so an old toolchain fails *once*, here, with a message about the
+# toolchain. It is the first step for that reason: `moon update` and everything
+# after it are pointless on a toolchain that cannot parse the code, and running
+# them first buries the cause under their errors.
+#
+# `moon update` is required in a clean container: without the registry index
+# `moon check` fails with "module was not found in the registry".
 # ---------------------------------------------------------------------------
+run "$SCRIPT_DIR/moon-toolchain.sh" moon
 run moon version
 run moon update
 
@@ -74,14 +94,23 @@ run moon run cmd/ftp -- --help
 # ---------------------------------------------------------------------------
 # Logic checks that need a server but not a *real* one, so they run before any
 # Docker work and cannot be blamed on a flaky image pull.
-#
-# `probe-ftps.sh` is the readiness gate the whole FTPS block hangs off: when it
-# wrongly reports "unhealthy", `start-ftps.sh` fails, `.ftp-tls.env` is never
+# ---------------------------------------------------------------------------
+
+# First the toolchain guard's own test, because that guard is the very first
+# step of this script and its failure mode is "stays silent and lets an old
+# toolchain through" -- which is exactly how an unusable `moon` reached
+# `moon fmt --check` and printed 187 errors about the sources. Its three
+# outcomes (accept a current toolchain, reject an old one, reject a missing
+# one) are indistinguishable on a real image, which is usually fine, so a stub
+# `moon` drives all three here.
+run python3 "$SCRIPT_DIR/moon-toolchain-selftest.py" "$ROOT"
+
+# Then `probe-ftps.sh`, the readiness gate the whole FTPS block hangs off: when
+# it wrongly reports "unhealthy", `start-ftps.sh` fails, `.ftp-tls.env` is never
 # written and both `cmd/ftps/run.sh` calls fail after it -- with no hint that
 # the gate, not the server, was the problem. That is exactly how a pipeline that
 # never actually reached the FTPS assertions still looked like a TLS bug, so
 # the gate gets its own test against a mock that answers the same handshake.
-# ---------------------------------------------------------------------------
 run python3 "$SCRIPT_DIR/ftps/probe-ftps-selftest.py" \
   "$SCRIPT_DIR/ftps/probe-ftps.sh"
 
