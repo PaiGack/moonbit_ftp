@@ -324,6 +324,10 @@ pub struct DialOptions {
   mut force_list_hidden : Bool
   /// Timezone used to interpret `LIST` timestamps, defaults to UTC.
   mut location : @time.Zone
+  /// Traffic log sink. `None` (the default) keeps the wire silent, so existing
+  /// users and CI output are unchanged; upstream spells this
+  /// `DialWithDebugOutput`, here it is a `set_*` setter like the rest.
+  mut debug_sink : &@io.Writer?
 }
 
 ///|
@@ -343,6 +347,7 @@ pub fn DialOptions::default() -> DialOptions {
     writing_mdtm: false,
     force_list_hidden: false,
     location: @time.utc_zone,
+    debug_sink: None,
   }
 }
 
@@ -442,6 +447,26 @@ pub fn DialOptions::set_location(
   value : @time.Zone,
 ) -> Unit {
   self.location = value
+}
+
+///|
+/// Route a log of every control channel line -- commands out, replies back --
+/// into `sink`, the MoonBit counterpart of upstream `DialWithDebugOutput`.
+///
+/// Off by default: with no sink installed `dial` installs no logging layer at
+/// all, so the hot path is a `None` check and the bytes on the wire are
+/// unchanged. `sink = None` turns it back off.
+pub fn DialOptions::set_debug_sink(
+  self : DialOptions,
+  sink : &@io.Writer?,
+) -> Unit {
+  self.debug_sink = sink
+}
+
+///|
+/// The traffic log sink, if one was installed.
+pub fn DialOptions::debug_sink(self : DialOptions) -> &@io.Writer? {
+  self.debug_sink
 }
 
 ///|

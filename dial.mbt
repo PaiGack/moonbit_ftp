@@ -37,6 +37,7 @@ pub async fn dial(
   writing_mdtm? : Bool = false,
   force_list_hidden? : Bool = false,
   location? : @time.Zone = @time.utc_zone,
+  debug_sink? : &@io.Writer? = None,
 ) -> FTPClient {
   let options : DialOptions = {
     timeout_ms,
@@ -51,6 +52,7 @@ pub async fn dial(
     writing_mdtm,
     force_list_hidden,
     location,
+    debug_sink,
   }
   let (host, port) = split_addr(addr, if tls { 990 } else { 21 })
   let socket_addr = @socket.Addr::parse("\{host}:\{port}") catch {
@@ -80,6 +82,15 @@ pub async fn dial(
   } else {
     Control::new(tcp, tcp, host_text, timeout_ms~)
   }
+  // Attach the traffic log once the connection exists and before the greeting
+  // is read, so the first record is what the server said first. Nothing is
+  // installed when no sink was asked for.
+  control.set_debug(
+    match debug_sink {
+      None => None
+      Some(sink) => Some(DebugLog::new(sink))
+    },
+  )
   let state_options = options.to_state_options()
   let session = Session::new(control, options=state_options)
   let client : FTPClient = {
