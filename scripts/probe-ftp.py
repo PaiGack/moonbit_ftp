@@ -27,10 +27,13 @@ container before *every* plaintext client, so a subprocess exit that skipped
 declared healthy. Hence `QUIT` in `finally`: a refused `PASV`, a `LIST` that
 raised, an early `return` in a future edit must all still close the session.
 
-The probe closes the *control* session, not the server, and that is what makes
-it safe to call in front of a client: the containers it is pointed at are
-long-lived (`scripts/start-ftp.sh` keeps them until `stop-ftp.sh`), and the
-later client opens a session of its own rather than resuming this one.
+`QUIT` is sent on the way *out* of the session, including when the session
+failed, so it is the last thing every attempt does rather than the last line of
+the happy path. That goodbye is best-effort -- a server that already hung up
+cannot be told about it, and a hang-up is not a held slot -- but a failure to
+*send* it is the only thing swallowed; the reason the attempt failed still
+propagates. Nothing here reads the `221` beyond its arrival, because the reply
+this probe reports on failure is the one it got from the command that failed.
 """
 
 import re
@@ -62,11 +65,6 @@ def attempt():
         control.settimeout(3)
         buffer = [b""]
 
-        # No `finally` on the receives below: a `RuntimeError` out of
-        # `recv_line` means the server closed the control socket, so there is
-        # nothing left to say goodbye to. `QUIT` in a `finally` here would turn
-        # a clean rejection into a `ConnectionResetError` out of `sendall`,
-        # which would replace the reply this probe exists to print.
         def command(text, expected):
             control.sendall(f"{text}\r\n".encode())
             reply = recv_line(control, buffer)
@@ -74,6 +72,20 @@ def attempt():
                 raise RuntimeError(f"{text.split()[0]} was rejected: {reply!r}")
             return reply
 
+        # `QUIT` here, not at the end of the happy path: this whole `with` is
+        # the session, and every way out of it -- a `PASV` the server refused,
+        # a `LIST` that never earned its `150`, a `RuntimeError` out of
+        # `recv_line`, an early `return` in a future edit -- has to say
+        # goodbye. See the module doc for why that is a leak rather than
+        # politeness.
+        #
+        # The goodbye is best-effort on purpose. The reply above is what this
+        # probe exists to print, so a `QUIT` that cannot even be sent (the
+        # server already closed the socket, or answered a command we did not
+        # expect and hung up) must not replace it with a `ConnectionResetError`
+        # -- and a peer that has hung up is not holding a data-channel slot
+        # either way. Only the failure to *send* is swallowed: the `RuntimeError`
+        # raised above, i.e. "the login was refused", has to keep propagating.
         try:
             banner = recv_line(control, buffer)
             if not banner.startswith("220"):
@@ -102,11 +114,10 @@ def attempt():
             if not reply.startswith("226"):
                 raise RuntimeError(f"LIST never completed: {reply!r}")
         finally:
-            # Close the *session*, not just the socket. Skipping this leaves one
-            # data-channel slot held per probe call (see the module doc), and
-            # with `ensure-ftp.sh` in front of every plaintext client that is a
-            # leak the next client pays for.
-            pass
+            try:
+                command("QUIT", ("221",))
+            except OSError:
+                pass
 
 
 while time.time() < deadline:
