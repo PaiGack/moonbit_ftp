@@ -48,6 +48,13 @@ running() {
 # the half that breaks is the one a bare connect never touches. probe-ftp.py
 # takes its deadline as an argument, and `RECHECK_TIMEOUT` is deliberately
 # shorter than the starter's own.
+#
+# The probe ends every session with a `QUIT`, which is what makes calling it
+# before each client safe: vsftpd keeps one data-channel slot per login until
+# the client says goodbye, and a probe that only closed its socket would hold
+# one of them per call -- so the guard would be the thing that starves the
+# client it guards. `probe-ftp-selftest.py` counts the `QUIT`s against a mock,
+# because a real server is up and answers either way.
 healthy() {
   python3 "$SCRIPT_DIR/probe-ftp.py" \
     "127.0.0.1" "$FTP_PORT" "$FTP_USER" "$FTP_PASS" "$RECHECK_TIMEOUT" \

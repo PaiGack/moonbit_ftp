@@ -176,6 +176,17 @@ run python3 "$SCRIPT_DIR/vsftpd-env-selftest.py" "$ROOT"
 # container is usually up. Its stub `docker` makes all three reachable.
 run python3 "$SCRIPT_DIR/ensure-ftp-selftest.py" "$ROOT"
 
+# And the verdict that both of those make their decisions with. Every plaintext
+# client is now preceded by a `probe-ftp.py` call, so the probe's own bugs are
+# read as facts about the server: one that answers "unhealthy" about a healthy
+# container makes `ensure-ftp.sh` restart it underneath the client that is about
+# to use it, and one that answers "healthy" about a dead one skips the restart
+# that would have saved four steps. It is also the one thing a real vsftpd
+# cannot check, because that server is up and answers everything -- including
+# whether the probe said `QUIT`, which is what keeps its `PASV` slot from being
+# left to `idle_session_timeout`. A mock counts the sessions instead.
+run python3 "$SCRIPT_DIR/probe-ftp-selftest.py" "$ROOT"
+
 # Code statistics. Best-effort: a registry hiccup must not fail the build.
 run docker run --rm -v "$ROOT:/src" ghcr.io/xampprocky/tokei:latest .
 
