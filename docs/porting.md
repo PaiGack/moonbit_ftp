@@ -207,8 +207,15 @@ while w.next() {
    | --- | --- | --- |
    | `full` | — | `FEAT` 协商；`MLSD` 列表 + `EPSV` 传输；`MDTM` 读时间，并经 `MDTM <time> <path>` 写入后读回一致 |
    | `no-mlst` | `disable_mlsd` | 客户端改用 `LIST`（四种解析器回退）并给出与 `MLSD` 相同的条目与大小 |
-   | `no-time` | `writing_mdtm=false` | `set_file_time` **如实拒绝**（`502`），且文件时间戳原样不动 |
+   | `no-time` | `writing_mdtm=false` + 抹掉 `MFMT` 能力（客户端关能力，同 `full` 行的口径） | `set_file_time` **如实拒绝**（`502`），且文件时间戳原样不动 |
    | `no-epsv` | `disable_epsv` | 所有传输走 `PASV`，`EPSV` 一次都不发 |
+
+   `no-time` 关的是**两个**开关，少写一个表格就说谎：`is_set_time_supported` 是
+   `mfmt_supported || (mdtm_supported && mdtm_can_write)`，而 `set_file_time` 优先走 `MFMT`。
+   真实 vsftpd 的 `FEAT` 不广播 `MFMT`，所以在当前容器上只关 `writing_mdtm` 也能得到 `502`；
+   但换一台广播 `MFMT` 的服务器，只关 `writing_mdtm` 就再也产不出 `502` 了——所以
+   `check_set_time` 在关 `writing_mdtm` 之外还 `set_mfmt_supported(false)`，把两条写时间的
+   路径一起拆掉。
 
    每个画像都跑完 `FEAT` / `STOR` / `RETR` / `LIST` / `NLST` / `MDTM`（读+写）/
    `MKD` / `RMD` / `RemoveDirRecur`，最后 `DELE` + `RMD` 收摊，并打印服务器上剩下的整棵树，
@@ -265,7 +272,8 @@ while w.next() {
    > "客户端握手时机是否正确"这个待测问题本身掩盖掉，所以宁可不跑，也不跑个假的绿灯。
 
    同一段编排里还有五道**无 Docker 的闸门自测**，都在任何容器之前跑：
-   `probe-ftps-selftest.py` 驱动 `probe-ftps.sh`，`cmd-ftps-selftest.py` 用 `ftp_mock.py`
+   `probe-ftps-selftest.py` 驱动 `probe-ftps.sh`（用法 `probe-ftps-selftest.py PROBE [CA_FILE]`，
+   第一个参数是被测的探测脚本路径而不是仓库根目录），`cmd-ftps-selftest.py` 用 `ftp_mock.py`
    驱动真实的 `cmd/ftps plain`，`fixture-isolation-selftest.py` 断言两个容器不共用可写的
    fixture 目录。第二条是这次 CI 失败的教训：`cmd/ftps` 把 `@io.MemoryReader` 直接写成
    `stor` 调用的临时参数，没人负责关它，`STOR` 被拒时它的后台生产者任务残留，事件循环以

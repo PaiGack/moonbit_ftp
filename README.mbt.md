@@ -83,7 +83,7 @@ test {
     // 8. 遍历结束再删：上传的文件活到走完目录树才收拾，重复运行才安全（幂等）
     @ftp.delete(client, renamed)
 
-    // 9. 退出并关闭连接
+    // 9. 退出：发 QUIT 并标记为已关闭（底层 socket 的处理见下方说明）
     @ftp.quit(client)
   }
   ignore(demo)
@@ -125,9 +125,21 @@ test {
 | `get_time(client, path)` / `set_file_time(client, path, time)` | `MDTM` 读 / 写时间戳 |
 | `make_dir` / `remove_dir` / `remove_dir_recur` / `delete` / `rename` / `change_dir` / `change_dir_to_parent` / `current_dir` | 目录与文件管理（`remove_dir_recur` 递归删除非空目录） |
 | `walk(client, root)` | 普通函数，拿到 `Walker`；`while w.next() { ... }` 深度优先遍历，`next()` 是 `async` 且失败时不抛错而是返回 `false`（原因读 `w.err()`） |
-| `no_op` / `logout` / `quit(client)` | `NOOP` / `REIN` / `QUIT`（`quit` 发 `QUIT` 并关闭连接） |
+| `no_op` / `logout` / `quit(client)` | `NOOP` / `REIN` / `QUIT`（`quit` 发 `QUIT` 并标记为已关闭；socket 不做显式 close，见下方"连接与关闭语义"） |
 
 > 错误以 `FtpError` 抛出，可用 `catch` / `try!` 统一处理；多次失败会被聚合成
+
+
+### 连接与关闭语义
+
+`quit` 发 `QUIT`，然后把客户端标记为已关闭（之后再调 `quit` 是空操作，`is_closed()` 返回 `true`）。
+它**不**关闭底层 socket：`Control` 没有 `close` 方法，也没有任何路径调用 `@socket.Tcp::close`。
+关闭由两端各自完成——服务端收到 `QUIT` 后回包并关闭它那一侧，进程退出时本地的句柄随之释放。
+这与上游 Go 版的口径一致（`Quit` 之后同样不显式 Close），因此不要指望 `quit` 之后 socket 立刻
+读到一个 EOF。
+
+与之互补的是 `logout`（`REIN`）：它丢弃登录态但**保留**控制连接，可以继续在这条连接上 `USER`/`PASS`。
+
 > `FtpErrors::MultipleErrors` 一起报，而不是遇到第一个就吞掉。`list` / `walk`
 > 解析不出的行会被跳过而非中断。
 
@@ -271,7 +283,7 @@ FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同
 │   ├── ftps/                  FTPS（显式 AUTH TLS）容器
 │   │   ├── gen-cert.sh        自签名 CA + 叶证书（每次重新签发，写进 testdata/ftp/tls）
 │   │   ├── probe-ftps.sh      就绪探测：AUTH TLS 握手 + 证书校验
-│   │   ├── probe-ftps-selftest.py  用 mock 服务器自测上面的探测（无需 Docker）
+│   │   ├── probe-ftps-selftest.py  用 mock 服务器自测上面的探测（无需 Docker，用法见下）
 │   │   ├── ftp_mock.py        明文 FTP mock，供 cmd-ftps-selftest.py 驱动真实二进制
 │   │   ├── cmd-ftps-selftest.py    无 Docker 跑 cmd/ftps plain（含 STOR 被拒的回归用例）
 │   │   ├── fixture-isolation-selftest.py  断言两个容器不共用可写 fixture
@@ -290,6 +302,12 @@ FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同
 ```
 
 纯逻辑与 IO 源码同属一个包，分层约束通过每个源文件头部的 `// Layer:` 注释标记。
+
+> **`probe-ftps-selftest.py` 的用法**：`python3 scripts/ftps/probe-ftps-selftest.py PROBE [CA_FILE]`。
+> `PROBE` 是被测的探测脚本（`scripts/ftps/probe-ftps.sh`），`CA_FILE` 可选，默认用自测现场
+> 现签的那张 CA（正是 mock 出示的证书的签发者）。
+> 第一个参数是脚本路径，**不是**仓库根目录——把 `$PWD` 之类的路径传进去，它会被当成 `PROBE`，
+> 于是报出 `bash /gen-cert.sh: exit 127` 这种与真实原因无关的错。`scripts/ci.sh` 只传 `PROBE`。
 
 ## 致谢与来源
 
