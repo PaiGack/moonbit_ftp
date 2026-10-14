@@ -52,10 +52,11 @@ You can browse and install extra skills here:
   server task raised: the group is marked failed, its other tasks are cancelled,
   and the caller — the plain `stor_from` on the main path — collects that
   cancellation instead of the real error. The missing file is never named, so
-  the one behaviour `docs/porting.md` 1.4 item 7 promises reads as a library
-  bug. The gate regenerates the pair into a scratch directory and loads it the
-  way OpenSSL will, so a certificate that is present but unusable fails here
-  rather than as a TLS error inside the test.
+  the behaviour the test exists to pin -- a zero byte upload must trigger the
+  handshake explicitly -- reads as a library bug. The gate regenerates the pair
+  into a scratch directory and loads it the way OpenSSL will, so a certificate
+  that is present but unusable fails here rather than as a TLS error inside the
+  test.
 
 - **`probe-ftps.sh` must be tested against a mock, not only via the container.**
   It is a gate whose failure mode is "says unhealthy about a healthy server", so

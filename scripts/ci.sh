@@ -79,11 +79,11 @@ run "$SCRIPT_DIR/ftps/gen-cert.sh" "$ROOT/testdata/ftp/tls"
 #   transfer_wbtest.mbt:386 FAILED: stor_from: Cancelled
 #
 # which is the task group's way of reporting that its server task died: the
-# missing file is never named, and the promise docs/porting.md 1.4 item 7 makes
-# ("a zero byte upload must trigger the handshake explicitly") reads as a
-# library bug instead of a fixture nobody generated. The gate also checks the
-# PEM it was handed is a usable key + certificate pair, so a regenerated-but-
-# broken certificate fails here rather than as a TLS error in the test.
+# missing file is never named, and the behaviour the test exists to pin -- a
+# zero byte upload must trigger the handshake explicitly -- reads as a library
+# bug instead of a fixture nobody generated. The gate also checks the PEM it
+# was handed is a usable key + certificate pair, so a regenerated-but-broken
+# certificate fails here rather than as a TLS error in the test.
 run python3 "$SCRIPT_DIR/ftps/tls-fixture-selftest.py" "$ROOT" \
   "$SCRIPT_DIR/ftps/gen-cert.sh"
 

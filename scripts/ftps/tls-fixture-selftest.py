@@ -14,9 +14,9 @@ at all -- and the test then fails with
 
 which is what the async runtime reports when the task group's server task dies
 and takes the caller down with it. The real cause (a missing file) never
-appears, so the zero-byte TLS handshake -- the one behaviour docs/porting.md
-1.4 item 7 promises -- reads as a library bug. Two things are needed and this
-file checks both:
+appears, so the behaviour the test exists to pin -- a zero byte upload must
+trigger the handshake explicitly -- reads as a library bug. Two things are
+needed and this file checks both:
 
   * `gen-cert.sh` is invoked before `moon test` in `scripts/ci.sh`, with the
     gitignored `testdata/ftp/tls` directory the tests name
