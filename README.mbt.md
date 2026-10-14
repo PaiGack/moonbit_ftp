@@ -144,9 +144,6 @@ test {
 
 与之互补的是 `logout`（`REIN`）：它丢弃登录态但**保留**控制连接，可以继续在这条连接上 `USER`/`PASS`。
 
-> `FtpErrors::MultipleErrors` 一起报，而不是遇到第一个就吞掉。`list` / `walk`
-> 解析不出的行会被跳过而非中断。
-
 ## 开发
 
 ### 依赖安装
@@ -211,7 +208,7 @@ moon test --target native --deny-warn
 | **能力画像端到端** | `cmd/profiles/run.sh <画像>` | 同一个 vsftpd 上四个客户端画像（`full` / `no-mlst` / `no-time` / `no-epsv`）：`FEAT`、`MLSD`/`LIST`、`EPSV`/`PASV`、`STOR`/`RETR`/`NLST`、`MDTM` 读+写、`MKD`/`RMD`/`RemoveDirRecur`。CI 逐个画像各调一次（每次前面插一次 `scripts/ensure-ftp.sh` 复检容器） |
 | **FTPS 端到端** | `scripts/ftps/start-ftps.sh` + `cmd/ftps/run.sh` | 真实 vsftpd 上的**显式 `AUTH TLS`**：dial / login / LIST / RETR / STOR / DELE |
 | 明文回归 | `cmd/ftps/run.sh plain` | 同一个 `cmd/ftps` 二进制走明文链路，确保数据通道时序改动没有破坏无 TLS 路径 |
-| 无 Docker 自测 | `scripts/` 下的 `*-selftest.py` | 拉镜像之前就跑：FTPS 就绪探测、`cmd/ftps`（含 `STOR` 被拒回归）、`cmd/profiles` 的协议选择断言、两个容器不共用 fixture、`start-ftp.sh` 传给镜像的 10 个环境变量非空、`ensure-ftp.sh` 的复检三分支与它在 `ci.sh` 中的位置、`cmd/ftp/run.sh` 不拼 flag |
+| 无 Docker 自测 | `scripts/` 下的 `*-selftest.py` | 拉镜像之前就跑：TLS fixture 已签发、FTPS 就绪探测、`cmd/ftps`（含 `STOR` 被拒回归）、`cmd/profiles` 的协议选择断言、两个容器不共用 fixture、`cmd/ftp/run.sh` 不拼 flag、`start-ftp.sh` 传给镜像的 10 个环境变量非空、`ensure-ftp.sh` 的复检三分支、明文探测 `probe-ftp.py`（含每次会话以 QUIT 收尾），以及 `ensure-ftp.sh` 在 `ci.sh` 中的位置 |
 
 ### 本地端到端（需要 docker）
 
@@ -265,7 +262,7 @@ FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同
 ├── walker.mbt                 目录树遍历
 ├── cmd/ftp/                   CLI 示例：ls / get / put / walk / mkdir / rm
 │   ├── main.mbt
-│   └── run.sh                 设置 FTP_* 环境默认值后原样转发 argv
+│   └── run.sh                 用 ${VAR:-literal} 默认值补出连接 flag，再原样转发其余 argv
 ├── cmd/example/               真实 vsftpd 端到端演示（明文）
 │   ├── main.mbt
 │   └── run.sh                 跑 cmd/example（无参数）
@@ -279,6 +276,7 @@ FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同
 │   ├── ci.sh                  CI 入口脚本（check / test / build / 演示的唯一入口）
 │   ├── start-ftp.sh           启动明文 vsftpd 容器（127.0.0.1:21）
 │   ├── probe-ftp.py           明文容器就绪探测（登录 + 一次被动 LIST）
+│   ├── probe-ftp-selftest.py  用 mock vsftpd 自测上面的探测（含每次会话都以 QUIT 收尾，无需 Docker）
 │   ├── ensure-ftp.sh          客户端之间复检明文容器，挂了就用 start-ftp.sh 重启
 │   ├── ensure-ftp-selftest.py 用桩 docker 自测上面的复检（无需 Docker）
 │   ├── ftp-wrapper-selftest.py    断言 cmd/ftp/run.sh 只传环境默认值、不拼 flag（无需 Docker）

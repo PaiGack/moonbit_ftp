@@ -128,7 +128,11 @@ pub async fn stor_from(
       0
     }
   }
-  if written == 0 && client.options.tls {
+  // Gate on the *folded* TLS flag (`DialOptions::to_state_options`), not on
+  // `options.tls` alone: that one is false for explicit TLS (`AUTH TLS`), and
+  // `DataConn::start_tls` -- the call this branch exists to mirror -- is gated
+  // on the folded value for exactly that reason.
+  if written == 0 && client.state_options.tls() {
     // The upstream workaround, spelled as the call it always described: an
     // explicit handshake. Go's `tls.Conn` handshakes lazily on the first read
     // or write, so an upload that moved no bytes never touches the session and
