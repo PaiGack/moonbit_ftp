@@ -48,7 +48,7 @@
 
 **数据传输**
 
-- 取文件：`Retr` / `RetrFrom(offset)` → `Response`（可读、幂等 `Close`；**没有** `SetDeadline`，见下）
+- 取文件：`Retr` / `RetrFrom(offset)` → `DataResponse`（可读、幂等 `close`；**没有** `SetDeadline`，见下。注意与只表示一条控制通道回复的 `Response` 不是同一个类型）
 - 存文件：`Stor` / `StorFrom(offset)` / `Append`
 - 目录列表：`List`（`MLSD` 优先，回退 `LIST [-a]`）、`NameList`（`NLST`）、`GetEntry`（`MLST`）
 
@@ -63,19 +63,19 @@
 
 - `Entry{Name, Target, Type, Size, Time}`，`EntryType ∈ {File, Folder, Link}`
 - `TransferType ∈ {Binary("I"), ASCII("A")}`
-- 48 个 `Status*` 状态码常量 + `StatusText(code)`
+- 49 个 `status_*` 常量（其中 48 个状态码，多个常量刻意共用同一个数值，因为 RFC 本身复用了码）+ `status_text(code)`
 
 ### 1.4 关键实现要点（移植时必须保留的"隐性知识"）
 
-1. **数据通道生命周期**：`cmdDataConnFrom` 统一处理 `PRET` 预热 → 建数据连接 → 可选 `REST offset` → 发传输命令 → 校验 `125/150`；非 `2xx` 时关闭数据连接并返回 `textproto.Error`。
-2. **关闭语义**：数据传输结束后必须回控制连接读 `226/250`（`checkDataShut`），否则后续命令会错位。`ShutTimeout` 用于空闲超时场景"推一下"控制连接 deadline。
-3. **错误聚合**：Go 的 `errors.Join` 被大量使用（`Quit` / `Stor` / `Append` / `List` / `Response.Close`），即"传输错误 + 关闭错误 + 状态读取错误"要一起返回。
-4. **命令注入防护**：`checkForCommandInjection` 拒绝参数中含 `\r` / `\n`，对应 `ErrInvalidCommand`。
-5. **EPSV 回退**：`EPSV` 失败一次后置 `skipEPSV`，后续走 `PASV`。
-6. **PASV 防 SSRF**：默认使用控制连接的 IP，仅当显式信任且数据 IP 非组播/私网跨界的"可疑 IP"时才用 PASV 返回的 IP。
-7. **TLS 数据连接**：不能直接用 `tls.DialWithDialer`（proftpd/pureftpd 会挂），需 `Dial` + `tls.Client` 延迟握手；零字节上传需显式 `Handshake()`。
+1. **数据通道生命周期**：上游 `cmdDataConnFrom` 统一处理 `PRET` 预热 → 建数据连接 → 可选 `REST offset` → 发传输命令 → 校验 `125/150`；非 `2xx` 时关闭数据连接并返回 `textproto.Error`。本仓库对应 `transport.mbt` 的 `cmd_data_conn_from`，错误类型是 `FtpError::ServerError`。
+2. **关闭语义**：数据传输结束后必须回控制连接读 `226/250`（上游 `checkDataShut`，本仓库 `transfer.mbt` 的 `check_data_shut`），否则后续命令会错位。`ShutTimeout` 在本仓库是 `DialOptions::set_shut_timeout_ms`，只在 `DataResponse::close` 读 `226` 前推一下控制通道 deadline。
+3. **错误聚合**：Go 的 `errors.Join` 被大量使用（`Quit` / `Stor` / `Append` / `List` / `Response.Close`），即「传输错误 + 关闭错误 + 状态读取错误」要一起返回。本仓库对应 `error.mbt` 的 `join_errors` / `FtpErrors::MultipleErrors`。
+4. **命令注入防护**：上游 `checkForCommandInjection` 拒绝参数中含 `\r` / `\n`，对应 `ErrInvalidCommand`；本仓库是 `control.mbt` 的 `check_for_command_injection` + `FtpError::InvalidCommand`。
+5. **EPSV 回退**：`EPSV` 失败一次后置 `skipEPSV`，后续走 `PASV`；本仓库是 `Session::set_skip_epsv` / `Session::skip_epsv`。
+6. **PASV 防 SSRF**：默认使用控制连接的 IP，仅当显式信任（`trust_pasv_ip`）且数据 IP 非组播/私网跨界的「可疑 IP」时才用 PASV 返回的 IP；判定在 `transport.mbt` 的 `is_bogus_data_ip`。
+7. **TLS 数据连接**：不能直接用 `tls.DialWithDialer`（proftpd/pureftpd 会挂），需 `Dial` + `tls.Client` 延迟握手；零字节上传需显式 `Handshake()`。**本仓库的口径差异见第 3 节**：`@tls.Tls::client` 构造时即握手，所以「延迟到 `150` 之后」由调用时机保证，零字节分支那次调用是显式记账而非第二次握手。
 8. **LIST 解析容错**：依次尝试 RFC3659 → Unix ls → DOS DIR → hostedftp 四种解析器，全部失败才报 `UnsupportedListLine`；时间字段有"半年规则"（无年份且超过 6 个月视为去年）。
-9. **`Close` 幂等**：`Response.Close` 二次调用返回 nil。
+9. **`Close` 幂等**：`Response.Close` 二次调用返回 nil。本仓库对应 `DataResponse::close` 的 `closed` 标志（`transfer.mbt`）。
 
 ---
 
@@ -120,20 +120,25 @@
 ```
 .
 ├── entry.mbt                 Entry / EntryType / TransferType            纯逻辑
-├── status.mbt                RFC 959 状态码常量、常量与文本                纯逻辑
-├── error.mbt                 FtpError 及其子错误                         纯逻辑
+├── status.mbt                RFC 959 状态码常量 + status_text()            纯逻辑
+├── error.mbt                 FtpError / FtpErrors（join_errors）          纯逻辑
 ├── parse.mbt                 RFC3659 / ls / DIR / hostedftp 列表解析      纯逻辑
 │                             时间字段解析 + 空白字段扫描器
 ├── pathutil.mbt              远端路径 join                               纯逻辑
 ├── control.mbt               控制通道：命令编码、多行响应、状态码校验        IO
 ├── debug.mbt                 流量日志（DebugLog / MirrorWriter / TeeLogReader）IO
 ├── transport.mbt             EPSV / PASV / PRET / REST / 数据连接 / TLS   IO
-├── client.mbt                FTPClient + Session/Options + DialOptions    IO
+├── client.mbt                FTPClient + Session / Options + DialOptions   IO
+│                             file_size / get_time / set_file_time          IO
 ├── dial.mbt                  拨号 + 登录 + FEAT 能力协商                   IO
-├── commands.mbt              CWD / MKD / DELE / RNFR+RNTO / QUIT 等        IO
-├── list.mbt / transfer.mbt / walker.mbt
-│                             ServerConn 等价物：NLST/Retr/Stor/Walk/...  IO
-└── cmd/                      CLI 示例
+├── commands.mbt              CWD / PWD / MKD / RMD / DELE / RNFR+RNTO / QUIT 等  IO
+├── list.mbt                  NLST / LIST / MLST + set_transfer_type        IO
+├── transfer.mbt              DataResponse：RETR / STOR / APPE / REST       IO
+├── walker.mbt                目录树遍历（walk / Walker）                   IO
+├── cmd/                      CLI 与端到端程序：ftp / example / ftps / profiles
+├── scripts/                  容器生命周期、就绪探测、无 Docker 自测
+├── docs/                     porting.md（本文）+ proposal.md
+└── testdata/                 测试与演示 fixture（`ftp/tls` 由 gen-cert.sh 现签）
 ```
 
 分层依赖（文件级）：纯逻辑（`entry` / `status` / `error` / `parse` / `pathutil`）←
@@ -142,6 +147,9 @@
 
 平铺之后编译器不再按包隔离，分层约束改由文件头部的 `// Layer:` 标记 +
 本节的分组目录树守住，review 与新增文件时按它核对。
+
+> 这棵树与仓库的实际布局之间不允许漂移：`README.mbt.md` 的"目录结构"一节是同一份
+> 内容的用户视角版本，两边改动要一起改。
 
 ### 2.4 API 映射示例
 
@@ -161,11 +169,19 @@ r.close()
 let entries = @ftp.list(c, ".")
 
 // Go: w := c.Walk("/root"); for w.Next() { fmt.Println(w.Path(), w.Stat()) }
+//
+// `walk` 本身是普通函数，`Walker::next` 才是 async：它要 `LIST` 一层目录，
+// 所以必须让出事件循环。上游 `w.Next()` 是阻塞调用，这里把"让出"显式化。
 let w = @ftp.walk(c, "/root")
 while w.next() {
   println(w.path())
 }
 ```
+
+> 这段示例是**给人读的口径对照**，不是仓库自身的回归测试，因此代码块用普通
+> `moonbit` 围栏（只做高亮、不进 `moon check`）。会被检查的文档代码块见
+> `README.mbt.md` 的快速开始——那里用 `moonbit check`，且必须在
+> `moon check --target native --deny-warn` 下干净通过。
 
 设计约定：
 
