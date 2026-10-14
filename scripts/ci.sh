@@ -37,6 +37,46 @@ run() {
   fi
 }
 
+# Run a plaintext client, and cover the window *inside* it.
+#
+# `ensure-ftp.sh` in front of a step proves the container is up at that moment.
+# It cannot prove it stays up for the length of the step, and on CNB's DinD it
+# does not: the `jmoyer/vsftpd` container dies while a client is running, and
+# the guard that just declared it healthy is already behind us. That is
+# `cnb-cne-1k4sv7m6r`, where the guard before `no-epsv` passed, the container
+# died mid-session, and the client reported `profile no-epsv: ReaderClosed` --
+# a dead server wearing a profile's name. The same run then lost `plain`'s data
+# connection to the same corpse.
+#
+# So the step is re-run once when it fails *and* the container is no longer
+# answering. The re-check is what makes the retry honest: a failure caused by
+# something else -- a bad assertion, a server that answered a refusal -- leaves
+# the container up, the guard passes, and the failure is reported as the real
+# failure it is instead of being papered over by a second, identical attempt.
+run_guarded() {
+  local client="$1"
+  shift
+  step "$client $*"
+  if "$client" "$@"; then
+    return 0
+  fi
+  # Not "the step failed" but "the step failed *and* the server is gone": that
+  # conjunction is the whole discriminator.
+  if ! "$SCRIPT_DIR/ensure-ftp.sh"; then
+    echo "FAILED: $client $* (the container could not be restarted)" >&2
+    status=1
+    return 1
+  fi
+  echo "retrying once: $client $*" >&2
+  step "$client $* (retry)"
+  if "$client" "$@"; then
+    return 0
+  fi
+  echo "FAILED: $client $*" >&2
+  status=1
+  return 1
+}
+
 # Always stop the vsftpd container, whatever happened above, and dump its
 # logs. `stop-ftp.sh` never fails on a missing container.
 cleanup() {
@@ -195,7 +235,7 @@ run docker run --rm -v "$ROOT:/src" ghcr.io/xampprocky/tokei:latest .
 # and talk to the plaintext container started here, on 127.0.0.1:21.
 # ---------------------------------------------------------------------------
 run "$SCRIPT_DIR/start-ftp.sh"
-run "$ROOT/cmd/example/run.sh"
+run_guarded "$ROOT/cmd/example/run.sh"
 
 # `cmd/example` is the first client, so it is also the first chance to notice
 # that the server died between `start-ftp.sh`'s probe and here -- and the run
@@ -214,7 +254,7 @@ run "$ROOT/cmd/example/run.sh"
 # three steps behind it. See scripts/ensure-ftp.sh for why the check is a login
 # + passive LIST and not a bare `docker ps`.
 run "$SCRIPT_DIR/ensure-ftp.sh"
-run "$ROOT/cmd/ftp/run.sh"
+run_guarded "$ROOT/cmd/ftp/run.sh"
 
 # And once more before each capability profile. A single guard *before* a
 # client only covers the window that opened before it -- not the one that opens
@@ -243,13 +283,13 @@ run "$ROOT/cmd/ftp/run.sh"
 # list against `profiles()` in cmd/profiles/main.mbt, so a profile added there
 # and forgotten here is a failure rather than a silent omission.
 run "$SCRIPT_DIR/ensure-ftp.sh"
-run "$ROOT/cmd/profiles/run.sh" full
+run_guarded "$ROOT/cmd/profiles/run.sh" full
 run "$SCRIPT_DIR/ensure-ftp.sh"
-run "$ROOT/cmd/profiles/run.sh" no-mlst
+run_guarded "$ROOT/cmd/profiles/run.sh" no-mlst
 run "$SCRIPT_DIR/ensure-ftp.sh"
-run "$ROOT/cmd/profiles/run.sh" no-time
+run_guarded "$ROOT/cmd/profiles/run.sh" no-time
 run "$SCRIPT_DIR/ensure-ftp.sh"
-run "$ROOT/cmd/profiles/run.sh" no-epsv
+run_guarded "$ROOT/cmd/profiles/run.sh" no-epsv
 
 # ---------------------------------------------------------------------------
 # FTPS (explicit AUTH TLS) end-to-end. The plaintext demo above cannot cover
@@ -277,7 +317,7 @@ run "$ROOT/cmd/ftps/run.sh"
 # which names the port rather than the container and looks exactly like a
 # plaintext-transport regression. See scripts/ensure-ftp.sh.
 run "$SCRIPT_DIR/ensure-ftp.sh"
-run "$ROOT/cmd/ftps/run.sh" plain
+run_guarded "$ROOT/cmd/ftps/run.sh" plain
 run "$SCRIPT_DIR/ftps/stop-ftps.sh"
 
 exit "$status"

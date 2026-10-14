@@ -314,6 +314,28 @@ You can browse and install extra skills here:
   that the retry happened — the retry is what keeps a slow-starting server from
   being called dead.
 
+- **A guard in front of a client cannot cover a window *inside* it either, and
+  the fix is a conditional retry, not another guard.** The per-profile guards
+  above close the gap *between* sessions; they say nothing about a container
+  that dies *during* one. In `cnb-cne-1k4sv7m6r` the guard in front of
+  `cmd/profiles/run.sh no-epsv` passed, and 425 ms later the profile reported
+  `ReaderClosed`; the same run then lost `plain`'s data connection with
+  `Connection refused`. One dead container, two clients, two vocabularies, and
+  the guards were already behind both of them. No number of guards fixes this —
+  the death is inside the step. So every plaintext client runs through
+  `run_guarded`, which re-runs the step once **when it fails *and*
+  `ensure-ftp.sh` cannot find the server answering**. That conjunction is the
+  whole design: the re-check is what makes the retry safe. A failure caused by
+  anything else — a bad assertion, a `550` the server actively answered — leaves
+  the container up, the guard passes, and the failure is reported as the real
+  failure it is rather than being hidden behind a second identical attempt.
+  `ensure-ftp-selftest.py` drives the wrapper extracted from `ci.sh` with a stub
+  client and a stub `ensure-ftp.sh`, and asserts all four outcomes separately:
+  healthy (one attempt, no restart), dies-and-recovers (restart, one retry that
+  passes), fails-with-server-up (**no** retry), dies-and-stays-dead (one retry,
+  then a real failure). Mutating the conditional away — always retry, never
+  retry, retry twice — each fail that gate.
+
 - **FTPS is the one capability whose failure mode is "the first read hangs"**,
   which no unit test and no plaintext server can reach. All four of the TLS
   bugs found so far lived in the seams: `AUTH TLS` sent without upgrading the

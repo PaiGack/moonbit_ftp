@@ -252,27 +252,176 @@ shutil.rmtree(scratch, ignore_errors=True)
 #    `profile no-epsv: ReaderClosed`, i.e. as a profile result. The check below
 #    therefore wants the profile list, every name from the binary's own
 #    `profiles()`, each one guarded on the line immediately before it.
+# 7. And the wrapper itself, which is what covers the window *inside* a client.
+#
+#    A guard between steps cannot see a container that dies while a client is
+#    running: in `cnb-cne-1k4sv7m6r` the guard in front of `no-epsv` passed and
+#    the container was gone before the profile's fourth command. `run_guarded`
+#    is the answer, and it is only correct if the retry is *conditional* on the
+#    server actually being gone. The four cases below are the ones a real
+#    container cannot distinguish, because there the container is usually up:
+#
+#      healthy            -> one attempt, no restart, no retry
+#      dies, recovers     -> restart, then one retry that passes
+#      fails, server up   -> one attempt only: a real failure must not be
+#                            papered over by an identical second attempt
+#      dies, stays dead   -> restart, one retry, then a real failure
+#
+#    The wrapper is extracted from `ci.sh` rather than re-implemented, so this
+#    tests the code CI actually runs.
+ci_text = (ROOT / "scripts" / "ci.sh").read_text()
+wrapper = re.search(r"^run_guarded\(\) \{.*?^\}$", ci_text, re.S | re.M)
+check("ci.sh defines run_guarded", wrapper is not None, "run_guarded() not found")
+
+
+def run_guarded_case(attempts_before_ok, ensure_ok):
+    """Drive `run_guarded` with a stub client and a stub `ensure-ftp.sh`."""
+    scratch = Path(tempfile.mkdtemp())
+    scripts = scratch / "scripts"
+    scripts.mkdir()
+    log = scratch / "log"
+    log.write_text("")
+
+    # `ensure-ftp.sh` records that it ran and answers per `ensure_ok`.
+    write_executable(
+        scripts / "ensure-ftp.sh",
+        "#!/usr/bin/env bash\n"
+        f'echo ENSURE >> "{log}"\n'
+        f'[ "{int(bool(ensure_ok))}" = 1 ]\n',
+    )
+
+    # The client appends one line per attempt and fails until it has been run
+    # `attempts_before_ok` times -- the shape of "died once, then fine".
+    write_executable(
+        scratch / "client.sh",
+        "#!/usr/bin/env bash\n"
+        f'n=$(grep -c "^client " "{log}")\n'
+        f'echo "client $((n + 1))" >> "{log}"\n'
+        f'[ "{int(attempts_before_ok)}" -le "$((n + 1))" ]\n',
+    )
+
+    # The wrapper under test, plus the `step` helper and the `status` variable
+    # it writes to. `trap cleanup EXIT` is deliberately not carried over: this
+    # is about the retry, not the container teardown.
+    driver = scratch / "driver.sh"
+    driver.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -uo pipefail\n"
+        f'SCRIPT_DIR="{scripts}"\n'
+        f'LOG="{log}"\n'
+        "status=0\n"
+        "step() { :; }\n"
+        + (wrapper.group(0) if wrapper else "")
+        + f'\nrun_guarded "{scratch}/client.sh" arg\n'
+        'echo "status=$status" >&2\n'
+        # The wrapper records the failure in `status`; the driver has to turn
+        # that back into an exit code, or "the step failed" would be invisible
+        # to the caller -- which is exactly what `ci.sh` gets from `run`.
+        'exit "$status"\n',
+    )
+
+    done = subprocess.run(
+        ["bash", str(driver)], capture_output=True, text=True,
+        env={**os.environ, "LOG": str(log)},
+    )
+    lines = log.read_text().splitlines()
+    counts = {
+        "client": sum(1 for line in lines if line.startswith("client ")),
+        "ensure": sum(1 for line in lines if line == "ENSURE"),
+    }
+    shutil.rmtree(scratch, ignore_errors=True)
+    return done, counts
+
+
+done, counts = run_guarded_case(attempts_before_ok=1, ensure_ok=True)
+check("a healthy client is run exactly once",
+      counts["client"] == 1, str(counts))
+check("a healthy client does not restart the container",
+      counts["ensure"] == 0, str(counts))
+check("a healthy client leaves the status at zero",
+      done.returncode == 0, done.stderr.strip())
+
+done, counts = run_guarded_case(attempts_before_ok=2, ensure_ok=True)
+check("a client that dies mid-run is retried once",
+      counts["client"] == 2, str(counts))
+check("the retry is preceded by a restart",
+      counts["ensure"] == 1, str(counts))
+check("a retry that passes leaves the status at zero",
+      done.returncode == 0, done.stderr.strip())
+
+done, counts = run_guarded_case(attempts_before_ok=99, ensure_ok=False)
+check("a real failure is not retried when the server is still up",
+      counts["client"] == 1, str(counts))
+check("a real failure still fails the step",
+      done.returncode != 0, done.stderr.strip())
+
+done, counts = run_guarded_case(attempts_before_ok=99, ensure_ok=True)
+check("a client that dies and stays dead is retried exactly once",
+      counts["client"] == 2, str(counts))
+check("a retry that also fails fails the step",
+      done.returncode != 0, done.stderr.strip())
+
+
 ci = (ROOT / "scripts" / "ci.sh").read_text()
 # `\`-continuations joined, so a wrapped invocation is still one statement.
+#
+# Both wrappers count. `run_guarded` is the form that covers a window *inside* a
+# client -- it re-checks the container when the client fails and re-runs it once
+# -- and `run` is still accepted for a step that has nothing to retry. What must
+# not happen is a client invoked with neither.
 statements = [
     line.strip()
     for line in re.sub(r"\\\n\s*", " ", ci).splitlines()
-    if line.strip().startswith("run ") or line.strip().startswith(
-        'run "$ROOT/cmd/profiles/run.sh"')
+    if line.strip().startswith("run ") or line.strip().startswith("run_guarded ")
 ]
+# `run_guarded` is not matched by `startswith("run ")` -- it is a longer name --
+# so the two are collected in one pass rather than filtered twice.
 guard = 'run "$SCRIPT_DIR/ensure-ftp.sh"'
+guarded_wrapper = "run_guarded "
+
+
+def as_invocation(statement):
+    """Normalise a statement to the `run ...` invocation it performs.
+
+    `run_guarded "$client" args` runs the same command as `run "$client" args`,
+    so the lookups below can be written against the invocation they care about
+    rather than against whichever of the two wrappers a step happens to use.
+    """
+    if statement.startswith(guarded_wrapper):
+        return "run " + statement[len(guarded_wrapper):].strip()
+    return statement
+
+# `run_guarded "$client" args...` is one statement; recover the invocation it
+# stands for so the assertions below stay about the client, not the wrapper.
+def invocation(statement):
+    """The client invocation a `run_guarded` statement stands for."""
+    inner = statement[len(guarded_wrapper):].strip()
+    return "run " + inner
+
 
 single_clients = {
     'run "$ROOT/cmd/ftp/run.sh"': "cmd/ftp/run.sh",
     'run "$ROOT/cmd/ftps/run.sh" plain': "cmd/ftps/run.sh plain",
 }
 for statement, name in single_clients.items():
-    index = statements.index(statement) if statement in statements else -1
+    normalised = [as_invocation(each) for each in statements]
+    index = normalised.index(statement) if statement in normalised else -1
     check(f"ci.sh calls every step the ordering check needs ({name})",
           index != -1, f"{statement!r} not found")
+    # Either directly preceded by a guard, or wrapped in the retrying form that
+    # carries its own guard. Both close the window between steps; only the
+    # wrapper closes the one inside a client.
+    covered = index > 0 and (
+        statements[index - 1] == guard
+        or statements[index - 1].startswith(guarded_wrapper)
+    )
     check(f"ci.sh re-checks the container immediately before {name}",
-          index > 0 and statements[index - 1] == guard,
+          covered,
           f"preceded by {statements[index - 1]!r}" if index > 0 else "missing")
+    check(f"ci.sh retries {name} when the server dies mid-run",
+          index >= 0 and statements[index].startswith(guarded_wrapper),
+          f"{statements[index]!r} is not guarded by the retrying wrapper"
+          if index >= 0 else "missing")
 
 # The profile names come from `cmd/profiles/main.mbt`, so a name added there
 # without a line here is a profile CI never runs -- silently.
@@ -285,14 +434,24 @@ if match:
     expected = re.findall(r'"([^"]+)"', match.group(1))
     guarded = set()
     for index, statement in enumerate(statements):
-        if not statement.startswith('run "$ROOT/cmd/profiles/run.sh"'):
+        if "cmd/profiles/run.sh" not in statement:
             continue
         name = statement.split('"')[-1].strip()
+        # The guard test below is about the invocation this statement performs,
+        # so it has to see through the retrying wrapper.
         guarded.add(name)
+        covered = index > 0 and (
+            statements[index - 1] == guard
+            or statements[index - 1].startswith(guarded_wrapper)
+        )
         check("ci.sh re-checks the container immediately before "
               "cmd/profiles/run.sh " + name,
-              index > 0 and statements[index - 1] == guard,
+              covered,
               ("preceded by " + repr(statements[index - 1])) if index > 0 else "missing")
+        check("ci.sh retries cmd/profiles/run.sh " + name
+              + " when the server dies mid-run",
+              statement.startswith(guarded_wrapper),
+              repr(statement))
     for name in expected:
         check(f"ci.sh runs profile {name} behind its own re-check",
               name in guarded, f"not invoked: {sorted(guarded)}")
