@@ -48,7 +48,7 @@ async fn main {
   let upload = "/moonbit_demo.txt"
   let renamed = "/moonbit_demo_renamed.txt"
   println("==> STOR \{upload}")
-  @ftp.stor(client, upload, text_reader("demo upload from cmd/example\n"))
+  stor_text(client, upload, "demo upload from cmd/example\n")
   println("    SIZE: \{@ftp.file_size(client, upload)}")
   println("==> RNFR \{upload} -> RNTO \{renamed}")
   @ftp.rename(client, upload, renamed)
@@ -70,7 +70,7 @@ async fn main {
   @ftp.make_dir(client, "/moonbit_demo_tree/sub")
   @ftp.make_dir(client, "/moonbit_demo_tree/sub/deep")
   let nested = "/moonbit_demo_tree/sub/nested.txt"
-  @ftp.stor(client, nested, text_reader("nested payload\n"))
+  stor_text(client, nested, "nested payload\n")
   println("    nested SIZE: \{@ftp.file_size(client, nested)}")
   @ftp.remove_dir_recur(client, "/moonbit_demo_tree")
 
@@ -115,7 +115,28 @@ fn env_int(name : String, default : Int32) -> Int32 {
 }
 
 ///|
-/// A one-shot reader over an in-memory string, used to feed the upload.
-fn text_reader(text : String) -> &@io.Reader {
-  @io.MemoryReader(writer => writer.write(text))
+/// Upload `text` to `path` with `STOR`.
+///
+/// The `MemoryReader` is bound to a name and closed in a `defer`, which is the
+/// rule AGENTS.md spells out for this type: it runs its producer in a
+/// background task, and `stor` only drains the source once the server accepted
+/// the transfer, so a `STOR` that is refused -- or never gets its `150` --
+/// leaves that producer parked on a pipe nobody reads. The async runtime then
+/// ends the loop with `Dead lock detected`, naming this file's `MemoryReader`
+/// line rather than the server that refused the upload. `stor` cannot fix it
+/// itself: all it is handed is a `&@io.Reader`, and it must not close a reader
+/// it does not own.
+///
+/// The happy path never shows any of this -- a reader whose payload is fully
+/// drained shuts its own producer down -- which is exactly why the rule is
+/// about the failure path and why it is stated once, here, rather than at each
+/// call site.
+async fn stor_text(
+  client : @ftp.FTPClient,
+  path : String,
+  text : String,
+) -> Unit {
+  let source = @io.MemoryReader(writer => writer.write(text))
+  defer source.close()
+  @ftp.stor(client, path, source)
 }

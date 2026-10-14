@@ -86,8 +86,14 @@ pub fn FTPClient::is_get_time_supported(self : FTPClient) -> Bool {
 ///|
 /// Whether the modification time can be written, either via `MFMT` or via the
 /// VsFtpd style `MDTM <time> <path>`.
+///
+/// `writing_mdtm` is part of the answer, not a detail on top of it: a server
+/// that only advertises `MDTM` reads timestamps through it and writes them
+/// only when the caller turned the VsFtpd quirk on, so without this flag the
+/// query would report a capability `set_file_time` then refuses with `502`.
+/// Upstream computes the same expression (`MFMT || (MDTM && writing_mdtm)`).
 pub fn FTPClient::is_set_time_supported(self : FTPClient) -> Bool {
-  self.mfmt_supported || self.mdtm_supported
+  self.mfmt_supported || (self.mdtm_supported && self.mdtm_can_write)
 }
 
 ///|
