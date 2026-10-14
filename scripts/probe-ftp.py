@@ -15,6 +15,25 @@ readiness failure at the point where the server is started.
 The whole handshake is retried until the deadline, because the daemon behind a
 published port can accept the connection a moment before it is ready to serve
 it.
+
+Every connection this probe opens ends with an explicit `QUIT`, and that is
+load bearing rather than polite. vsftpd keeps a data-channel slot per login
+until the client says goodbye, and only has a handful of them: a probe that
+just closes the control socket leaves the slot occupied until the server's own
+`idle_session_timeout` reclaims it. `scripts/ensure-ftp.sh` now probes the
+container before *every* plaintext client, so a subprocess exit that skipped
+`QUIT` would leak one slot per call -- and the leak lands on the clients, whose
+`LIST` / `STOR` then fail with `421` or time out on a server the guard just
+declared healthy. Hence `QUIT` in `finally`: a refused `PASV`, a `LIST` that
+raised, an early `return` in a future edit must all still close the session.
+
+`QUIT` is sent on the way *out* of the session, including when the session
+failed, so it is the last thing every attempt does rather than the last line of
+the happy path. That goodbye is best-effort -- a server that already hung up
+cannot be told about it, and a hang-up is not a held slot -- but a failure to
+*send* it is the only thing swallowed; the reason the attempt failed still
+propagates. Nothing here reads the `221` beyond its arrival, because the reply
+this probe reports on failure is the one it got from the command that failed.
 """
 
 import re
@@ -41,42 +60,64 @@ def recv_line(sock, buffer):
 
 
 def attempt():
+    """One login, one passive `LIST`, and then a `QUIT` -- always a `QUIT`."""
     with socket.create_connection((host, port), 2) as control:
         control.settimeout(3)
         buffer = [b""]
 
-        banner = recv_line(control, buffer)
-        if not banner.startswith("220"):
-            raise RuntimeError(f"no 220 banner: {banner!r}")
-
-        for command, expected in ((f"USER {user}", ("331", "230")),
-                                  (f"PASS {password}", ("230",))):
-            control.sendall(f"{command}\r\n".encode())
+        def command(text, expected):
+            control.sendall(f"{text}\r\n".encode())
             reply = recv_line(control, buffer)
             if not reply.startswith(expected):
-                raise RuntimeError(
-                    f"{command.split()[0]} was rejected: {reply!r}"
-                )
+                raise RuntimeError(f"{text.split()[0]} was rejected: {reply!r}")
+            return reply
 
-        control.sendall(b"PASV\r\n")
-        reply = recv_line(control, buffer)
-        match = re.search(r"\((\d+),(\d+),(\d+),(\d+),(\d+),(\d+)\)", reply)
-        if not reply.startswith("227") or match is None:
-            raise RuntimeError(f"PASV did not return a host:port: {reply!r}")
-        numbers = [int(part) for part in match.groups()]
-        data_host = ".".join(str(part) for part in numbers[:4])
-        data_port = numbers[4] * 256 + numbers[5]
+        # `QUIT` here, not at the end of the happy path: this whole `with` is
+        # the session, and every way out of it -- a `PASV` the server refused,
+        # a `LIST` that never earned its `150`, a `RuntimeError` out of
+        # `recv_line`, an early `return` in a future edit -- has to say
+        # goodbye. See the module doc for why that is a leak rather than
+        # politeness.
+        #
+        # The goodbye is best-effort on purpose. The reply above is what this
+        # probe exists to print, so a `QUIT` that cannot even be sent (the
+        # server already closed the socket, or answered a command we did not
+        # expect and hung up) must not replace it with a `ConnectionResetError`
+        # -- and a peer that has hung up is not holding a data-channel slot
+        # either way. Only the failure to *send* is swallowed: the `RuntimeError`
+        # raised above, i.e. "the login was refused", has to keep propagating.
+        try:
+            banner = recv_line(control, buffer)
+            if not banner.startswith("220"):
+                raise RuntimeError(f"no 220 banner: {banner!r}")
 
-        with socket.create_connection((data_host, data_port), 3):
-            control.sendall(b"LIST\r\n")
+            command(f"USER {user}", ("331", "230"))
+            command(f"PASS {password}", ("230",))
+
+            reply = command("PASV", ("227",))
+            match = re.search(r"\((\d+),(\d+),(\d+),(\d+),(\d+),(\d+)\)",
+                              reply)
+            if match is None:
+                raise RuntimeError(f"PASV did not return a host:port: {reply!r}")
+            numbers = [int(part) for part in match.groups()]
+            data_host = ".".join(str(part) for part in numbers[:4])
+            data_port = numbers[4] * 256 + numbers[5]
+
+            # Opened, held, and closed *before* the `150`/`226` are read back:
+            # a data connection that closes before its `226` lets vsftpd give
+            # the slot to the next PASV, which is the property that keeps this
+            # probe repeatable. (`LIST` never raises on a connection refused
+            # here, so it needs no wrapper of its own.)
+            with socket.create_connection((data_host, data_port), 3):
+                command("LIST", ("125", "150"))
             reply = recv_line(control, buffer)
-            if not reply.startswith(("125", "150")):
-                raise RuntimeError(f"LIST was not accepted: {reply!r}")
-        reply = recv_line(control, buffer)
-        if not reply.startswith("226"):
-            raise RuntimeError(f"LIST never completed: {reply!r}")
-
-        control.sendall(b"QUIT\r\n")
+            if not reply.startswith("226"):
+                raise RuntimeError(f"LIST never completed: {reply!r}")
+        finally:
+            try:
+                command("QUIT", ("221",))
+            except OSError:
+                pass
 
 
 while time.time() < deadline:

@@ -205,14 +205,14 @@ pub fn parse_decimal(text : String) -> Int32? {
 ///|
 /// Authenticate with `USER` / `PASS`, then negotiate capabilities.
 ///
-/// The sequence matches upstream `Login`:
+/// The sequence matches upstream `Login` command for command:
 /// `USER` -> `331` -> `PASS` -> `230`, then `FEAT`, then `TYPE I`, then
-/// optionally `OPTS UTF8 ON`, and for implicit TLS `PBSZ 0` / `PROT P`.
+/// optionally `OPTS UTF8 ON`, then `PBSZ 0` / `PROT P` for either TLS flavour.
 ///
-/// The `FEAT` / `OPTS` / `TYPE` steps are taken *outside* the client lock: they
-/// are public API and take the lock themselves, and the lock is deliberately
-/// not re-entrant (see `FTPClient::lock`). Holding it across these calls would
-/// deadlock every login against a real server.
+/// The `FEAT` / `TYPE` / `OPTS` steps are taken *outside* the client lock:
+/// they are public API and take the lock themselves, and the lock is
+/// deliberately not re-entrant (see `FTPClient::lock`). Holding it across
+/// these calls would deadlock every login against a real server.
 pub async fn login(
   client : FTPClient,
   user : String,
@@ -233,12 +233,17 @@ pub async fn login(
     }
   }
   feat(client)
+  // `TYPE I` comes *before* `OPTS UTF8 ON`, which is upstream's order. The two
+  // are independent (`TYPE` picks the data representation, `OPTS UTF8` the
+  // filename encoding), so reversing them changes nothing a server can see --
+  // but it would make this file's "matches upstream" claim false, and the
+  // order is exactly what a reader compares against `ftp.go`.
+  set_transfer_type(client, TransferType::Binary)
   if client.options.disable_utf8 == false && client.has_feature("UTF8") {
     set_utf8(client) catch {
       _ => ()
     }
   }
-  set_transfer_type(client, TransferType::Binary)
   // `PBSZ` / `PROT P` protect the *data* channel, and that is needed for both
   // FTPS flavours: `AUTH TLS` only upgrades the control channel, so an
   // explicit-TLS session that stops there answers every transfer with
