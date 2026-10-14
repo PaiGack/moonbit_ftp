@@ -352,7 +352,21 @@ You can browse and install extra skills here:
 
 ## Tooling
 
-- `moon fmt` is used to format your code properly.
+- A `moonbit` fenced block in a `.mbt.md` is only syntax-highlighted by default.
+  Writing ```moonbit check is what puts it on the `moon check` path, and
+  `moonbit nocheck` is the escape hatch for a snippet that must *not* compile.
+  `README.mbt.md`'s quick-start block therefore carries `check` and is a live
+  regression test for the documented API: break `@ftp.dial`'s signature and
+  `moon check --target native --deny-warn` fails naming the README line. A
+  checked block lives in the root package, so it may not declare `main`
+  (`Unexpected main function in the non-main package`) — wrap it in `test { }`
+  and name the function something else. `docs/porting.md` keeps plain
+  `moonbit` fences on purpose: those are Go-to-MoonBit readings, not claims
+  about this repo's own API.
+
+- `moon fmt` is used to format your code properly, and it also formats the
+  checked blocks inside `.mbt.md` — `moon fmt --check` fails on a README whose
+  snippet is not in canonical form.
 
 - `moon ide` provides project navigation helpers like `peek-def`, `outline`, and
   `find-references`. See $moonbit-agent-guide for details.

@@ -32,7 +32,10 @@ FTP 看着老，但它今天仍然是设备固件升级、厂商数据拉取、�
   `List`（MLSD 优先，回退 LIST）/ `NameList` / `GetEntry`，`Retr` / `RetrFrom` / `Stor` / `Append`
   与 `REST` 断点续传，目录与文件操作（`Rename` / `Delete` / `MakeDir` / `RemoveDirRecur` / `FileSize`），
   时间操作（`GetTime` / `SetTime`，兼容 VsFtpd 的 MDTM 写法），`Walk` 目录树遍历，FTPS 显式加密。
-- 一个可运行 CLI 示例（`moon run cmd/ftp`，支持 `ls` / `get` / `put` / `walk`）。
+- 一个可运行 CLI 示例（`moon run cmd/ftp --target native -- ls|get|put|walk|mkdir|rm`）：本模块
+  `preferred_target = "native"`，所以每条命令都要显式带 `--target native`，且 native 后端需要
+  `gcc` + `libc6-dev`。另有 `cmd/example`（真实 vsftpd 演示）、`cmd/ftps`（显式 AUTH TLS 冒烟）、
+  `cmd/profiles`（四个客户端能力画像）。
 - 完整测试：解析用例 + 真实 FTP 服务器端到端测试，覆盖能力协商、降级路径和边界输入。
 - README、移植说明、上游来源与许可证标注，并发布到 mooncakes.io。
 
@@ -79,7 +82,9 @@ P4 遍历与兼容性打磨 → P5 示例、文档、发布。估算 12~17 人�
 **预期交付物**
 
 - 可 `moon add PaiGack/ftp` 使用的 MoonBit 库
-- 一个 CLI 示例（`moon run cmd/ftp`，支持 `ls` / `get` / `put` / `walk`）
+- 一个 CLI 示例（`moon run cmd/ftp --target native -- ls|get|put|walk|mkdir|rm`）
 - 真实 FTP 服务器测试 + 解析测试，覆盖全部核心路径
+- 无 Docker 的闸门自测（`scripts/*-selftest.py`），在拉镜像之前先把就绪探测、`cmd/ftps`、
+  `cmd/profiles` 各自的失败路径钉住
 - README、移植说明、上游许可证与来源标注
 - 发布到 mooncakes.io
