@@ -87,9 +87,28 @@ async test "feat records the writing_mdtm override" {
     e => fail("feat: \{e}")
   }
   assert_true(client.is_get_time_supported())
-  // `is_set_time_supported` is `MFMT || MDTM`; the `writing_mdtm` flag is what
-  // `set_file_time` consults on top of it.
+  // `MDTM` alone reads timestamps; writing one needs `writing_mdtm`, and the
+  // capability query has to say so -- upstream folds it into the same
+  // expression.
   assert_true(client.is_set_time_supported())
+}
+
+///|
+/// The other half of that expression: a server that only advertises `MDTM`
+/// and was *not* dialed with `writing_mdtm` cannot have its timestamps written,
+/// so the query must say `false` even though `MDTM` is present.
+///
+/// Without this, `is_set_time_supported` reports a capability that
+/// `set_file_time` immediately refuses with `502`, and an API user who branches
+/// on the flag is told the opposite of what the library will do.
+async test "feat leaves is_set_time_supported off for a read-only MDTM server" {
+  let script = "211-Features:\r\n MDTM\r\n211 End\r\n"
+  let (client, _) = scripted_client(script)
+  feat(client) catch {
+    e => fail("feat: \{e}")
+  }
+  assert_true(client.is_get_time_supported())
+  assert_false(client.is_set_time_supported())
 }
 
 ///|

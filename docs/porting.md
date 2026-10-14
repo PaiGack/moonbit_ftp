@@ -34,36 +34,48 @@
 
 ### 1.3 功能矩阵
 
+> 本节是**上游**（`jlaffaye/ftp`）的视角，符号名沿用 Go 的写法。每一项在
+> MoonBit 侧的对应名按"函数蛇形、类型大驼峰、错误构造器 `FtpError::`"的惯例
+> 给出，读者据此即可判断某能力是否已移植——没有对应行的就是没移植。
+> 移植侧的包结构与分层见 2.3，错误类型见 3。
+
 **连接与选项（Dial + 16 个 `DialWith*` 选项函数）**
 
-- `Dial` / `Connect` / `DialTimeout`，默认 30s 超时
-- 超时、上下文、自定义 dialer、自定义 dial 函数
-- TLS：隐式 TLS、显式 TLS（`AUTH TLS` 升级）
-- `EPSV` 禁用、`PASV` 返回 IP 信任开关（防 SSRF）、UTF8 禁用、MLSD 禁用、`MDTM` 写时间、强制 `LIST -a`、时区、调试输出（`set_debug_sink`，默认关闭）
+- `Dial` / `Connect` / `DialTimeout` → `dial`（默认 30s 超时；选项由 `DialOptions` 结构体承载，见 2.4）
+- 超时、TLS：隐式 TLS、显式 TLS（`AUTH TLS` 升级）→ `DialOptions::set_timeout_ms` / `set_tls`
+- `EPSV` 禁用 → `set_disable_epsv`；`PASV` 返回 IP 信任开关（防 SSRF）→ `set_trust_pasv_ip`
+- UTF8 禁用 → `set_disable_utf8`；MLSD 禁用 → `set_disable_mlsd`；`MDTM` 写时间 → `set_writing_mdtm`
+- 强制 `LIST -a` → `set_force_list_hidden`；时区 → `set_location`；调试输出 → `set_debug_sink`（默认关闭）
 
 **认证**
 
-- `Login(user, password)`：`USER` / `PASS`，成功后探测 `FEAT`，按需 `OPTS UTF8 ON`、`PBSZ 0` / `PROT P`
-- `Logout`（`REIN`）、`NoOp`（`NOOP`）、`Quit`（`QUIT`）
+- `Login(user, password)` → `login`：`USER` / `PASS`，成功后探测 `FEAT`，按需 `OPTS UTF8 ON`、`PBSZ 0` / `PROT P`
+- `Logout`（`REIN`）→ `logout`、`NoOp`（`NOOP`）→ `no_op`、`Quit`（`QUIT`）→ `quit`
 
 **数据传输**
 
-- 取文件：`Retr` / `RetrFrom(offset)` → `Response`（可读、幂等 `Close`；**没有** `SetDeadline`，见下）
-- 存文件：`Stor` / `StorFrom(offset)` / `Append`
-- 目录列表：`List`（`MLSD` 优先，回退 `LIST [-a]`）、`NameList`（`NLST`）、`GetEntry`（`MLST`）
+- 取文件：`Retr` / `RetrFrom(offset)` → `retr` / `retr_from`，返回 `DataResponse`（可读、幂等 `close`；**没有** `SetDeadline`，见下）
+- 存文件：`Stor` / `StorFrom(offset)` / `Append` → `stor` / `stor_from` / `append`
+- 目录列表：`List`（`MLSD` 优先，回退 `LIST [-a]`）→ `list`、`NameList`（`NLST`）→ `name_list`、`GetEntry`（`MLST`）→ `get_entry`
 
 **文件/目录操作**
 
-- `ChangeDir` / `ChangeDirToParent` / `CurrentDir`
-- `MakeDir` / `RemoveDir` / `RemoveDirRecur` / `Delete` / `Rename`
-- `FileSize` / `GetTime` / `SetTime` 及 `IsGetTimeSupported` / `IsSetTimeSupported` / `IsTimePreciseInList`
-- `Walk(root) *Walker` 目录树遍历
+- `ChangeDir` / `ChangeDirToParent` / `CurrentDir` → `change_dir` / `change_dir_to_parent` / `current_dir`
+- `MakeDir` / `RemoveDir` / `RemoveDirRecur` / `Delete` / `Rename` → `make_dir` / `remove_dir` / `remove_dir_recur` / `delete` / `rename`
+- `FileSize` / `GetTime` / `SetTime` → `file_size` / `get_time` / `set_file_time`（三者都是 `FTPClient` 的方法：`client.file_size(...)`）
+- `IsGetTimeSupported` / `IsSetTimeSupported` / `IsTimePreciseInList` → `FTPClient::is_get_time_supported` / `is_set_time_supported` / `is_time_precise_in_list`（后者即 `mfmt_supported || (mdtm_supported && writing_mdtm)`，与上游同口径）
+- `Walk(root) *Walker` → `walk`（`Walker`）
 
 **数据模型**
 
-- `Entry{Name, Target, Type, Size, Time}`，`EntryType ∈ {File, Folder, Link}`
-- `TransferType ∈ {Binary("I"), ASCII("A")}`
-- 48 个 `Status*` 状态码常量 + `StatusText(code)`
+- `Entry{Name, Target, Type, Size, Time}` → `Entry`，`EntryType ∈ {File, Folder, Link}` → `EntryType::File` / `Folder` / `Link`
+- `TransferType ∈ {Binary("I"), ASCII("A")}` → `TransferType::Binary` / `TransferType::ASCII`
+- 48 个 `Status*` 状态码常量 → `status_*`（`status.mbt`）；`StatusText(code)` → `status_text`
+
+**错误**
+
+- `textproto.Error` → `FtpError::ServerError`；`ErrInvalidCommand` → `FtpError::InvalidCommand`
+- `errors.Join` → `FtpErrors`（累积 `Array[Error]` 后统一抛出）
 
 ### 1.4 关键实现要点（移植时必须保留的"隐性知识"）
 

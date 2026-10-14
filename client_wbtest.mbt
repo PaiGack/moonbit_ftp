@@ -193,13 +193,18 @@ test "the client capability flags round trip" {
   assert_false(client.is_set_time_supported())
   client.set_mdtm_supported(true)
   assert_true(client.is_get_time_supported())
-  assert_true(client.is_set_time_supported())
   assert_true(client.is_time_precise_in_list())
+  // `MDTM` reads are not `MDTM` writes: the query must stay off until
+  // `writing_mdtm` is on, so it cannot report a capability `set_file_time`
+  // then refuses with `502`.
+  assert_false(client.is_set_time_supported())
 
   client.set_mdtm_can_write(true)
   assert_true(client.mdtm_can_write)
+  assert_true(client.is_set_time_supported())
   client.set_mdtm_can_write(false)
   assert_false(client.mdtm_can_write)
+  assert_false(client.is_set_time_supported())
 }
 
 ///|

@@ -70,6 +70,23 @@ run moon update
 # reads like a TLS bug in the library instead of a fixture nobody generated.
 run "$SCRIPT_DIR/ftps/gen-cert.sh" "$ROOT/testdata/ftp/tls"
 
+# The fixture just minted, and the ordering that produced it, checked with no
+# Docker and no `moon test` involved. The whitebox test "stor_from drives the
+# handshake for a zero byte TLS upload" speaks server-side TLS over a loopback
+# data socket, and the server side of that handshake can only be built from a
+# certificate *on disk* -- so a run that skipped the step above fails with
+#
+#   transfer_wbtest.mbt:386 FAILED: stor_from: Cancelled
+#
+# which is the task group's way of reporting that its server task died: the
+# missing file is never named, and the promise docs/porting.md 1.4 item 7 makes
+# ("a zero byte upload must trigger the handshake explicitly") reads as a
+# library bug instead of a fixture nobody generated. The gate also checks the
+# PEM it was handed is a usable key + certificate pair, so a regenerated-but-
+# broken certificate fails here rather than as a TLS error in the test.
+run python3 "$SCRIPT_DIR/ftps/tls-fixture-selftest.py" "$ROOT" \
+  "$SCRIPT_DIR/ftps/gen-cert.sh"
+
 # ---------------------------------------------------------------------------
 # check / test / build — the same commands as the GitHub Actions steps.
 # ---------------------------------------------------------------------------

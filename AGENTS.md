@@ -27,12 +27,35 @@ You can browse and install extra skills here:
   `probe-ftps-selftest.py` (runs that probe against a docker-free mock),
   `ftp_mock.py` (the plaintext FTP mock those docker-free checks drive the real
   binaries against), `cmd-ftps-selftest.py` (runs `cmd/ftps plain` against that
-  mock), `fixture-isolation-selftest.py` (asserts the two containers do not
-  share a writable fixture), `start-ftps.sh` (the FTPS container on `127.0.0.1:2121`, endpoint
-  written to `.ftp-tls.env`) and `stop-ftps.sh` (dumps logs, removes the
-  container, never fails). The FTPS container is `bfren/ftps` (Alpine + vsftpd
+  mock), `tls-fixture-selftest.py` (asserts the `testdata/ftp/tls` certificate
+  `moon test` needs was minted before it ran), `fixture-isolation-selftest.py`
+  (asserts the two containers do not share a writable fixture), `start-ftps.sh`
+  (the FTPS container on `127.0.0.1:2121`, endpoint written to
+  `.ftp-tls.env`) and `stop-ftps.sh` (dumps logs, removes the container, never
+  fails). The FTPS container is `bfren/ftps` (Alpine + vsftpd
   3.0.5) configured with `force_local_data_ssl=YES`, which is what makes a
   control-channel-only "upgrade" fail every transfer.
+
+- **The `testdata/ftp/tls` fixture must be generated before `moon test`, and
+  `tls-fixture-selftest.py` is what fails the gate when it was not.**
+  `transfer_wbtest.mbt`'s zero-byte TLS upload case is the only test that
+  speaks *server*-side TLS, and `@tls.Tls::server_from_pair` accepts a
+  certificate only as a file path — so the gitignored directory
+  `gen-cert.sh` writes into is a precondition of `moon test` itself, not of the
+  FTPS block. Without it the test fails as
+
+  ```
+  transfer_wbtest.mbt:386 FAILED: stor_from: Cancelled
+  ```
+
+  i.e. `@coroutine.Cancelled`, which is what the task group reports when its
+  server task raised: the group is marked failed, its other tasks are cancelled,
+  and the caller — the plain `stor_from` on the main path — collects that
+  cancellation instead of the real error. The missing file is never named, so
+  the one behaviour `docs/porting.md` 1.4 item 7 promises reads as a library
+  bug. The gate regenerates the pair into a scratch directory and loads it the
+  way OpenSSL will, so a certificate that is present but unusable fails here
+  rather than as a TLS error inside the test.
 
 - **`probe-ftps.sh` must be tested against a mock, not only via the container.**
   It is a gate whose failure mode is "says unhealthy about a healthy server", so
