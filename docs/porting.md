@@ -63,12 +63,12 @@
 
 - `Entry{Name, Target, Type, Size, Time}`，`EntryType ∈ {File, Folder, Link}`
 - `TransferType ∈ {Binary("I"), ASCII("A")}`
-- 49 个 `status_*` 常量（其中 48 个状态码，多个常量刻意共用同一个数值，因为 RFC 本身复用了码）+ `status_text(code)`
+- 48 个 `status_*` 常量（38 个不同数值：多个常量刻意共用同一个数值，因为 RFC 本身复用了码）+ `status_text(code)`
 
 ### 1.4 关键实现要点（移植时必须保留的"隐性知识"）
 
 1. **数据通道生命周期**：上游 `cmdDataConnFrom` 统一处理 `PRET` 预热 → 建数据连接 → 可选 `REST offset` → 发传输命令 → 校验 `125/150`；非 `2xx` 时关闭数据连接并返回 `textproto.Error`。本仓库对应 `transport.mbt` 的 `cmd_data_conn_from`，错误类型是 `FtpError::ServerError`。
-2. **关闭语义**：数据传输结束后必须回控制连接读 `226/250`（上游 `checkDataShut`，本仓库 `transfer.mbt` 的 `check_data_shut`），否则后续命令会错位。`ShutTimeout` 在本仓库是 `DialOptions::set_shut_timeout_ms`，只在 `DataResponse::close` 读 `226` 前推一下控制通道 deadline。
+2. **关闭语义**：数据传输结束后必须回控制连接读 `226/250`（上游 `checkDataShut`，本仓库 `transfer.mbt` 的 `check_data_shut`），否则后续命令会错位。`ShutTimeout` 在本仓库是 `DialOptions::set_shut_timeout_ms`：`DataResponse::close` 在它非零时用 `@async.with_timeout` 把整个 `check_data_shut` 包起来，超时即放弃等待（不是逐连接推 deadline，控制通道本身的回复读仍只由 `Control::timeout_ms` 计时）。
 3. **错误聚合**：Go 的 `errors.Join` 被大量使用（`Quit` / `Stor` / `Append` / `List` / `Response.Close`），即「传输错误 + 关闭错误 + 状态读取错误」要一起返回。本仓库对应 `error.mbt` 的 `join_errors` / `FtpErrors::MultipleErrors`。
 4. **命令注入防护**：上游 `checkForCommandInjection` 拒绝参数中含 `\r` / `\n`，对应 `ErrInvalidCommand`；本仓库是 `control.mbt` 的 `check_for_command_injection` + `FtpError::InvalidCommand`。
 5. **EPSV 回退**：`EPSV` 失败一次后置 `skipEPSV`，后续走 `PASV`；本仓库是 `Session::set_skip_epsv` / `Session::skip_epsv`。
@@ -271,18 +271,25 @@ while w.next() {
    > 没有能同时讲好显式与隐式、且允许换成我们证书的镜像；在容器前套 `stunnel` 会把
    > "客户端握手时机是否正确"这个待测问题本身掩盖掉，所以宁可不跑，也不跑个假的绿灯。
 
-   同一段编排里还有五道**无 Docker 的闸门自测**，都在任何容器之前跑：
-   `probe-ftps-selftest.py` 驱动 `probe-ftps.sh`（用法 `probe-ftps-selftest.py PROBE [CA_FILE]`，
-   第一个参数是被测的探测脚本路径而不是仓库根目录），`cmd-ftps-selftest.py` 用 `ftp_mock.py`
-   驱动真实的 `cmd/ftps plain`，`fixture-isolation-selftest.py` 断言两个容器不共用可写的
-   fixture 目录。第二条是这次 CI 失败的教训：`cmd/ftps` 把 `@io.MemoryReader` 直接写成
+   同一段编排里还有九道**无 Docker 的闸门自测**，都在任何容器之前跑：
+   `tls-fixture-selftest.py` 断言 `moon test` 要的证书已签发，`probe-ftps-selftest.py` 驱动
+   `probe-ftps.sh`（用法 `probe-ftps-selftest.py PROBE [CA_FILE]`，第一个参数是被测的探测脚本
+   路径而不是仓库根目录），`cmd-ftps-selftest.py` 用 `ftp_mock.py` 驱动真实的 `cmd/ftps plain`，
+   `cmd-profiles-selftest.py` 核对四个画像实际发出的命令，`fixture-isolation-selftest.py` 断言
+   两个容器不共用可写的 fixture 目录，`ftp-wrapper-selftest.py` 断言 `cmd/ftp/run.sh` 不拼 flag，
+   `vsftpd-env-selftest.py` 断言 `start-ftp.sh` 传齐镜像入口要的 10 个变量，
+   `ensure-ftp-selftest.py` 覆盖 `ensure-ftp.sh` 的三分支，`probe-ftp-selftest.py` 覆盖明文探测。
+
+   `cmd-ftps-selftest.py` 是这次 CI 失败的教训：`cmd/ftps` 把 `@io.MemoryReader` 直接写成
    `stor` 调用的临时参数，没人负责关它，`STOR` 被拒时它的后台生产者任务残留，事件循环以
    `Dead lock detected` panic 收场，整段 FTPS 于是看起来像 TLS 问题——而真正的错误
    （服务器回了什么）一个字都没打出来。失败路径必须有自己的测试，否则它只会在容器日志里
-   现形。第三条是它把真正的错误露出来之后才看见的：`bfren/ftps` 初始化时递归 chown 自己的
-   `/files` bind mount（`FTPS_VSFTPD_UID` 默认 1000），而那个目录正是明文容器的根目录，
-   明文容器（uid 100）随即失去写权限、`STOR` 吃 `550`。跨容器的约定没有单容器测试看得见，
-   所以单独写一条断言。
+   现形。
+
+   `fixture-isolation-selftest.py` 是它把真正的错误露出来之后才看见的：`bfren/ftps` 初始化时
+   递归 chown 自己的 `/files` bind mount（`FTPS_VSFTPD_UID` 默认 1000），而那个目录正是明文
+   容器的根目录，明文容器（uid 100）随即失去写权限、`STOR` 吃 `550`。跨容器的约定没有单容器
+   测试看得见，所以单独写一条断言。
 
    `plain` 段还有一条自己的编排约束：它是最后一个需要明文容器的步骤，和「容器刚被探测为
    健康」之间隔着整段 FTPS（拉镜像、签 CA、二次握手、又一次 `docker run`）。在 CNB 的
