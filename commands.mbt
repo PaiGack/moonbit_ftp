@@ -173,11 +173,18 @@ pub async fn logout(client : FTPClient) -> Unit {
 }
 
 ///|
-/// `QUIT` and close the connection.
+/// `QUIT` and mark the connection as closed.
 ///
-/// The errors are aggregated instead of short-circuiting: a failure to send
-/// `QUIT` must not hide a failure to close the socket, and the other way
-/// round. This mirrors upstream's use of `errors.Join`.
+/// The socket is **not** closed here: `Control` has no `close`, and no path in
+/// this module calls `@socket.Tcp::close` (see the "connection and shutdown
+/// semantics" note in `README.mbt.md`). Upstream's `Quit` closes `c.conn`
+/// explicitly and joins that error with the command's, which is why the shape
+/// below -- collect into `errors`, then `finish_quit` -- survives even though
+/// only the command can fail. Sending `QUIT` therefore does not make the next
+/// read observe EOF; the server closing its side and this process releasing
+/// the handle do.
+///
+/// A second call is a no-op, visible through `is_closed`.
 pub async fn quit(client : FTPClient) -> Unit {
   client.lock()
   defer client.unlock()
@@ -197,7 +204,14 @@ pub async fn quit(client : FTPClient) -> Unit {
 }
 
 ///|
-/// Close the underlying connection and combine every collected error.
+/// Raise the errors collected by `quit` as one `FtpErrors::MultipleErrors`,
+/// or return normally when there are none.
+///
+/// The list is always empty or a single `QUIT` failure today -- there is no
+/// socket to close, so there is no second error to join. It stays a list
+/// because that is upstream's `errors.Join` shape and because the error
+/// aggregation rule (`docs/porting.md` section 1.4 point 3) applies to it as
+/// soon as a second step appears.
 fn finish_quit(errors : Array[Error]) -> Unit raise {
   match join_errors(errors) {
     Some(err) => raise err

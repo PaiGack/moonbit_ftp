@@ -142,7 +142,7 @@ async test "login sends USER, PASS, FEAT and TYPE" {
     e => fail("login: \{e}")
   }
   assert_eq(sink.lines, [
-    "USER test", "PASS secret", "FEAT", "OPTS UTF8 ON", "TYPE I",
+    "USER test", "PASS secret", "FEAT", "TYPE I", "OPTS UTF8 ON",
   ])
 }
 
@@ -199,14 +199,14 @@ async test "login survives a server that refuses OPTS UTF8" {
   let script = "331 Password.\r\n" +
     "230 Logged in.\r\n" +
     "211-Features:\r\n UTF8\r\n211 End\r\n" +
-    "501 Option not understood.\r\n" +
-    "200 Switching to Binary mode.\r\n"
+    "200 Switching to Binary mode.\r\n" +
+    "501 Option not understood.\r\n"
   let (client, sink) = scripted_client(script)
   login(client, "test", "secret") catch {
     e => fail("login: \{e}")
   }
   assert_eq(sink.lines, [
-    "USER test", "PASS secret", "FEAT", "OPTS UTF8 ON", "TYPE I",
+    "USER test", "PASS secret", "FEAT", "TYPE I", "OPTS UTF8 ON",
   ])
 }
 
@@ -518,15 +518,16 @@ async test "login swallows a refused OPTS UTF8 and keeps going" {
   let script = "331 Password.\r\n" +
     "230 Logged in.\r\n" +
     "211-Features:\r\n UTF8\r\n211 End\r\n" +
-    "504 Command not implemented for that parameter.\r\n" +
-    "200 Switching to Binary mode.\r\n"
+    "200 Switching to Binary mode.\r\n" +
+    "504 Command not implemented for that parameter.\r\n"
   let (client, sink) = scripted_client(script)
   login(client, "test", "secret") catch {
     _ => fail("login should not raise")
   }
-  // The refused `OPTS` is the third command; `TYPE I` still followed, which is
-  // what proves the failure was swallowed rather than aborting the login.
+  // The refused reply lands on `OPTS UTF8 ON`; `TYPE I` was already sent
+  // before it, which is what proves the failure was swallowed rather than
+  // aborting the login.
   assert_eq(sink.lines, [
-    "USER test", "PASS secret", "FEAT", "OPTS UTF8 ON", "TYPE I",
+    "USER test", "PASS secret", "FEAT", "TYPE I", "OPTS UTF8 ON",
   ])
 }

@@ -115,7 +115,7 @@ test {
 | 函数 | 作用 |
 | --- | --- |
 | `dial(addr, ..)` | 建连，可选 `explicit_tls` / `tls` / `timeout_ms` / `trust_pasv_ip` 等参数 |
-| `login(client, user, pass)` | `USER`/`PASS` 登录并协商 `FEAT` / `TYPE` 能力 |
+| `login(client, user, pass)` | `USER`/`PASS` 登录，随后按上游顺序协商：`FEAT` → `TYPE I` → `OPTS UTF8 ON`（能力与开关都满足时）→ `PBSZ 0`/`PROT P`（TLS 时） |
 | `list(client, path)` | 列目录，返回 `Array[Entry]`（MLSD / LIST 自动回退） |
 | `name_list(client, path)` | `NLST`，只拿名字，返回 `Array[String]` |
 | `get_entry(client, path)` | `MLST` 取单个条目的 facts |
@@ -128,15 +128,19 @@ test {
 | `no_op` / `logout` / `quit(client)` | `NOOP` / `REIN` / `QUIT`（`quit` 发 `QUIT` 并标记为已关闭；socket 不做显式 close，见下方"连接与关闭语义"） |
 
 > 错误以 `FtpError` 抛出，可用 `catch` / `try!` 统一处理；多次失败会被聚合成
-
+> `FtpErrors::MultipleErrors` 一起报，而不是遇到第一个就吞掉。`list` / `walk`
+> 解析不出的行会被跳过而非中断。
 
 ### 连接与关闭语义
 
 `quit` 发 `QUIT`，然后把客户端标记为已关闭（之后再调 `quit` 是空操作，`is_closed()` 返回 `true`）。
 它**不**关闭底层 socket：`Control` 没有 `close` 方法，也没有任何路径调用 `@socket.Tcp::close`。
 关闭由两端各自完成——服务端收到 `QUIT` 后回包并关闭它那一侧，进程退出时本地的句柄随之释放。
-这与上游 Go 版的口径一致（`Quit` 之后同样不显式 Close），因此不要指望 `quit` 之后 socket 立刻
-读到一个 EOF。
+
+这与上游 Go 版**不同**：上游 `Quit` 会显式 `c.conn.Close()`，再把这条关闭错误与命令错误一起
+`errors.Join`。本仓库删掉了那一步，所以 `quit` 的错误列表里最多只有 `QUIT` 命令本身的一个错误，
+"聚合"是上游 `errors.Join` 的形状，不是当下的必要性。因此也不要指望 `quit` 之后 socket 立刻
+读到一个 EOF——那要靠服务端关闭它那一侧。
 
 与之互补的是 `logout`（`REIN`）：它丢弃登录态但**保留**控制连接，可以继续在这条连接上 `USER`/`PASS`。
 
