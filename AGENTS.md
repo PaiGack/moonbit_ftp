@@ -36,6 +36,16 @@ You can browse and install extra skills here:
   3.0.5) configured with `force_local_data_ssl=YES`, which is what makes a
   control-channel-only "upgrade" fail every transfer.
 
+- `scripts/profiles/` is the docker-free gate for `cmd/profiles`, the third of
+  the pre-container self-tests: `ftp_profile_mock.py` (a plaintext FTP mock with
+  a real filesystem, answering `NLST <dir>` the way the container does — full
+  paths, not bare names) and `cmd-profiles-selftest.py` (drives the real binary
+  against that mock and checks the command stream each profile actually chose:
+  `LIST` vs `MLSD`, `PASV` vs `EPSV`, whether a timestamp was written). Those
+  choices are invisible against the real server, which supports both, so the
+  mock is the only place they can be asserted; it runs in `scripts/ci.sh` before
+  any image is pulled, like the other two.
+
 - **The `testdata/ftp/tls` fixture must be generated before `moon test`, and
   `tls-fixture-selftest.py` is what fails the gate when it was not.**
   `transfer_wbtest.mbt`'s zero-byte TLS upload case is the only test that
