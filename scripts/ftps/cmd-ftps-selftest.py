@@ -123,6 +123,44 @@ def run_plain(mock):
     return proc.returncode, proc.stdout + proc.stderr
 
 
+class DeadMock:
+    """A listener that accepts and immediately closes every connection.
+
+    The shape of a container that has exited while its published port still
+    answers: `connect()` succeeds, the first read gets EOF. `cmd/ftps` treats
+    that as `@io.ReaderClosed` from the greeting, which is the ambiguous case
+    the diagnosis exists for.
+
+    `connections` counts the accepts, so the test can assert the retry really
+    happens -- a single dial that closed could still be a server starting up.
+    """
+
+    def __init__(self):
+        self.sock = socket.socket()
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(8)
+        self.sock.settimeout(30)
+        self.port = self.sock.getsockname()[1]
+        self.endpoint = f"127.0.0.1:{self.port}"
+        self.connections = 0
+        self.thread = threading.Thread(target=self._accept, daemon=True)
+        self.thread.start()
+
+    def _accept(self):
+        while True:
+            try:
+                conn, _ = self.sock.accept()
+            except OSError:
+                return
+            self.connections += 1
+            conn.close()
+
+    def stop(self):
+        self.sock.close()
+        self.thread.join(timeout=5)
+
+
 def main():
     failures = []
 
@@ -147,7 +185,33 @@ def main():
     finally:
         mock.stop()
 
-    # 2. The regression: a refused STOR must be reported as a 550, not as a
+    # 2. A dead server: the port answers the TCP connection and then closes
+    #    it before the `220` greeting, which is what a vsftpd container that
+    #    has exited looks like from the client's side. The run used to print
+    #    the bare `ReaderClosed` -- no endpoint, no cause -- after three other
+    #    clients had just passed against the same address, so it read as a
+    #    plaintext-transport regression. It now names the endpoint and says the
+    #    container behind it is gone, and it does so on the *second* attempt,
+    #    which is what distinguishes a dead server from one still starting.
+    dead = DeadMock()
+    try:
+        rc, out = run_plain(dead)
+        check("a dead server fails the run", rc != 0,
+              f"rc={rc} output={out.strip()!r}")
+        check("the failure names the endpoint",
+              dead.endpoint in out, f"output={out.strip()!r}")
+        check("the failure names the container, not the socket",
+              "closed it before the FTP greeting" in out
+              and "Nothing is serving there" in out,
+              f"output={out.strip()!r}")
+        check("the bare ReaderClosed is not the whole message",
+              "ReaderClosed" not in out, f"output={out.strip()!r}")
+        check("the dead server is dialled twice",
+              dead.connections == 2, f"connections={dead.connections}")
+    finally:
+        dead.stop()
+
+    # 3. The regression: a refused STOR must be reported as a 550, not as a
     #    deadlock. The deadlock is what the pipeline used to print, and it
     #    named a task at the `MemoryReader` argument of the STOR call.
     mock = Mock(stor_refused=True)
