@@ -123,6 +123,81 @@ fn usage() -> String {
 }
 
 ///|
+/// Dial `addr`, and when the connection dies before the greeting arrives, say
+/// which server that was instead of naming the socket.
+///
+/// `dial` reads the `220` greeting first, so a server that is gone -- a vsftpd
+/// container that exited, a published port with nothing behind it any more --
+/// surfaces as `@io.ReaderClosed` from the very first read. That error names the
+/// read and nothing else, which is exactly the failure this repo kept
+/// mis-diagnosing as a client regression:
+///
+///   ==> plain: dial 127.0.0.1:21
+///   ReaderClosed
+///
+/// `cmd/example`, `cmd/ftp` and `cmd/profiles` had all just passed against the
+/// same endpoint, so the plaintext transport looked broken when the container
+/// had simply died. `scripts/ensure-ftp.sh` is what keeps that from happening
+/// now, but a guard cannot cover a window inside a client, and when it does
+/// happen the client has to name the server rather than the socket.
+///
+/// So: re-dial once, and if the peer closes again, report the endpoint plus the
+/// fact that it accepted the TCP connection and then closed it -- which is a
+/// dead server, not a client bug. The retry is the discriminator: a single
+/// closed greeting can be a race in a container that is still starting, while
+/// the same thing twice means nothing is serving on that port.
+async fn dial_or_diagnose(
+  label : String,
+  addr : String,
+  ca : String?,
+  explicit_tls~ : Bool,
+) -> @ftp.FTPClient {
+  // With a CA the connection is verified against it; in the clear there is no
+  // certificate to check, so the trust policy is irrelevant.
+  let trust = match ca {
+    Some(ca) => @tls.TrustedRoot::CustomPemFile(ca)
+    None => @tls.TrustedRoot::SystemRoot
+  }
+  let dial = async fn() -> @ftp.FTPClient {
+    @ftp.dial(
+      addr,
+      explicit_tls~,
+      timeout_ms=15000,
+      trust~,
+      // The test servers answer PASV with 127.0.0.1, which is also the peer,
+      // so the SSRF guard is satisfied without opting out of it.
+      trust_pasv_ip=true,
+    )
+  }
+  dial() catch {
+    @io.ReaderClosed => retry_or_diagnose(label, addr, dial)
+    // A refused connect already names the port, so it is not the ambiguous
+    // case and goes through unchanged.
+    e => fail("\{label}: dial failed: \{@debug.Repr(e)}")
+  }
+}
+
+///|
+/// The second attempt, and the message when it fails the same way.
+///
+/// Kept separate from `dial_or_diagnose` so the "is this a dead server"
+/// decision is one function whose whole job is that comparison, rather than a
+/// boolean buried in the first call's `catch`.
+async fn retry_or_diagnose(
+  label : String,
+  addr : String,
+  dial : async () -> @ftp.FTPClient,
+) -> @ftp.FTPClient {
+  dial() catch {
+    @io.ReaderClosed =>
+      fail(
+        "\{label}: \{addr} accepted the TCP connection but closed it before the FTP greeting arrived, twice. Nothing is serving there -- the container behind this port is gone. Run scripts/ensure-ftp.sh (or the matching starter) before retrying.",
+      )
+    e => fail("\{label}: dial failed on the retry: \{@debug.Repr(e)}")
+  }
+}
+
+///|
 /// The C `exit`, so a usage error reports a distinct status instead of the
 /// SIGABRT that `abort` would produce. Mirrors `cmd/ftp`.
 extern "c" fn exit(code : Int32) = "exit"
@@ -142,21 +217,7 @@ async fn smoke(
   explicit_tls~ : Bool = false,
 ) -> Unit {
   println("==> \{label}: dial \{addr}")
-  // With a CA the connection is verified against it; in the clear there is no
-  // certificate to check, so the trust policy is irrelevant.
-  let trust = match ca {
-    Some(ca) => @tls.TrustedRoot::CustomPemFile(ca)
-    None => @tls.TrustedRoot::SystemRoot
-  }
-  let client = @ftp.dial(
-    addr,
-    explicit_tls~,
-    timeout_ms=15000,
-    trust~,
-    // The test servers answer PASV with 127.0.0.1, which is also the peer, so
-    // the SSRF guard is satisfied without opting out of it.
-    trust_pasv_ip=true,
-  )
+  let client = dial_or_diagnose(label, addr, ca, explicit_tls~)
 
   @ftp.login(client, user, password) catch {
     e => fail("\{label}: login failed: \{@debug.Repr(e)}")

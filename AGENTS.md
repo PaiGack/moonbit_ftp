@@ -287,6 +287,33 @@ You can browse and install extra skills here:
   session, one profile reported — so the split cannot quietly stop exercising
   the other three.
 
+- **A dead container is a *bare* `ReaderClosed`, and the guard cannot cover
+  the window inside a client.** Every guard above is a re-check before a step,
+  which leaves the window that opens while the client is running. `cnb-gur-
+  1k4sor3b1` walked straight into it: `cmd/example`, `cmd/ftp` and all four
+  profiles passed, the FTPS smoke test passed against its *own* container, and
+  then `cmd/ftps/run.sh plain` — whose guard had just pronounced the plaintext
+  container healthy — printed
+
+  ```
+  ==> plain: dial 127.0.0.1:21
+  ReaderClosed
+  ```
+
+  Nothing in that names the server, the port, or the fact that the connection
+  was accepted and then closed. `dial` reads the `220` greeting first, so a
+  container that has exited looks exactly like this: the DinD port proxy keeps
+  answering the published port, `connect()` succeeds, and the first read gets
+  EOF. Read as a client bug it sends you into `control.mbt`'s `read_line`; read
+  as what it is — a dead server — it is one `ensure-ftp.sh` away from fixed.
+  So `cmd/ftps` dials **twice** before concluding anything: a single closed
+  greeting can be a container still starting, while the same thing twice is
+  nothing serving on that port, and the second failure names the endpoint and
+  says the container behind it is gone. `cmd-ftps-selftest.py` drives that with
+  a listener that accepts and immediately closes, asserting both the message and
+  that the retry happened — the retry is what keeps a slow-starting server from
+  being called dead.
+
 - **FTPS is the one capability whose failure mode is "the first read hangs"**,
   which no unit test and no plaintext server can reach. All four of the TLS
   bugs found so far lived in the seams: `AUTH TLS` sent without upgrading the
