@@ -7,8 +7,15 @@
 ///|
 /// A data transfer in progress, returned by `retr` / `retr_from`.
 ///
-/// It implements `@io.Reader`; `close()` is idempotent and performs the
-/// mandatory `226` wrap-up read.
+/// `DataResponse::read` is this type's own method, not an `@io.Reader` impl:
+/// the reader half of the `@io.Reader` trait needs a `ReaderBuffer` that only
+/// `moonbitlang/async/io` can mint, so the method reads *through* the wrapped
+/// reader rather than claiming the trait. Callers that need the trait (a
+/// `read_all`, a copy helper, a function taking `&@io.Reader`) should take
+/// `retr`'s underlying reader instead of assuming `DataResponse` is one -- it
+/// is not, and a doc comment is not an `impl`.
+///
+/// `close()` is idempotent and performs the mandatory `226` wrap-up read.
 pub struct DataResponse {
   reader : &@io.Reader
   /// Set once `close()` ran, so a second call is a no-op.

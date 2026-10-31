@@ -26,9 +26,23 @@
 pub struct Control {
   mut reader : &@io.Reader
   mut writer : &@io.Writer
-  /// Address of the peer we are talking to; the `PASV` SSRF guard trusts this
-  /// one, not the address the server advertises.
+  /// Address of the peer we are talking to; the `PASV` / `EPSV` data channel
+  /// trusts this one, not the address the server advertises.
+  ///
+  /// It is the *data channel* address, so it is always text an
+  /// `@socket.Addr::parse` accepts: `1.2.3.4`, an IPv6 literal in brackets, or
+  /// -- only when the dial target never resolved -- the hostname the caller
+  /// passed, which is left to the platform resolver.
   host : String
+  /// The name to put in the TLS server name indication, i.e. the host the
+  /// *certificate* has to match.
+  ///
+  /// Separate from `host` on purpose: `dial("203.0.113.7:21", tls=true,
+  /// trust=CustomPemFile(ca))` talks to an IP but the certificate was issued
+  /// for a name, and verification would fail on a mismatch that is not one. A
+  /// caller that resolved the name itself gets the name checked; a caller that
+  /// passed a name and a hostname-less `host` gets the same string both ways.
+  server_name : String
   /// Deadline applied to every reply read, in milliseconds; `0` disables it.
   ///
   /// A read with no deadline is not merely missing a diagnostic: it is the
@@ -63,10 +77,14 @@ pub fn Control::new(
   reader : &@io.Reader,
   writer : &@io.Writer,
   host : String,
+  server_name~ : String = "",
   timeout_ms~ : Int32 = 0,
   debug~ : DebugLog? = None,
 ) -> Control {
-  { reader, writer, host, timeout_ms, debug, }
+  // An empty `server_name` means "the peer address is also the name", which is
+  // the case for every loopback fixture and for a caller that asked for an IP.
+  let name = if server_name == "" { host } else { server_name }
+  { reader, writer, host, server_name: name, timeout_ms, debug, }
 }
 
 ///|
@@ -88,6 +106,12 @@ pub fn Control::debug_enabled(self : Control) -> Bool {
 /// The peer address of the control connection.
 pub fn Control::host(self : Control) -> String {
   self.host
+}
+
+///|
+/// The hostname the TLS certificate is verified against.
+pub fn Control::server_name(self : Control) -> String {
+  self.server_name
 }
 
 ///|

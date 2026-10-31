@@ -33,6 +33,23 @@ test "split_addr falls back on a non numeric port" {
 }
 
 ///|
+/// An IPv6 literal is bracketed, and the brackets stay: `@socket.Addr::parse`
+/// needs them to tell a literal from `host:port`. Splitting on the first colon
+/// -- which is what this used to do -- turned `[::1]:21` into the host `[`.
+test "split_addr keeps an IPv6 literal intact" {
+  assert_eq(@ftp.split_addr("[::1]:2121", 21), ("[::1]", 2121))
+  assert_eq(@ftp.split_addr("[::1]", 21), ("[::1]", 21))
+  assert_eq(@ftp.split_addr("[2001:db8::7]:990", 21), ("[2001:db8::7]", 990))
+  // A *bare* v6 literal at the very end is indistinguishable from
+  // `host:port`, so the last colon wins: `::1` reads as the host `:` with the
+  // port `1`. Callers with an IPv6 server must use the bracketed RFC form, and
+  // `@socket.Addr::parse` rejects everything else anyway.
+  assert_eq(@ftp.split_addr("::1", 21), (":", 1))
+  assert_eq(@ftp.split_addr("[::1]:", 21), ("[::1]", 21))
+  assert_eq(@ftp.split_addr("[::1]:x", 21), ("[::1]", 21))
+}
+
+///|
 test "parse_decimal accepts digits and rejects everything else" {
   assert_eq(@ftp.parse_decimal("0"), Some(0))
   assert_eq(@ftp.parse_decimal("21"), Some(21))

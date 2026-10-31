@@ -13,7 +13,9 @@ license = "Apache-2.0"
 
 keywords = [ "ftp", "network", "client", "protocol", "async" ]
 
-// FTP 需要真实网络栈（TCP + TLS），wasm/wasm-gc 后端无法提供，故声明为 native。
+// 纯 FTP 走的是 `moonbitlang/async` 的 socket 抽象，wasm/wasm-gc 后端能提供；
+// wasm 档未验证的只有 FTPS —— 主机侧 TLS（trust store、证书校验）在 wasm 上没有实现。
+// 这行只是 `moon build` / `moon test` 的默认目标，不是能力声明。
 
 preferred_target = "native"
 

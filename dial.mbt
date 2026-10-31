@@ -60,13 +60,31 @@ pub async fn dial(
   let socket_addr = @socket.Addr::parse("\{host}:\{port}") catch {
     _ => raise FtpError::ParseError(msg="invalid address: \{addr}")
   }
+  // The peer we reached, captured *before* connecting.
+  //
+  // This address is what the passive data channel dials, and it has to be the
+  // peer rather than the name the caller passed (DNS may resolve to several
+  // addresses) -- and it cannot come from the connected socket either.
+  // `Tcp::addr` is documented as "Get the *local* address of a TCP
+  // connection", and this async runtime exposes no peer address on a client
+  // socket at all, so reading it there stored *our own* address: on any client
+  // that is not on the server's machine, every passive data connection then
+  // dialled back to the client itself. The control channel kept working (that
+  // one is connected to the right place) and `RETR` / `STOR` / `LIST` all
+  // failed with "connection refused" at an address nobody chose. Loopback
+  // fixtures cannot see the difference, which is why it shipped.
+  //
+  // `socket_addr` is the address `Tcp::connect` actually dials, which is what
+  // "the peer we reached" means: the resolution decision already made, rather
+  // than a second opinion about it.
+  let peer_ip = addr_ip_text(socket_addr)
+  // The two answers are not the same question. The data channel dials
+  // `peer_ip`; the TLS client verifies the certificate against the name the
+  // caller used, which is why `Control` keeps them apart.
+  let server_name = host
   let tcp = @async.with_timeout(timeout_ms, async fn() {
     @socket.Tcp::connect(socket_addr)
   })
-  // The trusted IP for PASV is the peer we actually reached, not the hostname
-  // we asked for: DNS may resolve to several addresses.
-  let peer = tcp.addr().ip()
-  let host_text = format_ip(peer)
   // Implicit TLS (port 990) is encrypted from the first byte: the `220`
   // greeting itself arrives inside the TLS session, so the handshake has to
   // happen before a single byte is read. Explicit TLS is the opposite and is
@@ -78,11 +96,11 @@ pub async fn dial(
   // first `read_until` of the greeting blocks on bytes it can never parse.
   let control = if tls {
     let encrypted = @async.with_timeout(timeout_ms, async fn() {
-      @tls.Tls::client(tcp, host=host_text, trust~)
+      @tls.Tls::client(tcp, host=server_name, trust~)
     })
-    Control::new(encrypted, encrypted, host_text, timeout_ms~)
+    Control::new(encrypted, encrypted, peer_ip, server_name~, timeout_ms~)
   } else {
-    Control::new(tcp, tcp, host_text, timeout_ms~)
+    Control::new(tcp, tcp, peer_ip, server_name~, timeout_ms~)
   }
   // Attach the traffic log once the connection exists and before the greeting
   // is read, so the first record is what the server said first. Nothing is
@@ -127,7 +145,29 @@ pub async fn dial(
 /// Split `host` / `host:port` into its two components, applying `default_port`
 /// when the caller did not specify one.
 pub fn split_addr(addr : String, default_port : Int32) -> (String, Int32) {
-  match addr.find(":") {
+  // An IPv6 literal is bracketed -- `[::1]:21`, `[2001:db8::1]` -- and the
+  // brackets are *kept* in the returned host, because `@socket.Addr::parse`
+  // needs them to tell a literal from a `host:port` pair. Splitting on the
+  // first colon instead folded `[::1]:21` into the host `[`, which parses as
+  // nothing at all.
+  if addr.has_prefix("[") {
+    let close = match addr.find("]") {
+      Some(close) => close
+      None => return (addr, default_port)
+    }
+    let host = addr[0:close + 1].to_owned()
+    let rest = addr[close + 1:].to_owned()
+    guard rest.has_prefix(":") else { return (host, default_port) }
+    let port = match parse_decimal(rest[1:].to_owned()) {
+      Some(port) => port
+      None => default_port
+    }
+    return (host, port)
+  }
+  // Unbracketed: the *last* colon separates host and port, so an IPv6 literal
+  // that was not bracketed keeps its address instead of being cut at the first
+  // colon. For a hostname or a dotted quad there is only one colon either way.
+  match addr.rev_find(":") {
     Some(index) => {
       let host = addr[0:index].to_owned()
       let text = addr[index + 1:].to_owned()
@@ -142,14 +182,29 @@ pub fn split_addr(addr : String, default_port : Int32) -> (String, Int32) {
 }
 
 ///|
-/// Render a raw 32 bit IPv4 address in dotted quad notation.
-fn format_ip(ip : UInt32) -> String {
-  let value = ip.reinterpret_as_int()
-  let a = (value >> 24) & 0xFF
-  let b = (value >> 16) & 0xFF
-  let c = (value >> 8) & 0xFF
-  let d = value & 0xFF
-  "\{a}.\{b}.\{c}.\{d}"
+/// The text form of the address `dial` dialled, for the passive data channel.
+///
+/// `socket_addr.to_string()` is the address in host byte order, which is
+/// exactly the text the next `Addr::parse` has to read back -- and it is the
+/// only form that survives an IPv6 literal, whose bracketed text has no four
+/// octets to spell as a dotted quad.
+fn addr_ip_text(socket_addr : @socket.Addr) -> String {
+  // `Show` always appends `:port`, so the host is what precedes the last
+  // separator; for the bracketed v6 form that separator is the one after `]`.
+  // A v6 literal keeps its brackets, which is what the data channel has to
+  // dial with.
+  let text = socket_addr.to_string()
+  if text.has_prefix("[") {
+    let close = match text.find("]") {
+      Some(close) => close
+      None => return text
+    }
+    return text[0:close + 1].to_owned()
+  }
+  match text.rev_find(":") {
+    Some(index) => text[0:index].to_owned()
+    None => text
+  }
 }
 
 ///|
@@ -178,7 +233,11 @@ async fn auth_tls(client : FTPClient, socket : @socket.Tcp) -> Unit {
   // turns that into an ordinary failed dial.
   let deadline = client.options.timeout_ms
   let tls = @async.with_timeout(deadline, async fn() {
-    @tls.Tls::client(socket, host=control.host(), trust=client.options.trust)
+    @tls.Tls::client(
+      socket,
+      host=control.server_name(),
+      trust=client.options.trust,
+    )
   }) catch {
     e =>
       raise FtpError::ServerError(
