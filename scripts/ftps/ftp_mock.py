@@ -5,9 +5,15 @@ Usage: ftp_mock.py HOST PORT DATA_PORT LIST_REPLY_FILE [--stor-refused]
 
 Speaks exactly the slice of FTP `cmd/ftps` exercises: banner, `USER` / `PASS`,
 `FEAT`, `TYPE`, `PWD`, `EPSV` (refused, to force the `PASV` fallback), `PASV`,
-`LIST`, `RETR`, `STOR`, `SIZE`, `DELE` and `QUIT`. A single passive listener
-serves every transfer, which is what real servers with a one-port-per-transfer
-model look like from the client's side.
+`LIST`, `RETR`, `STOR`, `APPE`, `SIZE`, `DELE` and `QUIT`. A single passive
+listener serves every transfer, which is what real servers with a
+one-port-per-transfer model look like from the client's side.
+
+`STOR` and `APPE` keep their payload in an in-memory file table so that a
+later `RETR` or `SIZE` can be asserted on. `APPE` has to actually append --
+answering it with a bare `200` (which is what the catch-all arm used to do)
+would make `cmd/ftps`'s append round trip pass without the client having sent
+a byte, i.e. the exact vacuous coverage the round trip exists to remove.
 
 The point of this file is to be able to run the *real* `cmd/ftps` binary
 without Docker, so that a defect that only shows up in the `cmd/ftps` process
@@ -35,6 +41,9 @@ class Handler:
         self.control = conn
         self.buffer = b""
         self.data_listener = None
+        # Per connection: `cmd/ftps` does its whole round trip on one session,
+        # so a shared table would only hide ordering mistakes.
+        self.files = {}
 
     # -- plumbing ---------------------------------------------------------
     def readline(self):
@@ -97,7 +106,8 @@ class Handler:
                 body = open(self.args.list_reply, "rb").read()
                 self.transfer(lambda data: data.sendall(body))
             elif command == "RETR":
-                self.transfer(lambda data: data.sendall(b"hello world\n"))
+                body = self.files.get(argument, b"hello world\n")
+                self.transfer(lambda data: data.sendall(body))
             elif command == "STOR":
                 if self.args.stor_refused:
                     # Answer the transfer command with a failure and never
@@ -106,9 +116,12 @@ class Handler:
                     # exact shape this test exists for.
                     send(self.control, "550 STOR refused")
                 else:
-                    self.transfer(lambda data: None, final="226 stored")
+                    self.receive(argument, append=False)
+            elif command == "APPE":
+                self.receive(argument, append=True)
             elif command == "SIZE":
-                send(self.control, "213 5")
+                size = len(self.files.get(argument, b"hello world\n"))
+                send(self.control, f"213 {size}")
             elif command == "DELE":
                 send(self.control, "250 deleted")
             elif command == "QUIT":
@@ -116,6 +129,32 @@ class Handler:
                 return
             else:
                 send(self.control, "200 ok")
+
+    def receive(self, path, append):
+        """Read the client's payload into the file table.
+
+        `append=True` is `APPE`: the client's bytes must land *after* whatever
+        is already there, which is the only observable difference between the
+        two commands.
+        """
+        collected = []
+
+        def drain(data):
+            while True:
+                chunk = data.recv(4096)
+                if not chunk:
+                    break
+                collected.append(chunk)
+
+        self.transfer(drain, final="226 stored")
+        payload = b"".join(collected)
+        if append:
+            self.files[path] = self.files.get(path, b"") + payload
+        else:
+            self.files[path] = payload
+        print(f"DATA {path} "
+              f"{'append' if append else 'store'} {len(payload)} bytes",
+              flush=True)
 
     def transfer(self, write_payload, final="226 transfer complete"):
         send(self.control, "150 opening data connection")

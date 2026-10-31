@@ -136,10 +136,19 @@ You can browse and install extra skills here:
   configuration at all — `cmd/example/main.mbt` already defaults every variable
   it reads, so its `.env` could only restate them.
   `scripts/ftp-wrapper-selftest.py`
-  (Docker-free, in `scripts/ci.sh`) asserts both that the `.env` files are gone
-  and that every emitted flag value is a `${VAR:-literal}` expansion, with a
-  *literal* default rather than another expansion, which would put the footgun
-  straight back.
+  (Docker-free, in `scripts/ci.sh`) asserts that the `.env` files are gone and
+  that `cmd/ftp/run.sh` emits **no** connection flag at all: the endpoint is
+  already in the inherited environment, so any `--host`/`--port`/`--user`/
+  `--pass`/`--timeout` in the wrapper is a second reader of the same variables.
+
+  That assertion direction is itself load bearing, and it was once backwards.
+  The gate used to require every emitted flag to be a `${VAR:-literal}`
+  expansion — i.e. it *demanded* the flag building this section forbids, so a
+  correctly simplified wrapper would have failed it. Nothing caught the
+  disagreement because the wrapper and `AGENTS.md` had drifted together: the
+  wrapper really was still emitting `--host "$FTP_HOST"` while this paragraph
+  already said it did not. When you change one, change the other and the gate
+  in the same commit.
 
   Note this is *not* the explanation for the `ReaderClosed` /
   `Connection reset by peer` / `Connection refused` triple seen in
@@ -439,6 +448,19 @@ You can browse and install extra skills here:
 - In the last step, run `moon info && moon fmt` to update the interface and
   format the code. Check the diffs of `.mbti` file to see if the changes are
   expected.
+
+- **`pkg.generated.mbti` spells `Int` whichever way the toolchain prints it, so
+  it is never proof of anything.** Core declares `#alias(Int32) pub type Int`
+  (`~/.moon/lib/core/builtin/pkg.generated.mbti`); a compiler may print the
+  alias or resolve it, and this repo's file was last written by one that
+  printed `Int`. A runner whose compiler resolves it makes `moon info`
+  rewrite 97 lines to `Int32` -- `dial`'s `timeout_ms? : Int` among them --
+  with no source change behind it. `scripts/ci.sh` therefore runs
+  `git diff --exit-code` *before* `moon info`: that gate is about edits nobody
+  committed, and regenerating first made it fail on a clean tree. Treat a
+  pure-`Int`/`Int32` diff in that file as toolchain noise, not as a signal
+  about the change under review; check it by hand only when it names a symbol
+  you actually touched.
 
 - Run `moon test` to check tests pass. MoonBit supports snapshot testing; when
   changes affect outputs, run `moon test --update` to refresh snapshots.

@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Run cmd/ftp against the vsftpd container started by scripts/start-ftp.sh.
 #
-# A thin wrapper: it sets the container's endpoint as *default* environment and
-# forwards every argument straight through to cmd/ftp. It does not parse
-# anything, which is the point -- see "Why this is not a flag builder" below.
+# A thin wrapper: it forwards every argument straight through to cmd/ftp and
+# owns no configuration of its own. The container's endpoint reaches the CLI
+# through `FTP_HOST` / `FTP_PORT` / `FTP_USER` / `FTP_PASS` / `FTP_TIMEOUT`,
+# which `cmd/ftp/main.mbt` reads as defaults -- this script neither sets nor
+# echoes them. It does not parse anything, which is the point -- see "Why this
+# is not a flag builder" below.
 #
 # Usage:
 #   scripts/start-ftp.sh
@@ -48,10 +51,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Build/run from the repo root so `moon run cmd/ftp` resolves the package.
 cd "$SCRIPT_DIR/../.."
 
-exec moon run cmd/ftp --target native -- \
-  --host "${FTP_HOST:-127.0.0.1}" \
-  --port "${FTP_PORT:-21}" \
-  --user "${FTP_USER:-test}" \
-  --pass "${FTP_PASS:-test}" \
-  --timeout "${FTP_TIMEOUT:-15000}" \
-  "$@"
+# The endpoint is *not* passed as flags. `cmd/ftp/main.mbt` reads FTP_HOST /
+# FTP_PORT / FTP_USER / FTP_PASS / FTP_TIMEOUT itself, as defaults an explicit
+# flag on the command line still overrides, so the four settings are already
+# in the environment this script inherits and there is nothing to forward.
+#
+# That is the whole contract: forward argv, own no configuration.
+exec moon run cmd/ftp --target native -- "$@"
