@@ -449,6 +449,19 @@ You can browse and install extra skills here:
   format the code. Check the diffs of `.mbti` file to see if the changes are
   expected.
 
+- **`pkg.generated.mbti` spells `Int` whichever way the toolchain prints it, so
+  it is never proof of anything.** Core declares `#alias(Int32) pub type Int`
+  (`~/.moon/lib/core/builtin/pkg.generated.mbti`); a compiler may print the
+  alias or resolve it, and this repo's file was last written by one that
+  printed `Int`. A runner whose compiler resolves it makes `moon info`
+  rewrite 97 lines to `Int32` -- `dial`'s `timeout_ms? : Int` among them --
+  with no source change behind it. `scripts/ci.sh` therefore runs
+  `git diff --exit-code` *before* `moon info`: that gate is about edits nobody
+  committed, and regenerating first made it fail on a clean tree. Treat a
+  pure-`Int`/`Int32` diff in that file as toolchain noise, not as a signal
+  about the change under review; check it by hand only when it names a symbol
+  you actually touched.
+
 - Run `moon test` to check tests pass. MoonBit supports snapshot testing; when
   changes affect outputs, run `moon test --update` to refresh snapshots.
 

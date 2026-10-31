@@ -191,8 +191,12 @@ moon check --target native --deny-warn   # 类型检查，要求 0 warning
 moon test --target native --deny-warn    # 单元测试（含 --enable-coverage 与覆盖率报告）
 moon build --target native               # 构建
 moon build --target native --release     # release 构建
-moon info                                # 更新生成接口（.mbti）
+moon info                                # 更新生成接口（.mbti），放在最后
 ```
+
+`moon info` 会重写 `pkg.generated.mbti`，里面 `Int` / `Int32` 的写法跟着工具链走
+（core 里 `Int` 就是 `#alias(Int32)`）。所以顺序是：先看 `git diff` 干净，再跑
+`moon info`；`scripts/ci.sh` 同样是先 `git diff --exit-code`、后 `moon info`。
 
 提交前请确认下面三条**均通过**（与 `scripts/ci.sh` 用的是同一条命令，不是近似版）：
 

@@ -129,12 +129,24 @@ run python3 "$SCRIPT_DIR/ftps/tls-fixture-selftest.py" "$ROOT" \
 
 # ---------------------------------------------------------------------------
 # check / test / build — the same commands as the GitHub Actions steps.
+#
+# `moon info` runs *after* the build steps on purpose. `pkg.generated.mbti` is a
+# checkout artifact, and what it says about `Int` depends on the toolchain, not
+# on this repo: core now declares `#alias(Int32) pub type Int`, and some builds
+# print the alias and some print what it points at. The checked-in file was
+# written by a toolchain that printed `Int`, the one CI runs prints `Int32`, so
+# regenerating it first turns `git diff --exit-code` -- a check whose only job
+# is to catch edits nobody committed -- into a red build on a clean tree, with a
+# 194-line interface diff as the entire evidence. Running the diff gate before
+# any `moon` command that rewrites the file keeps that check about *our* work;
+# regenerating afterwards keeps the file honest without making the build depend
+# on which alias spelling the runner's compiler happens to emit.
 # ---------------------------------------------------------------------------
 run moon fmt --check
 run moon check --target native --deny-warn
-run moon info
 run git diff --exit-code
 run git status
+run moon info
 
 run moon test --target native --deny-warn --enable-coverage
 run moon coverage report -f summary
