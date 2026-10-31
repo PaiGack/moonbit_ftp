@@ -21,6 +21,13 @@ vsftpd, which is up and answers everything:
     counts how many of its sessions reached `QUIT`, so the leak is a number here
     instead of a downstream `421` nobody can attribute.
 
+  * **A port that accepts and hangs up is reported as a dead server.** That is
+    how a stopped container looks through a docker host's port proxy: the
+    accept succeeds and the greeting read gets EOF, which the probe sees as a
+    bare `connection closed`. Reported verbatim, that reads like a client bug --
+    nothing in it names the endpoint or says nothing is serving it -- so the
+    accept-then-close shape has its own message.
+
   * **The failure path still says goodbye, and still reports the server's
     reply.** A `PASV` that is refused, a `LIST` that never earns its `150` --
     the probe has to `QUIT` there too (same leak, reached by the retry loop) and
@@ -95,11 +102,16 @@ class MockVsftpd:
     are the paths where a missing `QUIT` would otherwise go unnoticed -- the
     connection is *closed* by the probe either way, so only a server that counts
     sessions can tell the two apart.
+
+    `close_immediately` accepts a connection and drops it without a greeting,
+    which is what a dead container looks like through a published port.
     """
 
-    def __init__(self, refuse_pasv=False, refuse_list=False):
+    def __init__(self, refuse_pasv=False, refuse_list=False,
+                 close_immediately=False):
         self.refuse_pasv = refuse_pasv
         self.refuse_list = refuse_list
+        self.close_immediately = close_immediately
         self.sessions = []  # one entry per control connection, see `session`
         self.quits = 0
         self._lock = threading.Lock()
@@ -149,6 +161,14 @@ class MockVsftpd:
             line, _, rest = buffer[0].partition(b"\r\n")
             buffer[0] = rest
             return line.decode(errors="replace")
+
+        # A docker host proxies every published port, so a container that has
+        # exited still *accepts* here and closes straight away -- the failure
+        # mode the probe has to describe as a dead server rather than as a read
+        # that returned nothing.
+        if self.close_immediately:
+            conn.close()
+            return
 
         send("220 mock vsftpd ready")
         try:
@@ -268,6 +288,27 @@ mock.stop()
 check("a server that refuses LIST fails the probe", rc != 0, out.strip())
 check("the probe quit the session even though LIST was refused",
       mock.quits >= 1, f"QUIT count: {mock.quits}")
+
+# 3b. A port that accepts and says nothing. Not the same failure as nothing
+#     listening: `create_connection` succeeds -- a docker host's port proxy
+#     does exactly this for a container that has exited -- and the EOF arrives
+#     while the greeting is being read. The message has to name the endpoint and
+#     say that nothing is serving it, because the bare `connection closed` it
+#     would otherwise print is indistinguishable from a client bug.
+mock = MockVsftpd(close_immediately=True)
+rc, out = run_probe(mock, timeout="2")
+mock.stop()
+check("a port that accepts and hangs up fails the probe", rc != 0, out.strip())
+check(
+    "the diagnosis names the endpoint",
+    f"127.0.0.1:{mock.port}" in out,
+    out.strip(),
+)
+check(
+    "the diagnosis says nothing is serving the port",
+    "nothing is serving" in out,
+    out.strip(),
+)
 
 # 4. Nothing listening at all: the failure has to be reported, not crash the
 #    caller with a traceback. `ensure-ftp.sh` reads the exit code, so an

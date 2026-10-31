@@ -16,6 +16,17 @@ The whole handshake is retried until the deadline, because the daemon behind a
 published port can accept the connection a moment before it is ready to serve
 it.
 
+The two ways a dead server answers are not the same failure, and the message
+has to say which one happened. A container that has exited leaves nothing
+listening, so `create_connection` fails with `Connection refused` -- but on a
+docker host the published port is proxied, so the very same dead container can
+also *accept* the connection and then close it, which reaches the probe as
+`connection closed, buffer=b''` while the greeting was being read. The second
+shape is the one that reads like a client bug: nothing in it names the endpoint,
+the port, or the fact that something accepted and hung up. Both are therefore
+reported with the address and, for the accept-then-close case, the conclusion
+("nothing is serving this port").
+
 Every connection this probe opens ends with an explicit `QUIT`, and that is
 load bearing rather than polite. vsftpd keeps a data-channel slot per login
 until the client says goodbye, and only has a handful of them: a probe that
@@ -45,6 +56,28 @@ host, port, user, password = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.arg
 deadline = time.time() + float(sys.argv[5])
 attempts = 0
 last_error = "no attempt was made"
+# How the *first* attempt failed, which is what separates the two dead-server
+# shapes. "Accepted and hung up" is not one slow start but nothing serving the
+# port, and it is worth saying so rather than leaving a bare EOF in the log.
+first_error = None
+
+
+def greeted_nobody():
+    """True when the control port accepted a connection and said nothing.
+
+    Both `connection closed` spellings mean the same thing here: the greeting
+    read hit EOF, so whatever answered the port is not an FTP server any more.
+    """
+    return isinstance(first_error, RuntimeError) and str(
+        first_error).startswith("connection closed")
+
+
+def describe_last_error():
+    if greeted_nobody() and attempts > 1:
+        return (f"{last_error} -- the control port accepted {attempts} "
+                f"connections and closed each one without a 220 greeting, so "
+                f"nothing is serving {host}:{port} any more")
+    return last_error
 
 
 def recv_line(sock, buffer):
@@ -128,11 +161,13 @@ while time.time() < deadline:
             print(f"  control + passive login succeeded on attempt {attempts}")
         sys.exit(0)
     except Exception as exc:  # noqa: BLE001 - any failure here is retryable
+        if first_error is None:
+            first_error = exc
         last_error = exc
         time.sleep(0.5)
 
 print(
-    f"gave up after {attempts} attempts, last error: {last_error}",
+    f"gave up after {attempts} attempts, last error: {describe_last_error()}",
     file=sys.stderr,
 )
 sys.exit(1)

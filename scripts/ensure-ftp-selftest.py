@@ -182,6 +182,14 @@ check(
 # 4. The restart does not help. The fault is the server now, so the script must
 #    fail *and* say which container, with its log -- otherwise this is the same
 #    port-only message that started all of this.
+#
+#    "Does not help" now means "does not help after every attempt": a single
+#    unconfirmed restart is repeated, because `start-ftp.sh` reporting ready is
+#    a fact about one login at one moment and a container can be gone a second
+#    later. One failure is not evidence the server is unrecoverable, so the
+#    retries are load bearing rather than decorative -- and the *count* is the
+#    assertion, since a loop that never retried would still fail here.
+RESTARTS = 3
 done, calls = run_case(
     ps_says_running=True, probe_answers=[False, False], running_after_restart=False
 )
@@ -191,10 +199,34 @@ check(
     "moonbit-ftp-example" in done.stderr,
     done.stderr.strip(),
 )
-check("a failed restart is re-checked", calls["start"] == 1, str(calls))
+check(
+    "a restart that never confirms is retried",
+    calls["start"] == 1 + RESTARTS,
+    f"start calls: {calls['start']}, expected 1 + {RESTARTS}",
+)
 check(
     "a failed restart dumps the container log",
     "STUB CONTAINER LOG" in done.stderr,
+    done.stderr.strip(),
+)
+
+# 4b. The restart that *does* come back. This is the case that motivated the
+#     loop: one unconfirmed probe after a restart, then a healthy server. It
+#     must be reported as a success, and it must be one that a single
+#     restart-and-recheck would have called a dead server.
+done, calls = run_case(
+    ps_says_running=True, probe_answers=[False, False, True],
+)
+check("a restart that comes back passes the gate",
+      done.returncode == 0, done.stderr.strip())
+check(
+    "a restart that comes back is retried once more",
+    calls["start"] == 2,
+    f"start calls: {calls['start']}, expected 2",
+)
+check(
+    "the recovered container is not reported as dead",
+    "still not answering" not in done.stderr,
     done.stderr.strip(),
 )
 

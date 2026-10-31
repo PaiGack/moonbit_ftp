@@ -34,6 +34,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # A confirmation, not a cold start: a server that needs the starter's full
 # `PROBE_TIMEOUT` (60s) to answer a login is already a failure here.
 : "${RECHECK_TIMEOUT:=20}"
+# How many times an unconfirmed restart is retried before the server is called
+# unrecoverable. A restart that *answers* and then dies needs a second one, and
+# one lucky probe in between must not be read as recovery; a server that stays
+# down burns all of these, so the count has to stay small.
+: "${RESTART_ATTEMPTS:=3}"
 
 NAME="moonbit-ftp-example"
 
@@ -61,6 +66,30 @@ healthy() {
     >/dev/null 2>&1
 }
 
+# A restart that is not *confirmed* gets another one, and that is the whole
+# reason for this loop. `start-ftp.sh` reports ready once its own readiness
+# probe answered, which is a fact about one login at one moment: a container
+# that then exits -- `run-vsftpd.sh` dying on an empty directive, the image's
+# entrypoint re-execing itself -- passes that probe and is gone a second later.
+#
+# A single restart followed by a single re-check reported exactly that as
+#   "ensure-ftp.sh: $NAME is still not answering after a restart."
+# and the restart *did* work: the run that produced it shows the same probe
+# succeeding for the next profile. One unconfirmed probe is not evidence that
+# the server is unrecoverable, so the restart repeats until the server holds
+# and only the last failure is reported.
+confirm() {
+  for attempt in $(seq 1 "$RESTART_ATTEMPTS"); do
+    if running && healthy; then
+      return 0
+    fi
+    echo "ensure-ftp.sh: $NAME did not confirm after restart $attempt of" \
+      "$RESTART_ATTEMPTS; starting it again." >&2
+    "$SCRIPT_DIR/start-ftp.sh" || true
+  done
+  running && healthy
+}
+
 if running && healthy; then
   exit 0
 fi
@@ -72,8 +101,6 @@ else
   echo "ensure-ftp.sh: $NAME is not running any more; restarting it." >&2
 fi
 
-# `start-ftp.sh` clears both a leftover container and a stale fixture copy, so
-# this is a clean start and not a re-entry into a half-dead one.
 if ! "$SCRIPT_DIR/start-ftp.sh"; then
   echo "ensure-ftp.sh: $NAME could not be restarted." >&2
   docker logs "$NAME" >&2 2>/dev/null || true
@@ -83,8 +110,9 @@ fi
 # And the restart has to hold. A container that dies again within the probe is
 # the `run-vsftpd.sh` fd-0 failure, which `vsftpd-env-selftest.py` guards the
 # variable list for; here it is just a fact about the server.
-if ! running || ! healthy; then
-  echo "ensure-ftp.sh: $NAME is still not answering after a restart." >&2
+if ! confirm; then
+  echo "ensure-ftp.sh: $NAME is still not answering after" \
+    "$RESTART_ATTEMPTS restarts." >&2
   docker logs "$NAME" >&2 2>/dev/null || true
   exit 1
 fi
