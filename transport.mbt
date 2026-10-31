@@ -293,7 +293,7 @@ pub async fn DataConn::start_tls(self : DataConn, session : Session) -> Unit {
   let tls = @async.with_timeout(session.options().timeout_ms(), async fn() {
     @tls.Tls::client(
       self.socket,
-      host=session.control().host(),
+      host=session.control().server_name(),
       trust=session.options().trust(),
     )
   })

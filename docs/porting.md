@@ -48,7 +48,7 @@
 
 **数据传输**
 
-- 取文件：`Retr` / `RetrFrom(offset)` → `DataResponse`（可读、幂等 `close`；**没有** `SetDeadline`，见下。注意与只表示一条控制通道回复的 `Response` 不是同一个类型）
+- 取文件：`Retr` / `RetrFrom(offset)` → `DataResponse`（自带 `read` 方法、幂等 `close`；**不是** `@io.Reader` 的实现，也不提供 `SetDeadline`，见下。注意与只表示一条控制通道回复的 `Response` 不是同一个类型）
 - 存文件：`Stor` / `StorFrom(offset)` / `Append`
 - 目录列表：`List`（`MLSD` 优先，回退 `LIST [-a]`）、`NameList`（`NLST`）、`GetEntry`（`MLST`）
 
@@ -358,6 +358,11 @@ sink 会被误报成 `RequestTimeout`。默认关闭，不装 sink 时路径上�
 
 **Go 到 MoonBit 的取舍**（不是漏实现，是有意的口径差）：
 
+- **`DataResponse` 不是 `@io.Reader`。** 它的 `read` 是自有方法，读穿内部 `&@io.Reader`;
+  要把它塞进 `fn(&@io.Reader)` 或 `read_all` 会编译失败,因为 `@io.Reader` 的
+  `_get_internal_buffer` 只有 `moonbitlang/async/io` 能造出 `ReaderBuffer`。这是 trait 的
+  形状决定的,不是漏实现;文档一度写"implements `@io.Reader`",那句话是错的,现改为描述
+  真实形状。
 - **`Response` 没有 `SetDeadline`。** 上游 `ftp.Response` 是 `net.Conn` 的包装， deadline
   可以逐连接设置；这里 `DataResponse` 只有 `read` / `close`，超时统一由 `Control::timeout_ms`
   管——而那条 deadline 只在**控制通道的回复读**上，数据通道的读写本身不计时（一个长列表

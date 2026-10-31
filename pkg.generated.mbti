@@ -296,14 +296,16 @@ pub struct Control {
   mut reader : &@io.Reader
   mut writer : &@io.Writer
   host : String
+  server_name : String
   timeout_ms : Int32
   mut debug : DebugLog?
 }
 pub fn Control::debug_enabled(Self) -> Bool
 pub fn Control::host(Self) -> String
-pub fn Control::new(&@io.Reader, &@io.Writer, String, timeout_ms? : Int32, debug? : DebugLog?) -> Self
+pub fn Control::new(&@io.Reader, &@io.Writer, String, server_name? : String, timeout_ms? : Int32, debug? : DebugLog?) -> Self
 pub async fn Control::read_line(Self) -> String
 pub async fn Control::send_line(Self, String) -> Unit
+pub fn Control::server_name(Self) -> String
 pub fn Control::set_debug(Self, DebugLog?) -> Unit
 pub fn Control::upgrade(Self, &@io.Reader, &@io.Writer) -> Unit
 

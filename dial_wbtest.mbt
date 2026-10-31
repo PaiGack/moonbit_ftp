@@ -354,6 +354,70 @@ async test "dial reads the greeting from a real socket" {
 }
 
 ///|
+/// The control connection's `host` is the *peer* we dialled, not ourselves.
+///
+/// This is the only fixture that can tell the two apart: every other one
+/// listens on `127.0.0.1` and dials `127.0.0.1`, where "the local address of
+/// this socket" and "the address of the far end" are the same string. A server
+/// bound to `127.0.0.2` and dialled *from* `127.0.0.1` separates them, which is
+/// the whole shape of the bug this pins: `dial` used to store
+/// `Tcp::addr().ip()` -- documented as the *local* address -- so the passive
+/// data channel dialled back to the client itself, and every `RETR` / `STOR` /
+/// `LIST` failed with "connection refused" on any machine that was not the
+/// server. Nothing in the loopback fixtures could see it.
+///
+/// The assertion is on the address rather than on "it differs from the local
+/// address" because an assertion that can be satisfied by a third wrong value
+/// is not worth having.
+async test "dial stores the peer address, not the local one" {
+  let listener = @socket.TcpServer::TcpServer(
+    @socket.Addr::parse("127.0.0.2:0"),
+  )
+  let port = listener.addr.port()
+  let client = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      let (conn, _) = listener.accept()
+      conn.write("220 Test server ready.\r\n")
+      ignore(conn.read_all() catch { _ => empty_data() })
+      conn.close()
+    })
+    dial("127.0.0.2:\{port}") catch {
+      _ => fail("dial")
+    }
+  })
+  assert_eq(client.session().control().host(), "127.0.0.2")
+  // The name the caller passed is what the certificate is checked against, so
+  // it survives separately from the peer address.
+  assert_eq(client.session().control().server_name(), "127.0.0.2")
+}
+
+///|
+/// And the same split for a *name*: the caller's hostname is what a
+/// certificate is verified against, while the peer address is the literal the
+/// socket dialled -- so a certificate issued for the name still verifies after
+/// the data channel dials the IP. Built directly, because `dial` takes an
+/// `Addr`, i.e. it never resolves a name itself; a name reaches this client
+/// through the control connection it was handed.
+test "control keeps the TLS server name apart from the peer address" {
+  // The default is "the peer address is also the name", which is what every
+  // loopback fixture and every IP dialled with `tls` rely on.
+  let reader = @io.MemoryReader(writer => writer.write(""))
+  let sink = recording_sink()
+  let control = Control::new(reader, sink, "127.0.0.1")
+  assert_eq(control.host(), "127.0.0.1")
+  assert_eq(control.server_name(), "127.0.0.1")
+  let named = Control::new(
+    reader,
+    sink,
+    "127.0.0.1",
+    server_name="ftp.example.com",
+  )
+  assert_eq(named.host(), "127.0.0.1")
+  assert_eq(named.server_name(), "ftp.example.com")
+  reader.close()
+}
+
+///|
 /// `dial` installs the traffic log the caller asked for *before* it reads the
 /// greeting, so the first record in the transcript is what the server said
 /// first -- and no sink means no logging layer at all.
