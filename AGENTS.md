@@ -136,10 +136,19 @@ You can browse and install extra skills here:
   configuration at all — `cmd/example/main.mbt` already defaults every variable
   it reads, so its `.env` could only restate them.
   `scripts/ftp-wrapper-selftest.py`
-  (Docker-free, in `scripts/ci.sh`) asserts both that the `.env` files are gone
-  and that every emitted flag value is a `${VAR:-literal}` expansion, with a
-  *literal* default rather than another expansion, which would put the footgun
-  straight back.
+  (Docker-free, in `scripts/ci.sh`) asserts that the `.env` files are gone and
+  that `cmd/ftp/run.sh` emits **no** connection flag at all: the endpoint is
+  already in the inherited environment, so any `--host`/`--port`/`--user`/
+  `--pass`/`--timeout` in the wrapper is a second reader of the same variables.
+
+  That assertion direction is itself load bearing, and it was once backwards.
+  The gate used to require every emitted flag to be a `${VAR:-literal}`
+  expansion — i.e. it *demanded* the flag building this section forbids, so a
+  correctly simplified wrapper would have failed it. Nothing caught the
+  disagreement because the wrapper and `AGENTS.md` had drifted together: the
+  wrapper really was still emitting `--host "$FTP_HOST"` while this paragraph
+  already said it did not. When you change one, change the other and the gate
+  in the same commit.
 
   Note this is *not* the explanation for the `ReaderClosed` /
   `Connection reset by peer` / `Connection refused` triple seen in

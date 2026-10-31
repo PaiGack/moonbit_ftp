@@ -103,9 +103,16 @@ test {
 > - 上传的 `@io.MemoryReader` 绑到变量再 `defer close()`：它的后台生产者只能这样停，
 >   传输失败时没人关它，事件循环会以死锁 panic 收场。
 >
-> 要真的跑起来，把同样的代码放进 `cmd/example/main.mbt` 那种可执行包里
+> 要真的跑起来，把代码放进 `cmd/example/main.mbt` 那种可执行包里
 > （`moon.pkg` 声明 `pkgtype(kind: "executable")` + `supported_targets = "+native"`），
 > 用 `async fn main` 去掉外层 `test { }` 即可 `moon run --target native`。
+>
+> 但**不是"同样的一行"**：上面最小例子建连用的是 `@ftp.dial("127.0.0.1:21")`，
+> 没带 `trust_pasv_ip`；`cmd/example` 带了 `trust_pasv_ip=true`。对着
+> `scripts/start-ftp.sh` 起的容器两者都能过，因为它的 `PASV` 回包 IP 与控制连接 IP
+> 相同（不算可疑 IP，默认的 SSRF 防护本来就放行）；换一台回包 IP 与对端不符的服务器，
+> 不带这个开关的那一行会被当可疑 IP 挡掉。例子里省掉它是为了短，
+> `cmd/example` 留着它是因为它要对着多种真实服务器跑。
 
 ### 常用函数
 
@@ -206,9 +213,9 @@ moon test --target native --deny-warn
 | 纯逻辑单测 | `moon test --target native --deny-warn` | 四种列表解析、状态码、路径 join、控制通道帧解析 |
 | 明文端到端 | `scripts/start-ftp.sh` + `cmd/example/run.sh` | 真实 vsftpd 上的 dial / login / list / retr / stor / rename / mkdir / walk |
 | **能力画像端到端** | `cmd/profiles/run.sh <画像>` | 同一个 vsftpd 上四个客户端画像（`full` / `no-mlst` / `no-time` / `no-epsv`）：`FEAT`、`MLSD`/`LIST`、`EPSV`/`PASV`、`STOR`/`RETR`/`NLST`、`MDTM` 读+写、`MKD`/`RMD`/`RemoveDirRecur`。CI 逐个画像各调一次（每次前面插一次 `scripts/ensure-ftp.sh` 复检容器） |
-| **FTPS 端到端** | `scripts/ftps/start-ftps.sh` + `cmd/ftps/run.sh` | 真实 vsftpd 上的**显式 `AUTH TLS`**：dial / login / LIST / RETR / STOR / DELE |
+| **FTPS 端到端** | `scripts/ftps/start-ftps.sh` + `cmd/ftps/run.sh` | 真实 vsftpd 上的**显式 `AUTH TLS`**：dial / login / LIST / RETR / STOR / APPE×2 / DELE（`APPE` 断言追加后的**内容**与 `SIZE`，不是状态码） |
 | 明文回归 | `cmd/ftps/run.sh plain` | 同一个 `cmd/ftps` 二进制走明文链路，确保数据通道时序改动没有破坏无 TLS 路径 |
-| 无 Docker 自测 | `scripts/` 下的 `*-selftest.py` | 拉镜像之前就跑：TLS fixture 已签发、FTPS 就绪探测、`cmd/ftps`（含 `STOR` 被拒回归）、`cmd/profiles` 的协议选择断言、两个容器不共用 fixture、`cmd/ftp/run.sh` 不拼 flag、`start-ftp.sh` 传给镜像的 10 个环境变量非空、`ensure-ftp.sh` 的复检三分支、明文探测 `probe-ftp.py`（含每次会话以 QUIT 收尾），以及 `ensure-ftp.sh` 在 `ci.sh` 中的位置 |
+| 无 Docker 自测 | `scripts/` 下的 `*-selftest.py` | 拉镜像之前就跑：TLS fixture 已签发、FTPS 就绪探测、`cmd/ftps`（含 `STOR` 被拒回归与 `APPE` 确实追加到服务端）、`cmd/profiles` 的协议选择断言、两个容器不共用 fixture、`cmd/ftp/run.sh` 不拼 flag、`start-ftp.sh` 传给镜像的 10 个环境变量非空、`ensure-ftp.sh` 的复检三分支、明文探测 `probe-ftp.py`（含每次会话以 QUIT 收尾），以及 `ensure-ftp.sh` 在 `ci.sh` 中的位置 |
 
 ### 本地端到端（需要 docker）
 
@@ -262,7 +269,7 @@ FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同
 ├── walker.mbt                 目录树遍历
 ├── cmd/ftp/                   CLI 示例：ls / get / put / walk / mkdir / rm
 │   ├── main.mbt
-│   └── run.sh                 用 ${VAR:-literal} 默认值补出连接 flag，再原样转发其余 argv
+│   └── run.sh                 只转发 argv：连接参数由 cmd/ftp/main.mbt 从环境读默认值
 ├── cmd/example/               真实 vsftpd 端到端演示（明文）
 │   ├── main.mbt
 │   └── run.sh                 跑 cmd/example（无参数）
@@ -279,7 +286,7 @@ FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同
 │   ├── probe-ftp-selftest.py  用 mock vsftpd 自测上面的探测（含每次会话都以 QUIT 收尾，无需 Docker）
 │   ├── ensure-ftp.sh          客户端之间复检明文容器，挂了就用 start-ftp.sh 重启
 │   ├── ensure-ftp-selftest.py 用桩 docker 自测上面的复检（无需 Docker）
-│   ├── ftp-wrapper-selftest.py    断言 cmd/ftp/run.sh 只传环境默认值、不拼 flag（无需 Docker）
+│   ├── ftp-wrapper-selftest.py    断言 cmd/ftp/run.sh 一个连接 flag 都不拼（无需 Docker）
 │   ├── vsftpd-env-selftest.py      断言 start-ftp.sh 传齐镜像入口要的 10 个变量（无需 Docker）
 │   ├── stop-ftp.sh            导出明文容器日志并清理
 │   ├── ftps/                  FTPS（显式 AUTH TLS）容器
@@ -296,6 +303,8 @@ FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同
 │       ├── ftp_profile_mock.py        带真实文件系统的 FTP mock
 │       └── cmd-profiles-selftest.py   驱动真程序并核对每个画像发出的命令
 ├── testdata/ftp/              测试与演示使用的 fixture
+│   ├── fixture/               明文演示的 hello.txt + sub/（两个容器各拷一份，
+│   │                          互不共用，见 scripts/ftps/fixture-isolation-selftest.py）
 │   └── tls/                   gen-cert.sh 每次现签的 CA + 叶证书（gitignored，
 │                              `moon test` 的前置条件，见"开发 → 依赖安装"）
 ├── docs/                      移植方案（porting.md）与设计文档（proposal.md）

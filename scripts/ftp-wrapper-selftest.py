@@ -28,12 +28,21 @@ without Docker, and that is what this file does:
 
   * no `.env` / `.env.example` sits next to the wrapper, and the wrapper does
     not source one -- there is nothing left to be empty at the wrong moment
-  * every connection flag the wrapper emits has a `${VAR:-default}` expansion
-    as its value, so an unset environment cannot swallow the flag
-  * the defaults it emits are *literals* of the right shape, not `$VAR`
-    expansions: `"${FTP_HOST:-$SOMETHING_ELSE}"` would put the footgun back
+  * the wrapper emits **no** connection flag at all. `cmd/ftp/main.mbt` reads
+    `FTP_HOST` / `FTP_PORT` / `FTP_USER` / `FTP_PASS` / `FTP_TIMEOUT` as
+    defaults, so the environment the wrapper inherits is already the endpoint;
+    a `--host "$FTP_HOST"` here would be a second, worse copy of that reader,
+    and its failure mode (an unset variable swallowing the next argv entry) is
+    the one this whole section exists to remove
   * the wrapper forwards `"$@"` and ends in `exec`, so it stays a wrapper
     rather than growing argument parsing of its own
+
+An earlier revision of this file asserted the *opposite* -- that every emitted
+flag value was a `${VAR:-literal}` expansion -- which is the shape `AGENTS.md`
+argues against ("A wrapper must default the endpoint in the environment, never
+build `--flag <value>` pairs from it"). The wrapper and `AGENTS.md` had drifted
+apart and this gate was pinning the wrong side, so a correct wrapper would have
+failed it.
 
 The same rule is checked for the other two wrappers. `cmd/profiles/run.sh`
 exports its configuration instead of building flags -- `cmd/profiles` reads the
@@ -52,15 +61,10 @@ WRAPPER = ROOT / "cmd" / "ftp" / "run.sh"
 PROFILES = ROOT / "cmd" / "profiles" / "run.sh"
 EXAMPLE = ROOT / "cmd" / "example" / "run.sh"
 
-# The flags the wrapper is allowed to pass, and the shape of value each needs.
-# `--trust-pasv-ip` and friends take no value and are not in the list.
-EXPECTED = {
-    "--host": "127.0.0.1",
-    "--port": "21",
-    "--user": "test",
-    "--pass": "test",
-    "--timeout": "15000",
-}
+# The connection flags the wrapper must *not* emit: `cmd/ftp/main.mbt` reads
+# each of these from the environment itself. Kept as names rather than
+# name/default pairs because there is no default for the wrapper to get right.
+FORBIDDEN_FLAGS = ("--host", "--port", "--user", "--pass", "--timeout")
 
 failures = []
 
@@ -108,25 +112,26 @@ example = EXAMPLE.read_text()
 check("cmd/example/run.sh does not source a .env",
       not re.search(r'^\s*\.\s+"\$SCRIPT_DIR/\.env"', example, re.M))
 
-# --- every flag value is a ${VAR:-default} ---------------------------------
+# --- the wrapper emits no connection flag at all ---------------------------
 body = command_body(text)
 check("cmd/ftp/run.sh runs cmd/ftp", bool(body), "no `moon run cmd/ftp` found")
 
-pairs = re.findall(r'(--[a-z-]+)\s+("[^"]*"|\S+)', body)
-seen = {}
-for flag, value in pairs:
-    seen[flag] = value
+# `cmd/ftp/main.mbt`'s own reader is the single place the endpoint is turned
+# into a value, so the wrapper must not repeat it. This is checked on the
+# joined command line, not on the file: the comments above name
+# `--host "$FTP_HOST"` on purpose, to explain why it is not there any more.
+# Only what follows the `--` separator reaches the CLI; `--target native` in
+# front of it belongs to `moon run`, and asserting on the whole line would make
+# this gate fail on the runner's own invocation.
+forwarded = body.split(" -- ", 1)[1] if " -- " in body else ""
+emitted = re.findall(r"(--[a-z-]+)", forwarded)
+for flag in FORBIDDEN_FLAGS:
+    check(f"cmd/ftp/run.sh does not emit {flag}", flag not in emitted,
+          "the CLI reads this from the environment; building it here is the "
+          "bug this file exists to catch")
 
-for flag, default in EXPECTED.items():
-    value = seen.get(flag)
-    pattern = r'^\W*\$\{[A-Z_]+:-' + re.escape(default) + r'\}\W*$'
-    check(f"{flag} gets a ${{VAR:-{default}}} value",
-          bool(value) and re.match(pattern, value) is not None,
-          f"got {value!r}")
-
-check("no flag is passed without a value",
-      not re.search(r"(--[a-z-]+)(?=\s*(?:--|$))", body),
-      "a bare flag takes the next argument with it")
+check("cmd/ftp/run.sh emits no flags at all",
+      not emitted, f"emitted: {emitted}")
 
 check("cmd/ftp/run.sh forwards its arguments",
       '"$@"' in body, "explicit argv must reach the CLI")

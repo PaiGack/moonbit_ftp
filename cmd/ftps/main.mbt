@@ -297,12 +297,55 @@ async fn smoke(
       }
   }
   println("    SIZE \{scratch}: \{@ftp.file_size(client, scratch)}")
+
+  // APPE: the append direction. `append` is documented next to `stor` in the
+  // README's function table and is covered by unit tests, but until this call
+  // existed no end-to-end program ever sent an `APPE` -- so a regression that
+  // broke only the append path would have stayed invisible. The assertion is
+  // the *content* after the append, not the status code: a `200` alone cannot
+  // tell "appended" from "ignored the payload".
+  //
+  // Two appends rather than one, because a single append to an empty file is
+  // indistinguishable from a `STOR` that overwrote it.
+  let second = @io.MemoryReader(w => w.write("more\n"))
+  defer second.close()
+  @ftp.append(client, scratch, second) catch {
+    e => fail("\{label}: first APPE failed: \{@debug.Repr(e)}")
+  }
+  let third = @io.MemoryReader(w => w.write("and more\n"))
+  defer third.close()
+  @ftp.append(client, scratch, third) catch {
+    e => fail("\{label}: second APPE failed: \{@debug.Repr(e)}")
+  }
+  let appended = @ftp.file_size(client, scratch)
+  guard appended == 19 else {
+    fail(
+      "\{label}: after two appends SIZE \{scratch} is \{appended}, expected 19 (5 + 5 + 9)",
+    )
+  }
+  let appended_response = @ftp.retr(client, scratch) catch {
+    e => fail("\{label}: RETR after APPE failed: \{@debug.Repr(e)}")
+  }
+  let appended_bytes = appended_response.reader.read_all() catch {
+    e => fail("\{label}: reading the APPE payload failed: \{e}")
+  }
+  appended_response.close()
+  let appended_text = appended_bytes.text() catch { _ => "" }
+  guard appended_text == "ftps\nmore\nand more\n" else {
+    fail(
+      "\{label}: APPE content was \{format_repr(appended_text)}, expected \{format_repr("ftps\nmore\nand more\n")}",
+    )
+  }
+  println("    APPE x2 \{scratch} -> \{format_repr(appended_text)}")
+
   @ftp.delete(client, scratch) catch {
     e => fail("\{label}: DELE failed: \{@debug.Repr(e)}")
   }
 
   @ftp.quit(client)
-  println("    \{label}: dial / login / list / retr / stor / delete / quit OK")
+  println(
+    "    \{label}: dial / login / list / retr / stor / appe / delete / quit OK",
+  )
 }
 
 ///|

@@ -48,10 +48,18 @@ FTP 看着老，但它今天仍然是设备固件升级、厂商数据拉取、�
 
 **选型**：底层用官方 `moonbitlang/async`（native），它提供了 `socket.Tcp`、`socket.Addr` 和
 `tls.Tls`，覆盖连接、TLS、超时与取消。不用 C FFI 阻塞式 socket——那会把平台相关的线程与超时问题
-引进来，而 async 栈是官方维护且有内置 TLS。**分层**：把纯协议解析和网络 IO 彻底切开。`types` /
-`status` / `scanner` / `parse` 四个包零 IO 依赖，可以直接搬上游用例先跑通；`control` 管命令编码与
-多行响应；`transport` 收敛所有数据通道建立逻辑；`client` 是对外 API，`walker` 建在 `client` 上。
-这样即使 async 栈将来有破坏性改动，也只需要改 `transport` 一层。接口上把 Go 的 `...DialOption`
+引进来，而 async 栈是官方维护且有内置 TLS。**分层**：把纯协议解析和网络 IO 彻底切开。
+`entry` / `status` / `error` / `parse` / `pathutil` 这几个纯逻辑文件零 IO 依赖，可以直接搬上游
+用例先跑通；`control` 管命令编码与多行响应；`transport` 收敛所有数据通道建立逻辑；`client` 是
+对外 API，`walker` 建在 `client` 上。这样即使 async 栈将来有破坏性改动，也只需要改
+`transport` 一层。
+
+> **落地时的一处修正**：本申报书写的是 `types` / `status` / `scanner` / `parse` 四个**包**，
+> 那是设计阶段的设想。实际仓库是**单包平铺**——所有 `.mbt` 直接放在仓库根，同属
+> `PaiGack/ftp`，没有 `src/` 中间层，也没有包级隔离（所以引用是裸符号 `Entry` /
+> `parse_list_line`，不是 `@types.Entry`）。分层的职责划分不变，但**边界改由文件头部的
+> `// Layer:` 标记守住**，不再由编译器按包强制。以 `docs/porting.md` 2.3 与 `AGENTS.md`
+> 为准；本申报书保留原文，是历史文档。接口上把 Go 的 `...DialOption`
 变参映射成 MoonBit 的 `label~`，把 `error` 返回值换成 `raise` + 自定义 `suberror`。
 
 **我对这个项目的核心理解：难点不在协议，在兼容性。** 上游代码里最有价值的不是命令行收发，而是下面

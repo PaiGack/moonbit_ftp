@@ -91,8 +91,11 @@ class Mock:
             time.sleep(0.05)
         raise RuntimeError("ftp_mock.py never reported itself ready")
 
+    def transcript_text(self):
+        return Path(self.transcript.name).read_text()
+
     def saw(self, needle):
-        return needle in Path(self.transcript.name).read_text()
+        return needle in self.transcript_text()
 
     def stop(self):
         self.proc.terminate()
@@ -180,6 +183,25 @@ def main():
         check("the run reaches STOR and DELE",
               mock.saw("CMD STOR") and mock.saw("CMD DELE"),
               "the mock never saw a STOR / DELE")
+        # `append` sat next to `stor` in the README's function table with no
+        # end-to-end call behind it: the only coverage was a unit test, and the
+        # mock answered `APPE` through its catch-all `200 ok`, so nothing here
+        # would have noticed. Two appends, and the payloads the mock actually
+        # received, is what makes this claim real rather than a status code.
+        check("the run reaches APPE, twice",
+              mock.saw("CMD APPE /ftps_smoke.txt"),
+              "the mock never saw an APPE")
+        # The byte counts are the payload sizes the client actually sent, so
+        # this asserts the append reached the server *and* carried the whole
+        # payload -- an `APPE` that arrived empty would still pass a status-code
+        # check, and an `APPE` the mock treated as a `STOR` would report 5.
+        check("the mock appended rather than overwrote",
+              "DATA /ftps_smoke.txt store 5 bytes" in mock.transcript_text()
+              and "DATA /ftps_smoke.txt append 5 bytes"
+              in mock.transcript_text()
+              and "DATA /ftps_smoke.txt append 9 bytes"
+              in mock.transcript_text(),
+              "APPE payloads did not arrive intact")
         check("the session is torn down with QUIT", mock.saw("CMD QUIT"),
               "the mock never saw a QUIT")
     finally:

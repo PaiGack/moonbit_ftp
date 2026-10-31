@@ -136,9 +136,22 @@
 ├── transfer.mbt              DataResponse：RETR / STOR / APPE / REST       IO
 ├── walker.mbt                目录树遍历（walk / Walker）                   IO
 ├── cmd/                      CLI 与端到端程序：ftp / example / ftps / profiles
+│   ├── ftp/                  CLI 示例（ls / get / put / walk / mkdir / rm）
+│   ├── example/              明文端到端演示（真实 vsftpd）
+│   ├── ftps/                 FTPS / 明文的同一份冒烟（参数选传输方式）
+│   └── profiles/             四个客户端能力画像（同一个容器，四次拨号）
 ├── scripts/                  容器生命周期、就绪探测、无 Docker 自测
+│   ├── *-selftest.py         无 Docker 闸门：wrapper / 环境变量 / 容器复检 / 明文探测
+│   ├── probe-ftp.py          明文容器就绪探测
+│   ├── ensure-ftp.sh         客户端之间复检明文容器，挂了就重启
+│   ├── start-ftp.sh / stop-ftp.sh   明文容器生命周期
+│   ├── ftps/                 FTPS 容器 + 证书 + 探测 + 它的无 Docker 自测
+│   └── profiles/             cmd/profiles 的无 Docker 自测（`ftp_profile_mock.py`
+│                             带真实文件系统的 mock + 命令流断言）
 ├── docs/                     porting.md（本文）+ proposal.md
-└── testdata/                 测试与演示 fixture（`ftp/tls` 由 gen-cert.sh 现签）
+└── testdata/ftp/             测试与演示 fixture
+    ├── fixture/              明文演示用的 hello.txt + sub/（每个容器各拷一份，见 AGENTS.md）
+    └── tls/                  gen-cert.sh 每次现签的证书（gitignored）
 ```
 
 分层依赖（文件级）：纯逻辑（`entry` / `status` / `error` / `parse` / `pathutil`）←
@@ -266,10 +279,19 @@ while w.next() {
    > 控制通道、TLS 数据连接关闭时不发 `close_notify`。四个都是"编译通过、单测全绿、
    > 连上明文服务器也一切正常"，只有对着真实 FTPS 服务器才会以"第一次读就挂住"暴露出来。
    >
-   > 隐式 TLS（990）目前只到单元测试层：`dial(tls=true)` 在首个字节前包好控制通道，
-   > 由 `tls_test.mbt` / `dial_wbtest.mbt` 覆盖，握手本身带超时。端到端没进 CI 是因为
-   > 没有能同时讲好显式与隐式、且允许换成我们证书的镜像；在容器前套 `stunnel` 会把
-   > "客户端握手时机是否正确"这个待测问题本身掩盖掉，所以宁可不跑，也不跑个假的绿灯。
+   > 隐式 TLS（990）在 CI 里仍没有端到端容器：没有能同时讲好显式与隐式、且允许换成
+   > 我们证书的镜像；在容器前套 `stunnel` 会把"客户端握手时机是否正确"这个待测问题本身
+   > 掩盖掉，所以宁可不跑，也不跑个假的绿灯。
+   >
+   > 但"只到单元测试层"这个说法一度是假的，现在是真的了：那段文字曾写着隐式 TLS
+   > 「由 `tls_test.mbt` / `dial_wbtest.mbt` 覆盖」，而当时全仓根本没有一处
+   > `dial(..., tls=true)` —— `tls_test.mbt` 只断言这个开关在 `to_state_options()`
+   > 里活到了数据通道，`dial_wbtest.mbt` 里的活体 TLS 断言走的全是 `explicit_tls`
+   > （`AUTH TLS`）。也就是说，那个真的上线过的 bug（隐式 TLS 没包控制通道、连 `220`
+   > 问候语都在读明文）当时删掉不会有任何测试变红。现在的覆盖是
+   > `dial_wbtest.mbt` 的 `dial with implicit tls reads the greeting over a TLS
+   > session`：loopback 上起一个真讲服务端 TLS 的控制通道，问候语只存在于 TLS 会话里，
+   > 客户端不包控制通道就只能读到 TLS 记录字节，以 `RequestTimeout` 收场。
 
    同一段编排里还有九道**无 Docker 的闸门自测**，都在任何容器之前跑：
    `tls-fixture-selftest.py` 断言 `moon test` 要的证书已签发，`probe-ftps-selftest.py` 驱动
