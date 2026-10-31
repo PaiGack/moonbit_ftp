@@ -303,6 +303,13 @@ fn tls_cert_file() -> String {
 }
 
 ///|
+/// The CA certificate that signed `tls_cert_file()`, which the client has to trust
+/// explicitly: the pair is self signed, so the system root store rejects it.
+fn tls_ca_file() -> String {
+  "testdata/ftp/tls/ca.pem"
+}
+
+///|
 /// Complete a server-side TLS handshake on an accepted data socket, returning
 /// whether the handshake was driven at all.
 ///

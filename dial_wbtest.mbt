@@ -531,3 +531,49 @@ async test "login swallows a refused OPTS UTF8 and keeps going" {
     "USER test", "PASS secret", "FEAT", "TYPE I", "OPTS UTF8 ON",
   ])
 }
+
+///|
+/// `dial(tls=true)` must wrap the *control* connection before it reads a single
+/// byte, because implicit FTPS (port 990) sends even the `220` greeting inside
+/// the TLS session.
+///
+/// This is the one implicit-TLS decision no other test reaches: `tls_test.mbt`
+/// only checks that the flag survives `to_state_options` (the data channel),
+/// and every live TLS assertion runs the *explicit* `AUTH TLS` path. Leaving
+/// the control socket in the clear was exactly the bug that shipped once --
+/// the greeting read then blocks on bytes of a `ClientHello` it can never
+/// parse -- and `docs/porting.md` 2.6 claims implicit TLS is covered here.
+#warnings("-alert_internal")
+async test "dial with implicit tls reads the greeting over a TLS session" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let client = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      let (conn, _) = listener.accept()
+      // Server-side TLS on the control socket: the greeting only exists inside
+      // the session, so a client that left the socket in the clear reads TLS
+      // records instead of `220`.
+      let tls = @tls.Tls::server_from_pair(
+        conn,
+        conn,
+        private_key_file=tls_key_file(),
+        private_key_type=@tls.X509FileType::PEM,
+        certificate_file=tls_cert_file(),
+        certificate_type=@tls.X509FileType::PEM,
+      )
+      tls.write("220 Test server ready.\r\n")
+      ignore(tls.read_all() catch { _ => empty_data() })
+      conn.close()
+    })
+    dial(
+      "127.0.0.1:\{port}",
+      tls=true,
+      timeout_ms=5000,
+      trust=@tls.TrustedRoot::CustomPemFile(tls_ca_file()),
+    ) catch {
+      e => fail("implicit tls dial: \{e}")
+    }
+  })
+  assert_eq(client.session().control().host(), "127.0.0.1")
+  assert_true(client.state_options().tls())
+}
