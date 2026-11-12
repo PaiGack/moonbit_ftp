@@ -112,6 +112,54 @@ async test "get_data_port refuses a bogus PASV answer even when trusting" {
 }
 
 ///|
+/// A refused `EPSV` followed by a *fake* `PASV` answer must still be caught by
+/// the SSRF guard: with `trust_pasv_ip` off (the default), the control host
+/// wins no matter what the `PASV` reply says. The fallback path used to invert
+/// this test and hand the fake address back.
+async test "get_data_port ignores a fake PASV IP after EPSV is refused" {
+  let (control, sink) = scripted_control(
+    "500 EPSV not understood.\r\n227 Entering Passive Mode (8,8,8,8,196,6)\r\n",
+  )
+  let (ip, port, skipped) = @connection.get_data_port(
+    control,
+    skip_epsv=false,
+    disable_epsv=false,
+    trust_pasv_ip=false,
+  ) catch {
+    _ => fail("get_data_port")
+  }
+  assert_eq(sink.lines, ["EPSV", "PASV"])
+  assert_eq(ip, "127.0.0.1")
+  assert_eq(port, 50182)
+  assert_true(skipped)
+}
+
+///|
+/// The fallback path applies the same guard as `disable_epsv`: trusting a
+/// *well-formed* `PASV` answer still wins, while a bogus one never does. The
+/// scripted control peer is `127.0.0.1` and so is the answer, so this also
+/// proves the permission is consulted rather than the address being ignored.
+async test "get_data_port falls back to PASV with the EPSV latch set" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let (control, sink) = scripted_control(
+    "500 EPSV not understood.\r\n" + pasv_reply(port),
+  )
+  let (ip, port, skipped) = @connection.get_data_port(
+    control,
+    skip_epsv=false,
+    disable_epsv=false,
+    trust_pasv_ip=true,
+  ) catch {
+    _ => fail("get_data_port")
+  }
+  assert_eq(sink.lines, ["EPSV", "PASV"])
+  assert_eq(ip, "127.0.0.1")
+  assert_eq(port, listener.addr.port())
+  assert_true(skipped)
+}
+
+///|
 /// A refused `EPSV` followed by a refused `PASV` raises instead of connecting
 /// to a bogus address.
 async test "get_data_port raises when both EPSV and PASV fail" {

@@ -205,3 +205,30 @@ test "parse_int only accepts plain decimal digits" {
   assert_eq(parse_int("-1"), None)
   assert_eq(parse_int(" 1"), None)
 }
+
+///|
+/// `get` with no local name derives one from the remote path. That path comes
+/// from the server's view of the world, so the derived name must stay a plain
+/// entry of the current directory: `..` and `.` would open the parent (or
+/// current) directory, and an empty name or one with a separator would land
+/// outside it.
+test "safe_local_name rejects names that would escape the current directory" {
+  assert_eq(safe_local_name("/pub/file.txt"), Ok("file.txt"))
+  assert_eq(safe_local_name("/pub/dir/"), Ok("dir"))
+  assert_eq(safe_local_name("dl.tar.gz"), Ok("dl.tar.gz"))
+  assert_eq(safe_local_name("/pub/name with spaces"), Ok("name with spaces"))
+
+  for
+    path in [
+      "/..", "..", "/.", ".", "", "/", "///", "dir/../..", "/pub/ ", "C:\\..",
+    ] {
+    match safe_local_name(path) {
+      Err(_) => ()
+      Ok(name) =>
+        fail("expected '\{path}' to be refused, got local name '\{name}'")
+    }
+  }
+  // The basename here keeps a backslash on POSIX, so the check has to look for
+  // it explicitly rather than relying on `/`.
+  assert_eq(basename("a\\b"), "a\\b")
+}

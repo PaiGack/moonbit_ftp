@@ -376,9 +376,19 @@ async fn cmd_get(client : @lib.FTPClient, positional : Array[String]) -> Unit {
     println("usage: get <remote> [local]")
     return
   }
+  // An explicit local name is the caller's own choice; a derived one comes
+  // from the remote path (or the server), so it must stay a plain file name in
+  // the current directory -- `/x/..` would otherwise open the parent directory.
   let dest = match rest {
-    [p, ..] => p
-    [] => basename(remote)
+    [p, ..] => Ok(p)
+    [] => safe_local_name(remote)
+  }
+  let dest = match dest {
+    Ok(name) => name
+    Err(message) => {
+      println("error: \{message}")
+      return
+    }
   }
   // Resume if the local file exists and is shorter than the remote file.
   let remote_size = @lib.file_size(client, remote)
@@ -414,7 +424,14 @@ async fn cmd_put(client : @lib.FTPClient, positional : Array[String]) -> Unit {
   }
   let dest = match rest {
     [r, ..] => r
-    [] => basename(src_path)
+    [] =>
+      match safe_local_name(src_path) {
+        Ok(name) => name
+        Err(message) => {
+          println("error: \{message}")
+          return
+        }
+      }
   }
   let file = @fs.open(src_path, mode=ReadOnly)
   defer file.close()
@@ -497,4 +514,32 @@ fn basename(path : String) -> String {
     Some(i) => trimmed[i + 1:].to_owned()
     None => trimmed.to_owned()
   }
+}
+
+///|
+/// Derive a local file name from a remote path that is safe to open for
+/// writing in the current directory.
+///
+/// The name is attacker-controlled -- it comes from the `get` argument or the
+/// server's listing -- so `.`, `..` and the empty string are refused: joining
+/// them to the working directory would leave it (`..` opens the parent
+/// directory, `..` mid-path escapes further). A name that still contains a
+/// path separator or a backslash is refused too, so the result is always a
+/// plain entry of the current directory.
+fn safe_local_name(path : String) -> Result[String, String] {
+  let raw = basename(path)
+  // Trim only surrounding whitespace; a name whose *content* is `..` is the
+  // dangerous one, and `trim` does not touch interior characters.
+  let name = raw.trim(chars=" ").to_owned()
+  let unsafe_name = name == "" ||
+    name == "." ||
+    name == ".." ||
+    name.find("/") is Some(_) ||
+    name.find("\\") is Some(_)
+  if unsafe_name {
+    return Err(
+      "refusing to write '\{path}': derived local name '\{name}' is not a plain file name",
+    )
+  }
+  Ok(name)
 }

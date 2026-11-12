@@ -366,23 +366,30 @@ pub async fn get_data_port(
 ) -> (String, Int32, Bool) {
   if disable_epsv == false && skip_epsv == false {
     let port = epsv(control) catch {
-      _ => {
-        let (ip, port) = pasv(control)
-        guard trust_pasv_ip && !is_bogus_data_ip(control.host(), ip) else {
-          return (control.host(), port, true)
-        }
-        return (ip, port, true)
-      }
+      _ => return pasv_data_addr(control, trust_pasv_ip, true)
     }
     return (control.host(), port, false)
   }
+  pasv_data_addr(control, trust_pasv_ip, skip_epsv)
+}
+
+///|
+/// Send `PASV` and apply the SSRF guard to the answer.
+///
+/// The server's advertised address is used only when the caller explicitly
+/// trusts it *and* it is not obviously bogus; otherwise the control
+/// connection's host wins. Both the `EPSV`-failed fallback and the
+/// `disable_epsv` path go through here so the two cannot drift apart again.
+async fn pasv_data_addr(
+  control : Control,
+  trust_pasv_ip : Bool,
+  latched : Bool,
+) -> (String, Int32, Bool) {
   let (ip, port) = pasv(control)
-  // SSRF guard: use the control connection IP unless the caller explicitly
-  // trusts the server's answer *and* the answer is not obviously bogus.
   if trust_pasv_ip && is_bogus_data_ip(control.host(), ip) == false {
-    return (ip, port, skip_epsv)
+    return (ip, port, latched)
   }
-  (control.host(), port, skip_epsv)
+  (control.host(), port, latched)
 }
 
 ///|
