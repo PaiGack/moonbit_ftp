@@ -205,9 +205,25 @@ pub async fn logout(client : FTPClient) -> Unit {
 ///
 /// The flag is also set *before* `QUIT` goes out, under the lock, so that a
 /// concurrent operation either got in first or is refused -- never both.
+///
+/// The pre-lock check is only a fast path; the decision is taken again *under
+/// the lock*. Two tasks calling `quit` at the same time both pass the fast
+/// path (the flag is still false), then queue on the mutex: the first sets the
+/// flag and releases, and without the second check below the second sends a
+/// second `QUIT` into a session whose `221` has already been read -- a reply
+/// nobody is waiting for, i.e. a session desynchronised by one line for
+/// whoever reuses the handle. `FTPClient::lock` cannot cover it: it refuses
+/// *closed* clients by raising, and `quit` must stay the one idempotent
+/// call.
 pub async fn quit(client : FTPClient) -> Unit {
   guard client.closed == false else { return }
   client.lock()
+  // Whoever got the lock first already quit; this call is the no-op a second
+  // `quit` is documented to be.
+  if client.closed {
+    client.unlock()
+    return
+  }
   client.set_closed(true)
   defer client.unlock()
   let errors : Array[Error] = []

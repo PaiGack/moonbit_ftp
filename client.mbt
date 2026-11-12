@@ -39,7 +39,7 @@ pub struct FTPClient {
   mut mdtm_supported : Bool
   mut mdtm_can_write : Bool
   /// The timezone used to interpret `LIST` timestamps.
-  mut location : @time.Zone
+  location : @time.Zone
   /// Feature names advertised by `FEAT`, uppercased.
   mut features : Map[String, Bool]
 }
@@ -146,7 +146,7 @@ pub fn FTPClient::is_time_precise_in_list(self : FTPClient) -> Bool {
 
 ///|
 /// Replace the cached `FEAT` feature set.
-pub fn FTPClient::set_features(
+fn FTPClient::set_features(
   self : FTPClient,
   features : Map[String, Bool],
 ) -> Unit {
@@ -155,31 +155,31 @@ pub fn FTPClient::set_features(
 
 ///|
 /// Record whether the server supports `MLST` / `MLSD`.
-pub fn FTPClient::set_mlst_supported(self : FTPClient, value : Bool) -> Unit {
+fn FTPClient::set_mlst_supported(self : FTPClient, value : Bool) -> Unit {
   self.mlst_supported = value
 }
 
 ///|
 /// Record whether the server supports `MFMT`.
-pub fn FTPClient::set_mfmt_supported(self : FTPClient, value : Bool) -> Unit {
+fn FTPClient::set_mfmt_supported(self : FTPClient, value : Bool) -> Unit {
   self.mfmt_supported = value
 }
 
 ///|
 /// Record whether the server supports `MDTM`.
-pub fn FTPClient::set_mdtm_supported(self : FTPClient, value : Bool) -> Unit {
+fn FTPClient::set_mdtm_supported(self : FTPClient, value : Bool) -> Unit {
   self.mdtm_supported = value
 }
 
 ///|
 /// Record whether `MDTM` may be used to *write* timestamps (VsFtpd quirk).
-pub fn FTPClient::set_mdtm_can_write(self : FTPClient, value : Bool) -> Unit {
+fn FTPClient::set_mdtm_can_write(self : FTPClient, value : Bool) -> Unit {
   self.mdtm_can_write = value
 }
 
 ///|
 /// Mark the client as closed so that `quit` becomes idempotent.
-pub fn FTPClient::set_closed(self : FTPClient, value : Bool) -> Unit {
+fn FTPClient::set_closed(self : FTPClient, value : Bool) -> Unit {
   self.closed = value
 }
 
@@ -187,12 +187,6 @@ pub fn FTPClient::set_closed(self : FTPClient, value : Bool) -> Unit {
 /// The timezone used to interpret `LIST` timestamps.
 pub fn FTPClient::location(self : FTPClient) -> @time.Zone {
   self.location
-}
-
-///|
-/// Replace the timezone used to interpret `LIST` timestamps.
-pub fn FTPClient::set_location(self : FTPClient, location : @time.Zone) -> Unit {
-  self.location = location
 }
 
 ///|
@@ -643,12 +637,6 @@ pub fn Session::skip_epsv(self : Session) -> Bool {
 }
 
 ///|
-/// Remember that `EPSV` failed; every later transfer goes through `PASV`.
-pub fn Session::set_skip_epsv(self : Session, value : Bool) -> Unit {
-  self.skip_epsv = value
-}
-
-///|
 /// Whether the server supports `PRET`.
 pub fn Session::use_pret(self : Session) -> Bool {
   self.use_pret
@@ -656,7 +644,7 @@ pub fn Session::use_pret(self : Session) -> Bool {
 
 ///|
 /// Record whether the server supports `PRET`.
-pub fn Session::set_use_pret(self : Session, value : Bool) -> Unit {
+fn Session::set_use_pret(self : Session, value : Bool) -> Unit {
   self.use_pret = value
 }
 

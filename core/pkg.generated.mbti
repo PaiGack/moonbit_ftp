@@ -39,6 +39,10 @@ pub fn make_folder(String, time? : @time.ZonedDateTime) -> Entry
 
 pub fn make_link(String, String, time? : @time.ZonedDateTime) -> Entry
 
+pub let max_reply_line_bytes : Int32
+
+pub let max_reply_lines : Int32
+
 pub let month_names : Array[String]
 
 pub fn new_datetime(Int32, Int32, Int32, Int32, Int32, @time.Zone) -> @time.ZonedDateTime raise FtpError

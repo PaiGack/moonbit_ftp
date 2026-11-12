@@ -508,3 +508,52 @@ async test "get_data_port treats an EPSV port 0 as a failure" {
   assert_eq(answer, port)
   assert_true(skipped)
 }
+
+///|
+/// A cancellation between "the data socket is open" and "the hand-off to the
+/// caller" must still close that socket. `cmd_data_conn_from` closes the
+/// connection on every *error* exit, but cancellation is not an error the
+/// `catch` arms can see -- without `protect_from_cancel` the body is simply
+/// suspended and the socket is dropped along with the task, so a
+/// `with_timeout` around a transfer leaks one connection per attempt.
+///
+/// The observable is the data listener: after a cancelled call, the accepted
+/// peer must read as EOF at once. The client socket is *shut on close*, and
+/// the peer sees that rather than the handle being freed. A leaked socket
+/// keeps the connection open, so the read below parks and the surrounding
+/// deadline turns the leak into a readable failure.
+async test "cmd_data_conn_from closes the data connection when cancelled" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  // `EPSV` is answered, then the server goes silent: the function parks on the
+  // `150` read with the data socket already connected and nothing closed.
+  let (control, sink) = scripted_control(epsv_reply(port))
+  let options = transfer_options()
+  ignore(
+    @async.with_timeout_opt(20, async fn() {
+      ignore(
+        @connection.cmd_data_conn_from(
+          control,
+          0L,
+          "RETR {}",
+          ["/a.bin"],
+          options~,
+        ),
+      )
+    }) catch {
+      _ => None
+    },
+  )
+  // The cancellation landed after `open_data_conn` opened the socket, which
+  // is the window this test is about.
+  assert_eq(sink.lines, ["EPSV", "RETR /a.bin"])
+  let (peer, _) = listener.accept()
+  let buffer : FixedArray[Byte] = FixedArray::make(8, b'\x00')
+  let read_done = @async.with_timeout_opt(1000, async fn() {
+    ignore(peer.read(buffer, max_len=8))
+  }) catch {
+    _ => None
+  }
+  peer.close()
+  assert_true(read_done is Some(_))
+}

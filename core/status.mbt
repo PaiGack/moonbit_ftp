@@ -243,3 +243,26 @@ pub fn is_positive_intermediate(code : Int32) -> Bool {
 /// Default timeout used when dialing a server, in milliseconds
 /// (upstream `ftp.DefaultDialTimeout`, 30s).
 pub let default_dial_timeout_ms : Int32 = 30 * 1000
+
+///|
+/// The longest single control-channel line `read_response` accepts, in bytes.
+///
+/// RFC 959 caps a reply line at 512 bytes; the generous bound here is for the
+/// real world, not the RFC: `FEAT` descriptions, `MLSD`-style lines and
+/// `PWD`/`257` paths with UTF8 names all run well past 512, and no legitimate
+/// server sends a megabyte on one line. What the bound exists for is the
+/// hostile case: `read_until` grows its buffer one read at a time with no
+/// upper limit, so a peer that never sends CRLF makes the client allocate
+/// without bound while the read stays "busy" and never trips the idle timeout.
+pub let max_reply_line_bytes : Int32 = 64 * 1024
+
+///|
+/// The most lines one multi-line reply may span before `read_response` gives
+/// up.
+///
+/// A `FEAT` list or a long `MLSD` block is bounded by the number of features or
+/// files; nothing legitimate runs into the tens of thousands. A server that
+/// keeps answering continuation lines (or never repeats its code) would
+/// otherwise keep the `while` loop in `read_response` alive for as long as it
+/// keeps talking, which the idle timeout does not catch either.
+pub let max_reply_lines : Int32 = 10 * 1000

@@ -603,7 +603,44 @@ pub async fn cmd_data_conn_from(
 ///|
 /// The body shared by `cmd_data_conn_from` and `cmd_data_conn_from_ex`; see
 /// the former for the step list.
+///
+/// **The whole function is cancel-protected.** Every exit path below closes a
+/// data connection opened here and not yet handed to the caller, but those
+/// closes are ordinary async calls: a caller that is cancelled between
+/// `open_data_conn` and the hand-off (`with_timeout` around a transfer, Ctrl-C
+/// on a CLI) would leave the socket open, because cancellation is not an
+/// error the `catch` arms below can see. Wrapping the body makes the cleanup
+/// run to completion and only then lets the cancellation resume -- the
+/// runtime's documented purpose for `protect_from_cancel` ("avoiding
+/// corrupted state due to partial work") is exactly this. The cancellation
+/// still propagates once the body returns, so the caller's timeout is not
+/// extended.
 async fn cmd_data_conn_from_raw(
+  control : Control,
+  offset : Int64,
+  cmd : String,
+  args : Array[String],
+  options~ : ConnOptions,
+) -> (DataConn, Bool) {
+  let result = @async.protect_from_cancel(async fn() {
+    cmd_data_conn_from_inner(control, offset, cmd, args, options~)
+  })
+  // A cancelled caller gets no connection back. The body re-checks
+  // `is_being_cancelled` after every awaited step and leaves through the
+  // ordinary failure path, which closes the socket and raises; this guard is
+  // the last line for a cancellation that landed after the body's own checks.
+  // It cannot re-raise `Cancelled` (the runtime keeps that type internal), so
+  // it says the same thing in the error it can produce.
+  guard @async.is_being_cancelled() == false else {
+    raise @core.FtpError::RequestTimeout
+  }
+  result
+}
+
+///|
+/// The unprotected body of `cmd_data_conn_from_raw`; see that wrapper for why
+/// it is split. Nothing here may assume it runs in a cancellable task.
+async fn cmd_data_conn_from_inner(
   control : Control,
   offset : Int64,
   cmd : String,

@@ -189,3 +189,56 @@ async test "a zero deadline leaves the reply read unbounded" {
   )
   assert_eq(@connection.read_response(control).code(), 220)
 }
+
+///|
+/// A reply line over the cap is refused instead of allocated. `read_until`
+/// has no size bound of its own: a peer that never sends CRLF keeps its
+/// buffer growing for as long as it keeps writing, and the per-read idle
+/// deadline never fires because every read completes.
+async test "@connection.read_line refuses an oversized reply line" {
+  // An in-memory reader with no `\r\n` at all: a socket peer would need a
+  // deadline in the seconds to deliver 64 KiB of a single line, which makes
+  // the test slower than the behaviour it pins.
+  let text = StringBuilder()
+  for i = 0; i <= @core.max_reply_line_bytes; i = i + 1 {
+    text.write_char('a')
+  }
+  let reader = @io.MemoryReader(writer => writer.write(text.to_string()))
+  defer reader.close()
+  let control = @connection.Control::new(
+    reader,
+    NullSink::{ },
+    "127.0.0.1",
+    timeout_ms=5000,
+  )
+  let raised = try {
+    ignore(@connection.read_response(control))
+    "no error"
+  } catch {
+    @core.FtpError::ParseError(msg~) => "ParseError: \{msg}"
+    err => "other: \{err}"
+  }
+  assert_true(raised.has_prefix("ParseError: reply line exceeds"))
+}
+
+///|
+/// A multi-line reply that never terminates is bounded by `max_reply_lines`.
+/// Each line arrives and completes, so the per-line deadline never fires; only
+/// a limit on how many lines one reply may carry stops the loop.
+async test "@connection.read_response bounds the number of continuation lines" {
+  let line = "211-continuation\r\n"
+  let endless = StringBuilder()
+  // One more than the cap, all well under the per-line size bound.
+  for i = 0; i <= @core.max_reply_lines; i = i + 1 {
+    endless.write(line)
+  }
+  let control = scripted_control_no_over(endless.to_string())
+  let raised = try {
+    ignore(@connection.read_response(control))
+    "no error"
+  } catch {
+    @core.FtpError::ParseError(msg~) => "ParseError: \{msg}"
+    err => "other: \{err}"
+  }
+  assert_true(raised.has_prefix("ParseError: reply exceeds"))
+}

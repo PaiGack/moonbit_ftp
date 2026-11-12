@@ -230,13 +230,30 @@ pub async fn Control::read_line(self : Control) -> String {
   // The guard stays even though `Control::new` never stores a zero: the field
   // is `mut` inside the package, so this is the one place that decides a zero
   // means "unbounded" rather than "expire immediately".
+  //
+  // The size bound sits *inside* `read`, i.e. inside the deadline: `read_until`
+  // has no bound of its own (it grows its buffer one read at a time until the
+  // delimiter shows up), so a peer that never sends CRLF keeps it growing
+  // while the read stays "busy". A check after the deadline returned would
+  // only see the already-allocated line; checked inside, the oversized line is
+  // still refused, and what a hostile peer can cost is bounded by the deadline
+  // (see `max_reply_line_bytes` for the residual trade-off).
+  let bounded = async fn() -> String {
+    let line = read()
+    guard line.length() <= @core.max_reply_line_bytes else {
+      raise @core.FtpError::ParseError(
+        msg="reply line exceeds \{@core.max_reply_line_bytes} bytes",
+      )
+    }
+    line
+  }
   if self.timeout_ms > 0 {
-    @async.with_timeout(self.timeout_ms, read) catch {
+    @async.with_timeout(self.timeout_ms, bounded) catch {
       @async.TimeoutError => raise @core.FtpError::RequestTimeout
       err => raise err
     }
   } else {
-    read()
+    bounded()
   }
 }
 
@@ -381,7 +398,10 @@ pub async fn read_response(control : Control) -> @core.Response {
   let head = first[4:].to_owned()
   if @core.is_continuation(first) {
     let body : Array[String] = [head]
-    while true {
+    // Bounded as well: a server that never repeats its code (or keeps
+    // listing continuation lines) would otherwise keep this loop alive for as
+    // long as it keeps talking, which the per-line deadline cannot catch.
+    while body.length() <= @core.max_reply_lines {
       let line = control.read_line()
       let line_code = @core.parse_code(line)
       if line_code == Some(code) && @core.is_continuation(line) == false {
@@ -392,6 +412,13 @@ pub async fn read_response(control : Control) -> @core.Response {
         break
       }
       body.push(line)
+      // The per-line deadline catches a silent peer; this catches a chatty
+      // one, which the deadline never sees because the read keeps completing.
+      guard body.length() <= @core.max_reply_lines else {
+        raise @core.FtpError::ParseError(
+          msg="reply exceeds \{@core.max_reply_lines} lines",
+        )
+      }
     }
     return @core.Response::new(code, body.join("\n"))
   }

@@ -331,6 +331,40 @@ async test "check_data_shut rejects a code other than 226 and 250" {
 }
 
 ///|
+/// A failed wrap-up reaches the caller. `close` used to swallow every error
+/// from the `226` read, so a server that reported `426 Transfer aborted`
+/// produced a "successful" download of truncated bytes. Only the timeout is
+/// still dropped (see the test below); a server's refusal is the transfer's
+/// real outcome and must surface.
+async test "DataResponse::close raises a refused 226" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let script = epsv_reply(port) +
+    "150 Opening BINARY mode data connection.\r\n" +
+    "426 Connection closed; transfer aborted.\r\n"
+  let (client, _) = scripted_client(script)
+  // Drive `close` on its own, after a single small `read`: this is the shape a
+  // caller that streams with `read` uses, and it isolates `close`'s behaviour
+  // from `read_all` (which closes internally and would report the same error).
+  let raised = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      serve_payload(listener, "half a payload")
+    })
+    let response = retr(client, "/a.txt") catch { _ => fail("retr") }
+    let buffer : FixedArray[Byte] = FixedArray::make(3, b'\x00')
+    ignore(response.read(buffer, max_len=3) catch { _ => fail("read") })
+    try {
+      response.close()
+      None
+    } catch {
+      @core.FtpError::ServerError(code~, ..) => Some(code)
+      e => fail("close raised an unexpected error: \{e}")
+    }
+  })
+  assert_eq(raised, Some(426))
+}
+
+///|
 /// `shut_timeout_ms` wraps the closing `226` read in a timeout. The wrap is
 /// best effort — a timeout is swallowed, because the transfer itself already
 /// succeeded and dropping the client over a late reply would be worse than
@@ -341,6 +375,8 @@ async test "DataResponse::close tolerates a timeout on the 226 read" {
   let script = epsv_reply(port) + "150 Opening BINARY mode data connection.\r\n"
   // No `226` follows, so the wrap-up read will hit the timeout.
   let (client, _) = scripted_client(script)
+  // `DialOptions` is a value here, so the timeout is set before the client
+  // owns it rather than through a setter after the fact.
   client.options.shut_timeout_ms = 30
   @async.with_task_group(async fn(group) {
     group.spawn_bg(no_wait=true, async fn() {

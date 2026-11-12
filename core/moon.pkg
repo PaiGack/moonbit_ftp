@@ -19,4 +19,5 @@ import {
 import {
   "PaiGack/ftp/core",
   "moonbitlang/x/time",
+  "moonbitlang/core/quickcheck",
 } for "test"

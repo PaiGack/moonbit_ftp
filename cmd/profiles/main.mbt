@@ -274,7 +274,7 @@ async fn run_profile(
   println("    SIZE \{file}: \{@ftp.file_size(client, file)}")
 
   // --- MDTM write: the read-back is the assertion ------------------------
-  check_set_time(client, name, file, before)
+  check_set_time(client, profile.writing_mdtm, file, before)
 
   // --- directory lifecycle ------------------------------------------------
   let tree = "\{scratch}/tree"
@@ -346,7 +346,7 @@ fn report_features(client : @ftp.FTPClient) -> Unit {
 /// that a write-time API has to be able to make.
 async fn check_set_time(
   client : @ftp.FTPClient,
-  profile : String,
+  writing_mdtm : Bool,
   file : String,
   before : @time.ZonedDateTime,
 ) -> Unit {
@@ -359,10 +359,12 @@ async fn check_set_time(
     second=6,
     zone=@time.utc_zone,
   )
-  if profile == "no-time" {
+  if writing_mdtm == false {
     println("==> set_file_time without MFMT and without the MDTM write quirk")
-    client.set_mfmt_supported(false)
-    client.set_mdtm_can_write(false)
+    // Both capabilities come from the caller's `writing_mdtm` switch and the
+    // server's `FEAT`; nothing is poked into the client's cache here. vsftpd
+    // advertises no `MFMT`, so with `writing_mdtm` off there is no write path
+    // left and `set_file_time` has to say so.
     let refused = try {
       @ftp.set_file_time(client, file, target)
       false

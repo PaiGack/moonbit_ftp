@@ -165,10 +165,10 @@ test "Session defaults are EPSV enabled and PRET unsupported" {
 test "Session skip_epsv and use_pret round trip" {
   let (control, _) = scripted_control("")
   let session = Session::new(control)
-  session.set_skip_epsv(true)
+  // `skip_epsv` is advanced only through `record_data_port` (the latch is not
+  // a public setter), so the round trip goes through the real writer.
+  session.record_data_port(true)
   assert_true(session.skip_epsv())
-  session.set_skip_epsv(false)
-  assert_false(session.skip_epsv())
   session.set_use_pret(true)
   assert_true(session.use_pret())
   session.set_use_pret(false)
@@ -268,9 +268,7 @@ test "the client accessors return its own options and session" {
 /// `location` is the timezone `LIST` timestamps are interpreted in; a setter
 /// that dropped it would silently shift every parsed date.
 test "the client location round trips" {
-  let (client, _) = scripted_client("")
-  assert_eq(client.location(), @time.utc_zone)
-  client.set_location(@time.utc_zone)
+  let (client, _) = scripted_client("", location=@time.utc_zone)
   assert_eq(client.location(), @time.utc_zone)
 }
 

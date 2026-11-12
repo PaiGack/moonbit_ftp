@@ -113,6 +113,35 @@ async test "feat leaves is_set_time_supported off for a read-only MDTM server" {
 }
 
 ///|
+/// The `no-time` capability profile is reachable from the public knobs alone:
+/// a server that does not advertise `MFMT` (vsftpd) plus `writing_mdtm` off
+/// must leave `is_set_time_supported` false, so `set_file_time` refuses with
+/// `502` instead of quietly writing nothing. `cmd/profiles` used to get there
+/// by overwriting the cached flags through public setters; those are package
+/// private now, and this is the test that keeps the profile honest without
+/// them.
+async test "a server without MFMT and writing_mdtm off has no write path" {
+  let script = "211-Features:\r\n MLST\r\n MDTM\r\n211 End\r\n"
+  let write_options = DialOptions::default()
+  write_options.set_writing_mdtm(false)
+  let (client, _) = scripted_client(script, dial_options=write_options)
+  feat(client) catch {
+    e => fail("feat: \{e}")
+  }
+  assert_true(client.is_get_time_supported())
+  assert_false(client.is_mfmt_supported())
+  assert_false(client.is_set_time_supported())
+  let refused = try {
+    set_file_time(client, "/a.txt", @core.epoch)
+    None
+  } catch {
+    @core.FtpError::ServerError(code~, ..) => Some(code)
+    _ => None
+  }
+  assert_eq(refused, Some(502))
+}
+
+///|
 /// A server that answers `FEAT` with an error has no feature list; upstream
 /// treats that as "no capabilities", *not* as a login failure. The flags must
 /// all stay off and `feat` must still return normally.

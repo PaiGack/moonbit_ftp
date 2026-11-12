@@ -63,25 +63,49 @@ pub async fn DataResponse::read(
 /// This is upstream's `checkDataShut` plus `Close`: dropping it would leave
 /// the trailing `226` in the control channel and desynchronise the next
 /// command. Errors from the two phases are aggregated.
+///
+/// **A failed wrap-up is raised, not swallowed.** The server reports the
+/// transfer's real outcome on this reply (`426 Connection closed, transfer
+/// aborted`, `451 local error`, `550`), so hiding it made every such failure
+/// look like a clean transfer: `read_all` handed back the bytes it had already
+/// collected and the caller verified a file that was silently truncated. The
+/// swallow existed because a raising `close()` left the lock held -- that is
+/// not true any more (`with_lock` releases in a `defer`), so the reply now
+/// reaches the caller like every other error in this file.
+///
+/// The single exception is still swallowed: `shut_timeout_ms` expiring on the
+/// read. There is no reply on the wire at that point and the session is still
+/// usable, so failing a transfer the caller already has the data for would
+/// turn a slow server into a lost download; the timeout is what bounds that
+/// wait, and a genuinely dead server surfaces on the next command.
 pub async fn DataResponse::close(self : DataResponse) -> Unit {
   guard !self.closed else { return }
-  // One attempt only: a `close()` that raised would leave the lock held and
-  // the session unusable for everything after it, and the `226` it failed to
-  // read is the same reply the next command would trip over anyway.
+  // Marked first so the flag is set even when the wrap-up below raises;
+  // otherwise a caller's error handler that closes again would read a second
+  // `226` and take the reply of the *next* command.
   self.closed = true
   self.client.with_lock(async fn() {
     if self.shut_timeout_ms > 0 {
-      ignore(
-        @async.with_timeout(self.shut_timeout_ms, async fn() {
-          check_data_shut(self.session) catch {
-            _ => ()
+      // `with_timeout_opt` answers `None` when the wait expired and raises
+      // whatever `check_data_shut` raised otherwise. A control channel that
+      // went quiet without closing is a *timeout*, but this runtime reports
+      // the expiry through the child task's cancellation, which the read
+      // surfaces as `ReaderClosed`; both are the "no reply arrived" shape and
+      // are dropped. Any other error is the server's own answer (`425`,
+      // `426`, `550`) and reaches the caller.
+      let outcome : Unit? = @async.with_timeout_opt(self.shut_timeout_ms, async fn() {
+        check_data_shut(self.session)
+      }) catch {
+        err =>
+          if err is @core.FtpError::RequestTimeout || err is @io.ReaderClosed {
+            None
+          } else {
+            raise err
           }
-        }),
-      )
-    } else {
-      check_data_shut(self.session) catch {
-        _ => ()
       }
+      ignore(outcome)
+    } else {
+      check_data_shut(self.session)
     }
   })
 }

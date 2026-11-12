@@ -137,7 +137,7 @@ pub struct FTPClient {
   mut mfmt_supported : Bool
   mut mdtm_supported : Bool
   mut mdtm_can_write : Bool
-  mut location : @time.Zone
+  location : @time.Zone
   mut features : Map[String, Bool]
 }
 pub fn FTPClient::has_feature(Self, String) -> Bool
@@ -151,13 +151,6 @@ pub fn FTPClient::location(Self) -> @time.Zone
 pub async fn FTPClient::lock(Self) -> Unit
 pub fn FTPClient::options(Self) -> DialOptions
 pub fn FTPClient::session(Self) -> Session
-pub fn FTPClient::set_closed(Self, Bool) -> Unit
-pub fn FTPClient::set_features(Self, Map[String, Bool]) -> Unit
-pub fn FTPClient::set_location(Self, @time.Zone) -> Unit
-pub fn FTPClient::set_mdtm_can_write(Self, Bool) -> Unit
-pub fn FTPClient::set_mdtm_supported(Self, Bool) -> Unit
-pub fn FTPClient::set_mfmt_supported(Self, Bool) -> Unit
-pub fn FTPClient::set_mlst_supported(Self, Bool) -> Unit
 pub fn FTPClient::state_options(Self) -> Options
 pub fn FTPClient::unlock(Self) -> Unit
 pub async fn FTPClient::with_lock(Self, async () -> Unit) -> Unit
@@ -190,8 +183,6 @@ pub fn Session::control(Self) -> @connection.Control
 pub fn Session::new(@connection.Control, options? : Options) -> Self
 pub fn Session::options(Self) -> Options
 pub fn Session::record_data_port(Self, Bool) -> Unit
-pub fn Session::set_skip_epsv(Self, Bool) -> Unit
-pub fn Session::set_use_pret(Self, Bool) -> Unit
 pub fn Session::skip_epsv(Self) -> Bool
 pub fn Session::use_pret(Self) -> Bool
 

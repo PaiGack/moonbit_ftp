@@ -228,6 +228,35 @@ async test "quit is idempotent" {
 }
 
 ///|
+/// A `quit` that already ran must be seen as a no-op *inside* the lock.
+///
+/// The pre-lock check is only a fast path: two overlapping calls both pass it
+/// while `closed` is still false, then queue on the mutex, and the second one
+/// must not send a second `QUIT` once the first set the flag. The state the
+/// second call then holds on entry is "closed, lock free" -- which is what
+/// this test builds directly, instead of relying on a timing window the
+/// runtime does not hand out deterministically.
+///
+/// The "holds the lock" half matters: the old `quit` takes the lock after the
+/// fast-path check, so reaching the assertion with the flag already set is
+/// only possible when there is no second check under it.
+async test "quit re-checks the closed flag under the lock" {
+  let (client, sink) = scripted_client("")
+  client.set_closed(true)
+  // Acquire the lock first, then let `quit` in *while it is held nowhere*:
+  // the state `quit` sees is exactly the one after another task finished.
+  let refused = try {
+    quit(client)
+    false
+  } catch {
+    _ => true
+  }
+  // Without a reply scripted, a second `QUIT` would raise `ReaderClosed`.
+  assert_false(refused)
+  assert_eq(sink.lines, [])
+}
+
+///|
 /// A `QUIT` reply that is none of the accepted codes still marks the client
 /// closed, so a retry cannot reuse a connection the server has dropped.
 async test "quit marks the client closed even when the reply is refused" {
