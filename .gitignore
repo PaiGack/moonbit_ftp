@@ -27,3 +27,5 @@ testdata/ftp/tls/
 # `stop-*.sh`, so a run never inherits a root-owned leftover from the one before.
 .ftp-plain-root/
 .ftp-ftps-files/
+
+.claude

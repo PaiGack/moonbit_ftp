@@ -10,7 +10,8 @@ import {
 // Errors
 
 // Types and methods
-type CliArgs derive(@debug.Debug)
+#derive(@debug.Debug)
+type CliArgs
 
 // Type aliases
 

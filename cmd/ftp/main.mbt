@@ -66,6 +66,7 @@ extern "c" fn exit(code : Int32) = "exit"
 ///|
 /// The parsed command line: the subcommand plus its positional arguments and
 /// the recognized global flags.
+#derive(@debug.Debug)
 struct CliArgs {
   mut command : String?
   mut help : Bool
@@ -77,7 +78,7 @@ struct CliArgs {
   mut timeout_ms : Int32
   mut tls : Bool
   mut trust_pasv_ip : Bool
-} derive(@debug.Debug)
+}
 
 ///|
 /// Parse `args` (including `argv[0]`), reporting unknown flags as `Err`.

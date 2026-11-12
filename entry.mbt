@@ -7,6 +7,7 @@
 ///|
 /// The kind of a remote directory entry, mirroring upstream
 /// `ftp.EntryType`.
+#derive(Eq, @debug.Debug)
 pub(all) enum EntryType {
   /// A regular file.
   File
@@ -14,7 +15,7 @@ pub(all) enum EntryType {
   Folder
   /// A symbolic link.
   Link
-} derive(Eq, @debug.Debug)
+}
 
 ///|
 /// `EntryType` promotes its `Eq` and `Debug` methods as regular methods; declare
@@ -42,6 +43,7 @@ pub fn EntryType::to_string(self : EntryType) -> String {
 /// - `target` is empty for non-symlinks (Go zero value semantics),
 /// - `time` carries an explicit timezone because `LIST` timestamps are
 ///   wall-clock time in the **server's** timezone.
+#derive(@debug.Debug)
 pub struct Entry {
   /// File name without any leading path component.
   mut name : String
@@ -53,7 +55,7 @@ pub struct Entry {
   mut size : UInt64
   /// Parsed modification time, timezone included.
   mut time : @time.ZonedDateTime
-} derive(@debug.Debug)
+}
 
 ///|
 /// `Entry` promotes its `Debug` methods as regular methods; declare the
@@ -164,12 +166,13 @@ pub fn make_link(
 ///|
 /// The transfer type of the data connection, matching the FTP `TYPE` command
 /// arguments.
+#derive(Eq, @debug.Debug)
 pub(all) enum TransferType {
   /// `TYPE I`, binary transfer (also called image type).
   Binary
   /// `TYPE A`, ASCII transfer.
   ASCII
-} derive(Eq, @debug.Debug)
+}
 
 ///|
 /// `TransferType` promotes its `Eq` and `Debug` methods as regular methods; declare

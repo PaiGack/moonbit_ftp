@@ -276,6 +276,7 @@ pub async fn stor_from(FTPClient, String, &@io.Reader, offset? : Int64) -> Unit
 pub fn walk(FTPClient, String) -> Walker
 
 // Errors
+#derive(@debug.Debug)
 pub(all) suberror FtpError {
   ServerError(code~ : Int32, msg~ : String)
   InvalidCommand(arg~ : String)
@@ -283,12 +284,13 @@ pub(all) suberror FtpError {
   UnsupportedListDate(field~ : String)
   ParseError(msg~ : String)
   RequestTimeout
-} derive(@debug.Debug)
+}
 pub fn FtpError::to_repr(Self) -> @debug.Repr
 
+#derive(@debug.Debug)
 pub(all) suberror FtpErrors {
   MultipleErrors(errors~ : Array[Error])
-} derive(@debug.Debug)
+}
 pub fn FtpErrors::to_repr(Self) -> @debug.Repr
 
 // Types and methods
@@ -376,13 +378,14 @@ pub fn DialOptions::set_trust_pasv_ip(Self, Bool) -> Unit
 pub fn DialOptions::set_writing_mdtm(Self, Bool) -> Unit
 pub fn DialOptions::to_state_options(Self) -> Options
 
+#derive(@debug.Debug)
 pub struct Entry {
   mut name : String
   mut target : String
   mut type_ : EntryType
   mut size : UInt64
   mut time : @time.ZonedDateTime
-} derive(@debug.Debug)
+}
 pub fn Entry::set_name(Self, String) -> Unit
 pub fn Entry::set_size(Self, UInt64) -> Unit
 pub fn Entry::set_target(Self, String) -> Unit
@@ -390,11 +393,12 @@ pub fn Entry::set_time(Self, @time.ZonedDateTime) -> Unit
 pub fn Entry::set_type(Self, EntryType) -> Unit
 pub fn Entry::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum EntryType {
   File
   Folder
   Link
-} derive(Eq, @debug.Debug)
+}
 pub fn EntryType::equal(Self, Self) -> Bool
 pub fn EntryType::not_equal(Self, Self) -> Bool
 pub fn EntryType::to_repr(Self) -> @debug.Repr
@@ -443,12 +447,13 @@ pub fn ListDateField::minute(Self) -> Int32
 pub fn ListDateField::next(Self) -> Int32
 pub fn ListDateField::year(Self) -> Int32
 
+#derive(Eq, @debug.Debug)
 pub(all) enum ListFormat {
   Rfc3659
   UnixLs
   DosDir
   HostedFtp
-} derive(Eq, @debug.Debug)
+}
 pub fn ListFormat::equal(Self, Self) -> Bool
 pub fn ListFormat::not_equal(Self, Self) -> Bool
 pub fn ListFormat::to_repr(Self) -> @debug.Repr
@@ -476,10 +481,11 @@ pub fn Options::tls(Self) -> Bool
 pub fn Options::trust(Self) -> @tls.TrustedRoot
 pub fn Options::trust_pasv_ip(Self) -> Bool
 
+#derive(@debug.Debug)
 pub struct Response {
   code : Int32
   message : String
-} derive(@debug.Debug)
+}
 pub fn Response::code(Self) -> Int32
 pub fn Response::message(Self) -> String
 pub fn Response::new(Int32, String) -> Self
@@ -515,10 +521,11 @@ pub struct TeeLogReader {
 }
 pub fn TeeLogReader::new(&@io.Reader, log~ : DebugLog) -> Self
 
+#derive(Eq, @debug.Debug)
 pub(all) enum TransferType {
   Binary
   ASCII
-} derive(Eq, @debug.Debug)
+}
 pub fn TransferType::argument(Self) -> String
 pub fn TransferType::equal(Self, Self) -> Bool
 pub fn TransferType::from_string(String) -> Self?

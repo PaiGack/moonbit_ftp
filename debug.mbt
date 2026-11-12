@@ -116,8 +116,34 @@ impl @io.Writer for MirrorWriter with fn write_once(
 ) -> Int32 {
   // If the write raises, the command never reached the wire; log what we
   // tried so the failure shows up in the transcript, then let it through.
-  errdefer log_lines(self.log, Command, buf[offset:offset + len]) |> ignore
-  let n = self.inner.write_once(buf, offset~, len~)
+  //
+  // Spelled as an explicit error path rather than `errdefer`: the log write
+  // is asynchronous, and this toolchain rejects any `defer` / `errdefer`
+  // holding cancellable code (`cancellable_defer`), whatever form the
+  // diagnostic's `protect_from_cancel` remedy takes. See `cmd_data_conn_from`
+  // in transport.mbt for the details.
+  //
+  // The error travels out of the `catch` as a value and is re-raised after it
+  // rather than inside it: on this compiler a re-raise that *uses* the caught
+  // error after an async call in the same handler miscompiles -- the whitebox
+  // test "a failed write is logged and still raises" segfaults -- and a bare
+  // `raise` does not parse. Tests cannot reach that handler (a `DebugLog`
+  // always wraps its sink through the same `write_once`, so the sink's error
+  // never arrives here as a raise), which is why only this shape is exercised.
+  let (n, failure) : (Int32, Error?) = (
+    self.inner.write_once(buf, offset~, len~),
+    None,
+  ) catch {
+    e => {
+      // The command never reached the wire: record what was attempted.
+      log_lines(self.log, Command, buf[offset:offset + len])
+      (-1, Some(e))
+    }
+  }
+  match failure {
+    Some(e) => raise e
+    None => ()
+  }
   guard n > 0 else { return n }
   // What the socket accepted is what gets logged, not what we offered: a short
   // write would otherwise put bytes in the transcript that never left the

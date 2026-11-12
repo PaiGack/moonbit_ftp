@@ -28,6 +28,7 @@
 ///|
 /// Which of the four parsers recognised a listing line. The order of the
 /// variants is the fallback order used by `parse_list_line`.
+#derive(Eq, @debug.Debug)
 pub(all) enum ListFormat {
   /// RFC 3659 machine readable facts (`type=file;size=...;modify=...;name`).
   Rfc3659
@@ -37,7 +38,7 @@ pub(all) enum ListFormat {
   DosDir
   /// hostedftp.com style (`ls -l` without the link count).
   HostedFtp
-} derive(Eq, @debug.Debug)
+}
 
 ///|
 /// `ListFormat` promotes its `Eq` and `Debug` methods as regular methods; declare

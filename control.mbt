@@ -273,12 +273,13 @@ fn replace_first(format : String, pattern : String, value : String) -> String {
 /// The body keeps the text of the framing status lines, matching the semantics
 /// of Go's `textproto.ReadResponse`; see `read_response` for why the callers
 /// depend on that.
+#derive(@debug.Debug)
 pub struct Response {
   /// The 3 digit status code of the reply.
   code : Int32
   /// The message, with continuation lines joined by `\n`.
   message : String
-} derive(@debug.Debug)
+}
 
 ///|
 /// `Response` promotes its `Debug` methods as regular methods; declare the

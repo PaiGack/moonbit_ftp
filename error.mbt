@@ -8,6 +8,7 @@
 /// Error type for every failure that is produced by the FTP protocol layer
 /// itself (as opposed to failures raised by the underlying IO stack, which
 /// bubble up untouched so callers can still inspect the OS error).
+#derive(@debug.Debug)
 pub(all) suberror FtpError {
   /// The server answered with a status code we did not expect.
   ServerError(code~ : Int32, msg~ : String)
@@ -27,7 +28,7 @@ pub(all) suberror FtpError {
   /// error naming the wait instead of hanging, and so that the async runtime
   /// never mistakes the wait for a deadlock.
   RequestTimeout
-} derive(@debug.Debug)
+}
 
 ///|
 /// `FtpError` promotes its `Debug` methods as regular methods; declare the
@@ -39,10 +40,11 @@ pub extend FtpError with @debug.Debug::{to_repr}
 /// operation. This mirrors Go's `errors.Join`: the upstream implementation
 /// deliberately keeps *every* error (transfer + close + status read) instead
 /// of returning as soon as the first one shows up.
+#derive(@debug.Debug)
 pub(all) suberror FtpErrors {
   /// All errors of a single operation, in the order they occurred.
   MultipleErrors(errors~ : Array[Error])
-} derive(@debug.Debug)
+}
 
 ///|
 /// `FtpErrors` promotes its `Debug` methods as regular methods; declare the

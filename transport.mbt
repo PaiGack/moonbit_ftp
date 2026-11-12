@@ -440,10 +440,33 @@ pub async fn cmd_data_conn_from(
   // replaced by a generic `transfer command failed`, which made a stalled
   // server (no reply at all) indistinguishable from one that answered `500`
   // -- the transcript that would tell them apart was already gone.
-  errdefer conn.close()
-  let response = cmd_format(session.control(), cmd, args, [
-    status_data_conn_already_in_use, 150,
-  ])
+  //
+  // A data connection opened here and never handed to the caller must not
+  // leak, so each failure below closes it. This used to be an
+  // `errdefer conn.close()`, but `close` is asynchronous and the toolchain
+  // rejects a deferred body containing cancellable work (`cancellable_defer`);
+  // the diagnostic's own remedy, `@async.protect_from_cancel`, does not
+  // silence it either -- in this toolchain it is itself reported as
+  // cancellable -- so the close is spelled out on every exit path instead.
+  // The error is carried out of the `catch` and re-raised after it for the
+  // same reason as in `MirrorWriter::write_once` (debug.mbt): a re-raise from
+  // inside the handler is either `fragile_catch_all`, which is denied here, or
+  // a miscompile when it uses the caught error after async work.
+  let (response, failure) : (Response, Error?) = try {
+    let r = cmd_format(session.control(), cmd, args, [
+      status_data_conn_already_in_use, 150,
+    ])
+    (r, None)
+  } catch {
+    e => (Response::{ code: -1, message: "", }, Some(e))
+  }
+  match failure {
+    Some(e) => {
+      conn.close()
+      raise e
+    }
+    None => ()
+  }
   // The reply that starts a transfer is a *positive intermediate* (`125` or
   // `150`), not a completion: `2xx` only arrives at the end, on `226`. Testing
   // `is_positive_completion` here rejected every real transfer.
