@@ -38,12 +38,19 @@ mkdir -p "$OUT_DIR"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+# Both certificates live one day. They are throwaway fixtures -- regenerated
+# at the start of every run, gitignored, and only ever used to prove that the
+# client verifies them -- so a long life buys nothing and has a cost: a copy
+# left behind in a build directory from a previous run keeps passing
+# verification against a CA nobody generated this time, which is exactly the
+# "old fixture, green build" state a short life makes impossible.
+#
 # The CA. `-subj` avoids the interactive prompt; `basicConstraints=critical,CA:TRUE`
 # is what makes the leaf below verifiable against it.
 openssl req -x509 -newkey rsa:2048 -nodes \
   -keyout "$TMP/ca.key" \
   -out "$TMP/ca.pem" \
-  -days 36500 \
+  -days 1 \
   -subj "/CN=PaiGack ftp test CA" \
   -addext "basicConstraints=critical,CA:TRUE" \
   -addext "keyUsage=critical,keyCertSign,cRLSign" \
@@ -69,7 +76,7 @@ openssl x509 -req \
   -CAkey "$TMP/ca.key" \
   -CAcreateserial \
   -out "$TMP/server.crt" \
-  -days 36500 \
+  -days 1 \
   -extfile "$TMP/server.ext" \
   2>/dev/null
 

@@ -154,6 +154,53 @@ async test "write_path forwards and logs" {
 }
 
 ///|
+/// `PASS` is redacted in the command direction, and only there.
+///
+/// A transcript goes into bug reports, CI logs and shared terminals; the
+/// password is the one line that must never be in any of them. The wire still
+/// gets the real bytes -- redaction is a property of the *record*, not of the
+/// write -- so the first assertion is as important as the second.
+async test "write_path redacts PASS but still sends it" {
+  let sink = log_sink()
+  let inner = recording_sink()
+  let inner_ref : &@io.Writer = inner
+  DebugLog::new(sink).write_path(inner_ref, b"PASS hunter2\r\n")
+  assert_eq(inner.lines, ["PASS hunter2"])
+  assert_eq(sink.text(), ">>> PASS ***\r\n")
+}
+
+///|
+/// The redaction rule, directly: case insensitive, only the `PASS` command,
+/// and it fails closed on a malformed record.
+test "redact_password only rewrites the PASS command" {
+  assert_eq(redact_password("PASS s3cret"), "PASS ***")
+  assert_eq(redact_password("pass s3cret"), "PASS ***")
+  assert_eq(redact_password("Pass s3cret"), "PASS ***")
+  assert_eq(redact_password("PASS\tspaced"), "PASS ***")
+  // A bare `PASS` (anonymous with an empty password) has nothing to hide, but
+  // it is still the command, so it gets the same shape.
+  assert_eq(redact_password("PASS"), "PASS ***")
+  // Not the command: the argument rides on a longer command name.
+  assert_eq(redact_password("PASV"), "PASV")
+  assert_eq(redact_password("PASSWORD x"), "PASSWORD x")
+  assert_eq(redact_password("USER PASS"), "USER PASS")
+  assert_eq(redact_password(""), "")
+}
+
+///|
+/// A caller can turn the redaction off, which is what a test that asserts on
+/// the exact wire bytes wants.
+async test "redaction can be disabled" {
+  let sink = log_sink()
+  let inner = recording_sink()
+  let inner_ref : &@io.Writer = inner
+  DebugLog::new(sink, redact_pass=false).write_path(
+    inner_ref, b"PASS hunter2\r\n",
+  )
+  assert_eq(sink.text(), ">>> PASS hunter2\r\n")
+}
+
+///|
 /// A sink that raises must not make a command fail: the log is a diagnostic,
 /// and a broken diagnostic should not take the session with it.
 async test "a failing log sink does not fail the command" {

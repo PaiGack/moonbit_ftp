@@ -237,6 +237,34 @@ async test "quit marks the client closed even when the reply is refused" {
 }
 
 ///|
+/// After `quit`, every public operation is refused before it reaches the
+/// wire.
+///
+/// The check lives in `FTPClient::lock`, which is why one assertion stands in
+/// for all of them, and why the assertion is about *the refusal* rather than
+/// about which IO error a dead socket happened to produce. A command sent
+/// after `QUIT` used to be written to a session the server had hung up on, so
+/// the failure was `ReaderClosed` or a timeout with no hint that the client
+/// had already said goodbye.
+async test "operations after quit are refused" {
+  let (client, sink) = scripted_client("221 Goodbye.\r\n")
+  quit(client) catch {
+    e => fail("quit: \{e}")
+  }
+  let refused = try {
+    no_op(client)
+    false
+  } catch {
+    @core.FtpError::ParseError(msg~) => msg.contains("closed")
+    _ => false
+  }
+  assert_true(refused)
+  // Nothing new reached the control channel: `QUIT` is still the last line.
+  assert_eq(sink.lines, ["QUIT"])
+  assert_true(client.is_closed())
+}
+
+///|
 /// `extract_quoted` takes the text between the first pair of double quotes,
 /// which is how the `257` reply encodes a path.
 ///

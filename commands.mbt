@@ -197,12 +197,19 @@ pub async fn logout(client : FTPClient) -> Unit {
 /// read observe EOF; the server closing its side and this process releasing
 /// the handle do.
 ///
-/// A second call is a no-op, visible through `is_closed`.
+/// A second call is a no-op, visible through `is_closed`. The closed check
+/// comes *before* the lock on purpose: `FTPClient::lock` refuses every
+/// operation on a closed client (that is how the rest of the API refuses to
+/// run after `quit`), and `quit` has to stay the exception so that making it
+/// idempotent does not turn a double `quit` into an error.
+///
+/// The flag is also set *before* `QUIT` goes out, under the lock, so that a
+/// concurrent operation either got in first or is refused -- never both.
 pub async fn quit(client : FTPClient) -> Unit {
-  client.lock()
-  defer client.unlock()
   guard client.closed == false else { return }
+  client.lock()
   client.set_closed(true)
+  defer client.unlock()
   let errors : Array[Error] = []
   let response = @connection.cmd_expect(client.session.control(), "QUIT", [
     @core.status_closing_control_connection, @core.status_cmd_ok, @core.status_service_ready_for_new_user,

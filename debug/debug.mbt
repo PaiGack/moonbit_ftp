@@ -52,12 +52,42 @@ pub(all) struct DebugLog {
   sink : &@io.Writer
   /// Whether each record carries its `>>>` / `<<<` direction tag.
   prefix : Bool
+  /// Hide the argument of `PASS`. On by default: a transcript is copied into
+  /// bug reports, CI logs and shared terminals, and the one line in an FTP
+  /// session that must never be in any of them is the password.
+  redact_pass : Bool
 }
 
 ///|
 /// Build a traffic log over `sink`, tagging each line with its direction.
-pub fn DebugLog::new(sink : &@io.Writer, prefix~ : Bool = true) -> DebugLog {
-  { sink, prefix, }
+pub fn DebugLog::new(
+  sink : &@io.Writer,
+  prefix~ : Bool = true,
+  redact_pass~ : Bool = true,
+) -> DebugLog {
+  { sink, prefix, redact_pass, }
+}
+
+///|
+/// The text a command record should carry: `PASS <secret>` becomes
+/// `PASS ***`.
+///
+/// Commands are ASCII and case insensitive, but real servers are sloppy about
+/// the case of what the *client* sends, so neither property is assumed here:
+/// the check is case insensitive and reads the whole record up to its first
+/// CRLF. A malformed or multi-line record is still redacted rather than
+/// passed through -- failing closed is the right direction for a password.
+///
+/// Only the command direction is redacted; a `PASS` line in the reply
+/// direction (the server echoing it, which RFC 959 does not ask for) is a
+/// server defect, and hiding it would also hide a password the server leaked.
+fn redact_password(text : String) -> String {
+  guard text.length() >= 4 else { return text }
+  guard text[0:4].to_upper() == "PASS" else { return text }
+  guard text.length() == 4 || text[4] == ' ' || text[4] == '\t' else {
+    return text
+  }
+  "PASS ***"
 }
 
 ///|
@@ -103,6 +133,12 @@ async fn DebugLog::record_line(
     text[0:text.length() - 2].to_owned()
   } else {
     text
+  }
+  // Only the command direction: a password is something *we* send.
+  let body = if direction is Command && self.redact_pass {
+    redact_password(body)
+  } else {
+    body
   }
   self.sink.write(encode_ascii(self.render(direction, body)))
 }

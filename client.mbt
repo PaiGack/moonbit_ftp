@@ -49,8 +49,23 @@ pub struct FTPClient {
 ///
 /// Upstream documents `ServerConn` as *not* concurrency safe; enforcing it at
 /// runtime is a deliberate improvement that does not change the semantics.
+///
+/// This is also the guard that refuses to work on a client that already sent
+/// `QUIT`. Every public operation takes this lock before touching the control
+/// channel, so checking here covers all of them at once instead of leaving the
+/// check to each one (where it was missing: `is_closed` existed but only
+/// `quit` itself read it). Without it, a command after `quit` was written into
+/// a session the server had already hung up on, and the failure surfaced as
+/// whichever IO error the dead socket produced -- `ReaderClosed`, a read
+/// timeout -- rather than as "this client is closed".
 pub async fn FTPClient::lock(self : FTPClient) -> Unit {
   self.mutex.acquire()
+  if self.closed {
+    self.mutex.release()
+    raise @core.FtpError::ParseError(
+      msg="the FTP client was already closed with quit(); it cannot be used again",
+    )
+  }
 }
 
 ///|

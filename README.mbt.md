@@ -133,7 +133,11 @@ test {
 | `get_time(client, path)` / `set_file_time(client, path, time)` | `MDTM` 读 / 写时间戳 |
 | `make_dir` / `remove_dir` / `remove_dir_recur` / `delete` / `rename` / `change_dir` / `change_dir_to_parent` / `current_dir` | 目录与文件管理（`remove_dir_recur` 递归删除非空目录） |
 | `walk(client, root)` | 普通函数，拿到 `Walker`；`while w.next() { ... }` 深度优先遍历，`next()` 是 `async` 且失败时不抛错而是返回 `false`（原因读 `w.err()`） |
-| `no_op` / `logout` / `quit(client)` | `NOOP` / `REIN` / `QUIT`（`quit` 发 `QUIT` 并标记为已关闭；socket 不做显式 close，见下方"连接与关闭语义"） |
+| `no_op` / `logout` / `quit(client)` | `NOOP` / `REIN` / `QUIT`（`quit` 发 `QUIT` 并标记为已关闭，**之后其余操作都被拒绝**；socket 不做显式 close，见下方"连接与关闭语义"） |
+
+`dial(..., debug_sink=w)` 打开流量日志时，命令方向以 `PASS` 开头的那一行会被记成 `PASS ***`——
+日志常被贴进 issue 和 CI 输出，密码是唯一一行不能出现在里面的东西。线上发的仍是真实字节；
+`@debug.DebugLog::new(sink, redact_pass=false)` 可关掉脱敏（给需要逐字节比对日志的测试用）。
 
 > 错误以 `@core.FtpError` 抛出（`Entry` / `FtpError` 在 `PaiGack/ftp/core` 包里，
 > 自己的包要 `moon add` 之外再 `import` 它才能写类型标注），可用 `catch` / `try!` 统一处理；多次失败会被聚合成
@@ -143,6 +147,11 @@ test {
 ### 连接与关闭语义
 
 `quit` 发 `QUIT`，然后把客户端标记为已关闭（之后再调 `quit` 是空操作，`is_closed()` 返回 `true`）。
+**关闭之后其余操作一律被拒绝**：`no_op` / `list` / `retr` / `change_dir` 等每一个公开操作在拿锁时
+都会先看到这个标志，直接抛 `FtpError::ParseError`（消息里写明客户端已经 `quit`），一个字节都不会
+再写进控制通道。没有这一步时，`QUIT` 之后的命令会写进一条服务端已经挂断的会话，报出来的是
+`ReaderClosed` 或读超时，读不出"这个客户端已经关了"。
+
 它**不**关闭底层 socket：`Control` 没有 `close` 方法，也没有任何路径调用 `@socket.Tcp::close`。
 关闭由两端各自完成——服务端收到 `QUIT` 后回包并关闭它那一侧，进程退出时本地的句柄随之释放。
 

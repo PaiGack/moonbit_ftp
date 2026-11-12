@@ -391,7 +391,15 @@ pub async fn login(
 ///
 /// A server that answers `FEAT` with anything other than `211` simply has no
 /// feature list; that is **not** an error, upstream treats it the same way.
+///
+/// The lock is taken here because this is a public function: a caller that
+/// re-runs `feat` after changing server-side configuration would otherwise
+/// race every other operation on the control channel. `login` calls it
+/// *outside* its own lock for exactly that reason (the lock is not
+/// re-entrant).
 pub async fn feat(client : FTPClient) -> Unit {
+  client.lock()
+  defer client.unlock()
   let response = @connection.cmd_expect(client.session.control(), "FEAT", [
     @core.status_system_status,
   ]) catch {

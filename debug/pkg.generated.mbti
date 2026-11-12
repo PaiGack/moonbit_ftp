@@ -18,8 +18,9 @@ pub(all) enum DebugDirection {
 pub(all) struct DebugLog {
   sink : &@io.Writer
   prefix : Bool
+  redact_pass : Bool
 }
-pub fn DebugLog::new(&@io.Writer, prefix? : Bool) -> Self
+pub fn DebugLog::new(&@io.Writer, prefix? : Bool, redact_pass? : Bool) -> Self
 pub async fn DebugLog::read_path(Self, &@io.Reader, StringView) -> String?
 pub async fn DebugLog::record(Self, BytesView) -> Unit
 pub fn DebugLog::render(Self, DebugDirection, String) -> String

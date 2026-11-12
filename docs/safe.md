@@ -2,6 +2,25 @@
 
 项目是一个 MoonBit 的 FTP/FTPS 客户端库加四个 CLI。基线是干净的：`moon check --deny-warn` 通过，318 个测试全过。下面的问题是我逐层读出来的，**工作区已还原，没有改任何代码**。凡是标了 ✅ 的，都是我用临时测试实际跑出来复现过的，不是推测；跑完立刻还原了。
 
+> **状态（2026-11-12 复核）**：本文保留当时的原始结论，不要按它逐条"再修一次"。
+> 下表的「现状」一列才是当前代码的事实。
+>
+> | 条目 | 现状 |
+> | --- | --- |
+> | 1 证书校验按 IP 静默回退 | 已修：`server_name` 是 `String?`，空串在 `Control::new` 里被拒 |
+> | 2 `get_data_port` 逻辑写反 | 已修：两条路径合并进 `pasv_data_addr`，并由 transport 单测锁住 |
+> | 3 CLI `get` 写出目录外 | 已修：`safe_local_name` 拒绝 `.` / `..` / 空 / 含分隔符 |
+> | 4 测试可能没被收集 | **不成立**。实测追加一个 `fail("PROBE")` 的测试会被执行、会让套件变红；`scripts/ci.sh` 也已有覆盖率下限。本条的修复建议不要再做 |
+> | 5 明文登录没有提示 | 已修：`login` 在服务器广播 `AUTH TLS` / `AUTH SSL` 而本条连接是明文时向 stderr 告警 |
+> | 6 调试日志原样记录 `PASS` | 已修：`DebugLog` 默认把命令方向的 `PASS` 记成 `PASS ***`，`redact_pass=false` 可关闭 |
+> | 7 `Control::new` 允许 `timeout_ms = 0` | 已修：`0` 与负数都换成默认超时 |
+> | 8 `DataConn::close` 硬编码 5s | 已修：改用 `ConnOptions::shut_bound()`（`shut_timeout_ms` 或连接超时） |
+> | 9 `parse_pasv` 越界 | 已修：先找 `(` 再在其后找 `)`，并显式判 `close > open + 1` |
+> | 10 空期望列表 | 已修：`cmd_expect` 拒绝空列表，要"任意码"必须写 `accept_any_status()` |
+> | 11 无"只允许公网地址"开关 | 未做，见下 |
+> | 12 CI / 脚本 | 部分：证书有效期已改成 1 天（每次现签）；`curl \| bash` 安装仍未 pin 版本 |
+> | 13 `scripts/__pycache__` | 工作区残留，已被 `.gitignore` 覆盖，不会进提交；直接删掉目录即可 |
+
 ---
 
 ## 一、高危
