@@ -2,7 +2,8 @@
 // Licensed under the Apache License, Version 2.0.
 // Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.
 
-// Layer: IO — uses the `moonbitlang/async` stack from the root moon.pkg.
+// Package: `PaiGack/ftp` -- the public client API. Layers below it live in
+// `core/` (values), `connection/` (control + data channel) and `debug/` (traffic log).
 
 // Tests for the data transfer wrappers in `transfer.mbt`.
 //
@@ -197,7 +198,7 @@ async test "append sends APPE without REST" {
 /// A transfer command that is not answered with `150`/`125` fails, and the
 /// data connection is closed instead of being leaked.
 ///
-/// `cmd_data_conn_from` refuses the transfer *before* the socket is written
+/// `@connection.cmd_data_conn_from` refuses the transfer *before* the socket is written
 /// to, so the listener never sees a connection: the way to observe the guard
 /// is the raised error plus the command list, and the absent peer is itself
 /// the proof that the data connection was torn down.

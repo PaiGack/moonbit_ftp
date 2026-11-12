@@ -2,9 +2,10 @@
 // Licensed under the Apache License, Version 2.0.
 // Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.
 
-// Layer: pure logic — the option plumbing that decides whether a connection is
+// Package: `PaiGack/ftp` -- the public client API. Layers below it live in
+// `core/` (values), `connection/` (control + data channel) and `debug/` (traffic log).
 // encrypted. No socket here; the wire behaviour is covered end to end by
-// `cmd/ftps` against `scripts/ftps/start-ftps.sh`.
+// `@connection.cmd/ftps` against `scripts/ftps/start-ftps.sh`.
 //
 // These exist because the FTPS smoke test found three separate places where
 // the TLS options were plumbed but not acted on: `AUTH TLS` was sent without
@@ -72,7 +73,7 @@ test "the ssrf guard flag survives the projection" {
 ///|
 /// The `trust` policy is what the data channel verifies the server against, so
 /// it has to travel with the options rather than defaulting back to the system
-/// roots inside `open_data_conn`.
+/// roots inside `@connection.open_data_conn`.
 test "the trust policy survives the projection" {
   let options = @ftp.DialOptions::default()
   options.set_trust(@tls.TrustedRoot::NoVerification)

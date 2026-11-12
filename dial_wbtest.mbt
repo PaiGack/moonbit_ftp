@@ -2,7 +2,8 @@
 // Licensed under the Apache License, Version 2.0.
 // Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.
 
-// Layer: IO — uses the `moonbitlang/async` stack from the root moon.pkg.
+// Package: `PaiGack/ftp` -- the public client API. Layers below it live in
+// `core/` (values), `connection/` (control + data channel) and `debug/` (traffic log).
 
 // Tests for the login / `FEAT` / TLS negotiation half of `dial.mbt`.
 //
@@ -11,7 +12,7 @@
 // per case: what does the client send when the server has no `UTF8`?, what
 // happens when `FEAT` fails?, does `PBSZ` / `PROT` really only run for TLS?
 // A scripted control channel answers all of them deterministically, and a real
-// vsftpd in `cmd/example` covers the happy path end to end.
+// vsftpd in `@connection.cmd/example` covers the happy path end to end.
 //
 // The `auth_tls` / `set_utf8` helpers are private, so they are reached through
 // `login` / `feat`, which is also the only way a caller reaches them.
@@ -403,10 +404,10 @@ test "control keeps the TLS server name apart from the peer address" {
   // loopback fixture and every IP dialled with `tls` rely on.
   let reader = @io.MemoryReader(writer => writer.write(""))
   let sink = recording_sink()
-  let control = Control::new(reader, sink, "127.0.0.1")
+  let control = @connection.Control::new(reader, sink, "127.0.0.1")
   assert_eq(control.host(), "127.0.0.1")
   assert_eq(control.server_name(), "127.0.0.1")
-  let named = Control::new(
+  let named = @connection.Control::new(
     reader,
     sink,
     "127.0.0.1",

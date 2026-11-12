@@ -2,14 +2,21 @@
 // Licensed under the Apache License, Version 2.0.
 // Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.
 
-// Layer: IO — uses the `moonbitlang/async` stack from the root moon.pkg.
+// Package: `PaiGack/ftp` -- the public client API. Layers below it live in
+// `core/` (values), `connection/` (control + data channel) and `debug/` (traffic log).
 
 ///|
 /// `NLST <path>`: a bare list of names, one per line.
 pub async fn name_list(client : FTPClient, path : String) -> Array[String] {
   client.lock()
   defer client.unlock()
-  let conn = cmd_data_conn_from(client.session, 0, "NLST {}", [path])
+  let conn = @connection.cmd_data_conn_from(
+    client.session.control(),
+    0,
+    "NLST {}",
+    [path],
+    options=client.session.conn_options(),
+  )
   let errors : Array[Error] = []
   let names : Array[String] = []
   let payload = read_payload(conn, errors) catch {
@@ -54,7 +61,13 @@ pub async fn list(client : FTPClient, path : String) -> Array[@core.Entry] {
   } else {
     "LIST {}"
   }
-  let conn = cmd_data_conn_from(client.session, 0, command, [path])
+  let conn = @connection.cmd_data_conn_from(
+    client.session.control(),
+    0,
+    command,
+    [path],
+    options=client.session.conn_options(),
+  )
   let errors : Array[Error] = []
   let entries : Array[@core.Entry] = []
   let payload = read_payload(conn, errors) catch {
@@ -102,9 +115,12 @@ pub async fn list(client : FTPClient, path : String) -> Array[@core.Entry] {
 pub async fn get_entry(client : FTPClient, path : String) -> @core.Entry {
   client.lock()
   defer client.unlock()
-  let response = cmd_format(client.session.control(), "MLST {}", [path], [
-    @core.status_file_action_ok,
-  ])
+  let response = @connection.cmd_format(
+    client.session.control(),
+    "MLST {}",
+    [path],
+    [@core.status_file_action_ok],
+  )
   let lines = response.message().split("\n").collect()
   // `lc < 3` is upstream's "invalid response": anything shorter than
   // `<head>\n<facts>\n<tail>` cannot carry a fact line.
@@ -138,7 +154,7 @@ pub async fn set_transfer_type(
   client.lock()
   defer client.unlock()
   ignore(
-    cmd_format(
+    @connection.cmd_format(
       client.session.control(),
       "TYPE {}",
       [transfer_type.to_string()],
@@ -170,7 +186,10 @@ fn FTPClient::now(self : FTPClient) -> @time.ZonedDateTime {
 ///|
 /// Drain the data connection into a `String`, recording (not raising) any read
 /// failure so that the caller can still run the `226` wrap-up.
-async fn read_payload(conn : DataConn, errors : Array[Error]) -> String {
+async fn read_payload(
+  conn : @connection.DataConn,
+  errors : Array[Error],
+) -> String {
   let data = conn.reader().read_all() catch {
       err => {
         errors.push(err)

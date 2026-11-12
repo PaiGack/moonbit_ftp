@@ -8,33 +8,16 @@
 // command string they put on the wire, the status code they insist on and the
 // payload they turn into entries. All of it is reachable in process:
 //
-// - an in-memory `Control` supplies the scripted replies, and a `RecordingSink`
+// - an in-memory `@connection.Control` supplies the scripted replies, and a `RecordingSink`
 //   captures the commands that were actually sent, so the encoding is asserted
 //   byte for byte;
 // - a real `TcpServer` bound to `127.0.0.1:0` supplies the data connection, so
-//   `cmd_data_conn_from` (EPSV/PASV negotiation, `125`/`150` validation) runs
+//   `@connection.cmd_data_conn_from` (EPSV/PASV negotiation, `125`/`150` validation) runs
 //   for real against a socket instead of a mock FTP daemon.
 //
 // `FTPClient` is read-only outside the package, so building one around a
-// scripted `Control` needs the white box scope. That is the only privilege
+// scripted `@connection.Control` needs the white box scope. That is the only privilege
 // these tests use; nothing here writes a real server's state.
-
-///|
-/// A writer that decodes every byte to ASCII and records each CRLF-terminated
-/// line, which is how the command encoding is asserted.
-///
-/// `write_once` receives a `BytesView`, whose `to_string` renders the debug
-/// form (`b"NOOP\x0d\x0a"`), so the bytes are decoded one by one instead.
-struct RecordingSink {
-  lines : Array[String]
-  mut pending : String
-}
-
-///|
-/// An empty recording sink.
-fn recording_sink() -> RecordingSink {
-  { lines: [], pending: "", }
-}
 
 ///|
 /// A traffic log sink that keeps whole decoded records verbatim.
@@ -44,12 +27,6 @@ fn recording_sink() -> RecordingSink {
 /// drop the trailing empty piece at exactly the boundary these tests assert.
 struct TextSink {
   text : StringBuilder
-}
-
-///|
-/// An empty text sink.
-fn text_sink() -> TextSink {
-  { text: StringBuilder(), }
 }
 
 ///|
@@ -69,6 +46,55 @@ impl @io.Writer for TextSink with fn write_once(
 /// The captured transcript, as one string.
 fn TextSink::text(self : TextSink) -> String {
   self.text.to_string()
+}
+
+///|
+/// An empty text sink.
+fn text_sink() -> TextSink {
+  { text: StringBuilder(), }
+}
+
+///|
+/// A control channel that answers with `script`, plus the sink recording what
+/// was sent. The peer is `127.0.0.1`, the address the `PASV` SSRF guard
+/// compares against.
+fn scripted_control(script : String) -> (@connection.Control, RecordingSink) {
+  let reader = @io.MemoryReader(writer => writer.write(script))
+  let reader_ref : &@io.Reader = reader
+  logged_control(reader_ref, None)
+}
+
+///|
+/// A control channel over `reader` plus the sink recording what was sent, with
+/// a traffic log installed.
+fn logged_control(
+  reader : &@io.Reader,
+  log : &@io.Writer?,
+) -> (@connection.Control, RecordingSink) {
+  let sink = recording_sink()
+  let writer : &@io.Writer = sink
+  let control = @connection.Control::new(reader, writer, "127.0.0.1")
+  control.set_debug(
+    match log {
+      None => None
+      Some(sink) => Some(@ftplog.DebugLog::new(sink))
+    },
+  )
+  (control, sink)
+}
+
+///|
+/// A writer that decodes every byte to ASCII and records each CRLF-terminated
+/// line, which is how the command encoding is asserted.
+struct RecordingSink {
+  lines : Array[String]
+  mut pending : String
+}
+
+///|
+/// An empty recording sink.
+fn recording_sink() -> RecordingSink {
+  { lines: [], pending: "", }
 }
 
 ///|
@@ -95,38 +121,48 @@ impl @io.Writer for RecordingSink with fn write_once(
 }
 
 ///|
-/// A control channel that answers with `script`, plus the sink recording what
-/// was sent. The peer is `127.0.0.1`, the address the `PASV` SSRF guard
-/// compares against.
-fn scripted_control(script : String) -> (Control, RecordingSink) {
-  let reader = @io.MemoryReader(writer => writer.write(script))
-  let reader_ref : &@io.Reader = reader
-  logged_control(reader_ref, None)
+/// A `127.0.0.1` listener on an ephemeral port, used as the server end of a
+/// data connection.
+async fn data_listener() -> @socket.TcpServer {
+  @socket.TcpServer::TcpServer(@socket.Addr::parse("127.0.0.1:0"))
 }
 
 ///|
-/// A control channel over `reader` plus the sink recording what was sent, with
-/// a traffic log installed.
-///
-/// The reader is taken as a parameter, not built here, on purpose: an
-/// `@io.MemoryReader` owns a background producer task that only
-/// `MemoryReader::close` stops, so whoever builds it must also close it (the
-/// rule in AGENTS.md). This stays a plain builder; the tests close their own
-/// reader.
-fn logged_control(
-  reader : &@io.Reader,
-  log : &@io.Writer?,
-) -> (Control, RecordingSink) {
-  let sink = recording_sink()
-  let writer : &@io.Writer = sink
-  let control = Control::new(reader, writer, "127.0.0.1")
-  control.set_debug(
-    match log {
-      None => None
-      Some(sink) => Some(@ftplog.DebugLog::new(sink))
-    },
-  )
-  (control, sink)
+/// Accept exactly one data connection, write `payload` and close it.
+async fn serve_payload(listener : @socket.TcpServer, payload : String) -> Unit {
+  let (conn, _) = listener.accept()
+  conn.write(payload)
+  conn.close()
+}
+
+///|
+/// The `EPSV` reply that points a client at `port` on the loopback interface.
+fn epsv_reply(port : Int32) -> String {
+  "229 Entering Extended Passive Mode (|||" + port.to_string() + "|)\r\n"
+}
+
+///|
+/// The `PASV` reply that points a client at `port` on `127.0.0.1`.
+fn pasv_reply(port : Int32) -> String {
+  let high = port / 256
+  let low = port % 256
+  "227 Entering Passive Mode (127,0,0,1," +
+  high.to_string() +
+  "," +
+  low.to_string() +
+  ")\r\n"
+}
+
+///|
+/// A `@socket.Tcp` connected to a throwaway loopback listener.
+async fn connected_socket() -> @socket.Tcp {
+  let listener = data_listener()
+  @async.with_task_group(async fn(group) {
+    let server = group.spawn(no_wait=true, async fn() { listener.accept() })
+    let client = @socket.Tcp::connect(listener.addr)
+    ignore(server.wait())
+    client
+  })
 }
 
 ///|
@@ -157,62 +193,6 @@ fn scripted_client(
     features: {},
   }
   (client, sink)
-}
-
-///|
-/// A `127.0.0.1` listener on an ephemeral port, used as the server end of a
-/// data connection.
-async fn data_listener() -> @socket.TcpServer {
-  @socket.TcpServer::TcpServer(@socket.Addr::parse("127.0.0.1:0"))
-}
-
-///|
-/// Accept exactly one data connection, write `payload` and close it.
-///
-/// One call per data connection the client will open, in whatever order the
-/// client opens them — so the calls belong in separate task-group tasks when a
-/// test needs more than one.
-async fn serve_payload(listener : @socket.TcpServer, payload : String) -> Unit {
-  let (conn, _) = listener.accept()
-  conn.write(payload)
-  conn.close()
-}
-
-///|
-/// A `@socket.Tcp` connected to a throwaway loopback listener, for the
-/// `DataConn` fixtures that need a real socket but never move a byte over it.
-///
-/// `DataConn` owns its socket (the TLS handshake and `close` both need it), so
-/// a fixture cannot be built out of thin air any more. The listener side is
-/// accepted and dropped immediately: the client end stays writable/readable
-/// for as long as the fixture needs, which is enough for tests whose reader is
-/// a stub that never touches the socket.
-async fn connected_socket() -> @socket.Tcp {
-  let listener = data_listener()
-  @async.with_task_group(async fn(group) {
-    let server = group.spawn(no_wait=true, async fn() { listener.accept() })
-    let client = @socket.Tcp::connect(listener.addr)
-    ignore(server.wait())
-    client
-  })
-}
-
-///|
-/// The `EPSV` reply that points a client at `port` on the loopback interface.
-fn epsv_reply(port : Int32) -> String {
-  "229 Entering Extended Passive Mode (|||" + port.to_string() + "|)\r\n"
-}
-
-///|
-/// The `PASV` reply that points a client at `port` on `127.0.0.1`.
-fn pasv_reply(port : Int32) -> String {
-  let high = port / 256
-  let low = port % 256
-  "227 Entering Passive Mode (127,0,0,1," +
-  high.to_string() +
-  "," +
-  low.to_string() +
-  ")\r\n"
 }
 
 ///|
@@ -247,18 +227,6 @@ fn failing_source() -> &@io.Reader {
 /// value of the same type as the successful one.
 fn empty_data() -> &@io.Data {
   ""
-}
-
-///|
-/// A `Session` over a scripted control channel, plus the sink recording what
-/// was sent. Used by the data channel tests, which need a session but no
-/// `FTPClient`.
-fn scripted_session(
-  script : String,
-  options~ : Options = Options::default(),
-) -> (Session, RecordingSink) {
-  let (control, sink) = scripted_control(script)
-  (Session::new(control, options~), sink)
 }
 
 ///|

@@ -2,14 +2,15 @@
 // Licensed under the Apache License, Version 2.0.
 // Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.
 
-// Layer: IO — uses the `moonbitlang/async` stack from the root moon.pkg.
+// Package: `PaiGack/ftp` -- the public client API. Layers below it live in
+// `core/` (values), `connection/` (control + data channel) and `debug/` (traffic log).
 
 // The thin one-command-per-function wrappers: navigation, file operations and
 // session lifecycle.
 //
 // This file merges `nav`, `fsops` and `lifecycle`: every block here is the same
 // shape — lock the client, send one (or two) commands through
-// `cmd_expect` / `cmd_format`, check the expected status code — so three files
+// `@connection.cmd_expect` / `@connection.cmd_format`, check the expected status code — so three files
 // of 50-65 lines each only made the same pattern look like three separate
 // features. `extract_quoted` stays next to `current_dir`, its only caller.
 
@@ -19,7 +20,7 @@ pub async fn change_dir(client : FTPClient, dir : String) -> Unit {
   client.lock()
   defer client.unlock()
   ignore(
-    cmd_format(client.session.control(), "CWD {}", [dir], [
+    @connection.cmd_format(client.session.control(), "CWD {}", [dir], [
       @core.status_file_action_ok,
     ]),
   )
@@ -31,7 +32,9 @@ pub async fn change_dir_to_parent(client : FTPClient) -> Unit {
   client.lock()
   defer client.unlock()
   ignore(
-    cmd_expect(client.session.control(), "CDUP", [@core.status_file_action_ok]),
+    @connection.cmd_expect(client.session.control(), "CDUP", [
+      @core.status_file_action_ok,
+    ]),
   )
 }
 
@@ -40,7 +43,7 @@ pub async fn change_dir_to_parent(client : FTPClient) -> Unit {
 pub async fn current_dir(client : FTPClient) -> String {
   client.lock()
   defer client.unlock()
-  let response = cmd_expect(client.session.control(), "PWD", [
+  let response = @connection.cmd_expect(client.session.control(), "PWD", [
     @core.status_dir_create,
   ])
   match extract_quoted(response.message()) {
@@ -71,7 +74,7 @@ pub async fn make_dir(client : FTPClient, dir : String) -> Unit {
   client.lock()
   defer client.unlock()
   ignore(
-    cmd_format(client.session.control(), "MKD {}", [dir], [
+    @connection.cmd_format(client.session.control(), "MKD {}", [dir], [
       @core.status_dir_create,
     ]),
   )
@@ -83,7 +86,7 @@ pub async fn remove_dir(client : FTPClient, dir : String) -> Unit {
   client.lock()
   defer client.unlock()
   ignore(
-    cmd_format(client.session.control(), "RMD {}", [dir], [
+    @connection.cmd_format(client.session.control(), "RMD {}", [dir], [
       @core.status_file_action_ok,
     ]),
   )
@@ -134,7 +137,7 @@ pub async fn delete(client : FTPClient, path : String) -> Unit {
   client.lock()
   defer client.unlock()
   ignore(
-    cmd_format(client.session.control(), "DELE {}", [path], [
+    @connection.cmd_format(client.session.control(), "DELE {}", [path], [
       @core.status_file_action_ok,
     ]),
   )
@@ -146,12 +149,12 @@ pub async fn rename(client : FTPClient, from : String, to : String) -> Unit {
   client.lock()
   defer client.unlock()
   ignore(
-    cmd_format(client.session.control(), "RNFR {}", [from], [
+    @connection.cmd_format(client.session.control(), "RNFR {}", [from], [
       @core.status_file_action_pending_further_info,
     ]),
   )
   ignore(
-    cmd_format(client.session.control(), "RNTO {}", [to], [
+    @connection.cmd_format(client.session.control(), "RNTO {}", [to], [
       @core.status_file_action_ok,
     ]),
   )
@@ -162,7 +165,11 @@ pub async fn rename(client : FTPClient, from : String, to : String) -> Unit {
 pub async fn no_op(client : FTPClient) -> Unit {
   client.lock()
   defer client.unlock()
-  ignore(cmd_expect(client.session.control(), "NOOP", [@core.status_cmd_ok]))
+  ignore(
+    @connection.cmd_expect(client.session.control(), "NOOP", [
+      @core.status_cmd_ok,
+    ]),
+  )
 }
 
 ///|
@@ -172,7 +179,7 @@ pub async fn logout(client : FTPClient) -> Unit {
   client.lock()
   defer client.unlock()
   ignore(
-    cmd_expect(client.session.control(), "REIN", [
+    @connection.cmd_expect(client.session.control(), "REIN", [
       @core.status_service_ready_for_new_user,
     ]),
   )
@@ -181,7 +188,7 @@ pub async fn logout(client : FTPClient) -> Unit {
 ///|
 /// `QUIT` and mark the connection as closed.
 ///
-/// The socket is **not** closed here: `Control` has no `close`, and no path in
+/// The socket is **not** closed here: `@connection.Control` has no `close`, and no path in
 /// this module calls `@socket.Tcp::close` (see the "connection and shutdown
 /// semantics" note in `README.mbt.md`). Upstream's `Quit` closes `c.conn`
 /// explicitly and joins that error with the command's, which is why the shape
@@ -197,7 +204,7 @@ pub async fn quit(client : FTPClient) -> Unit {
   guard client.closed == false else { return }
   client.set_closed(true)
   let errors : Array[Error] = []
-  let response = cmd_expect(client.session.control(), "QUIT", [
+  let response = @connection.cmd_expect(client.session.control(), "QUIT", [
     @core.status_closing_control_connection, @core.status_cmd_ok, @core.status_service_ready_for_new_user,
   ]) catch {
     err => {

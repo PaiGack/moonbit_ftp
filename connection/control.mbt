@@ -68,7 +68,7 @@ pub struct Control {
   /// session every later command travels over. Keeping the switch here also
   /// means the logging layer never owns a `Reader`, so the `MemoryReader`
   /// ownership rule in AGENTS.md cannot be broken by turning logging on.
-  mut debug : @ftplog.DebugLog?
+  mut debug : @debug.DebugLog?
 }
 
 ///|
@@ -79,7 +79,7 @@ pub fn Control::new(
   host : String,
   server_name~ : String = "",
   timeout_ms~ : Int32 = 0,
-  debug~ : @ftplog.DebugLog? = None,
+  debug~ : @debug.DebugLog? = None,
 ) -> Control {
   // An empty `server_name` means "the peer address is also the name", which is
   // the case for every loopback fixture and for a caller that asked for an IP.
@@ -92,7 +92,7 @@ pub fn Control::new(
 ///
 /// Separate from `Control::new` so `dial` can attach the sink the caller asked
 /// for without every other call site growing the label.
-pub fn Control::set_debug(self : Control, debug : @ftplog.DebugLog?) -> Unit {
+pub fn Control::set_debug(self : Control, debug : @debug.DebugLog?) -> Unit {
   self.debug = debug
 }
 
@@ -316,4 +316,29 @@ pub async fn read_response(control : Control) -> @core.Response {
     return @core.Response::new(code, body.join("\n"))
   }
   @core.Response::new(code, head)
+}
+
+///|
+/// Parse a `FEAT` body into a set of command names.
+///
+/// Feature lines have the shape ` COMMAND [description]`; only the first token
+/// is kept, uppercased.
+///
+/// The leading space test is not cosmetic: the body carries the text of the
+/// `211-Features:` and `211 End` framing lines too (see `@connection.read_response`), and
+/// once trimmed they would otherwise register as features named `FEATURES:`
+/// and `END`. Upstream filters with exactly this test.
+pub fn parse_features(body : String) -> Map[String, Bool] {
+  let features : Map[String, Bool] = Map([])
+  for line in body.split("\n") {
+    guard line.length() > 0 && line.unsafe_get(0) == ' ' else { continue }
+    let trimmed = line.trim()
+    guard trimmed != "" else { continue }
+    let name = match trimmed.find(" ") {
+      Some(index) => trimmed[0:index].to_owned()
+      None => trimmed.to_owned()
+    }
+    features[name.to_upper()] = true
+  }
+  features
 }

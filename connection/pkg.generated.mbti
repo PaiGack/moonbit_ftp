@@ -1,0 +1,101 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "PaiGack/ftp/connection"
+
+import {
+  "PaiGack/ftp/core",
+  "PaiGack/ftp/debug",
+  "moonbitlang/async/io",
+  "moonbitlang/async/socket",
+  "moonbitlang/async/tls",
+}
+
+// Values
+pub fn check_for_command_injection(String) -> Unit raise @core.FtpError
+
+pub async fn cmd(Control, String) -> @core.Response
+
+pub async fn cmd_data_conn_from(Control, Int64, String, Array[String], options~ : ConnOptions) -> DataConn
+
+pub async fn cmd_expect(Control, String, Array[Int32]) -> @core.Response
+
+pub async fn cmd_format(Control, String, Array[String], Array[Int32]) -> @core.Response
+
+pub async fn epsv(Control) -> Int32
+
+pub async fn get_data_port(Control, skip_epsv~ : Bool, disable_epsv~ : Bool, trust_pasv_ip~ : Bool) -> (String, Int32, Bool)
+
+pub fn is_all_digits(String) -> Bool
+
+pub fn is_bogus_data_ip(String, String) -> Bool
+
+pub fn is_loopback(String) -> Bool
+
+pub fn is_multicast(String) -> Bool
+
+pub fn is_private(String) -> Bool
+
+pub async fn open_data_conn(Control, skip_epsv~ : Bool, disable_epsv~ : Bool, trust_pasv_ip~ : Bool, timeout_ms~ : Int32) -> (DataConn, Bool)
+
+pub fn parse_epsv(String) -> Int32 raise @core.FtpError
+
+pub fn parse_features(String) -> Map[String, Bool]
+
+pub fn parse_octet(String) -> Int32?
+
+pub fn parse_pasv(String) -> (String, Int32) raise @core.FtpError
+
+pub fn parse_port(String) -> Int32?
+
+pub async fn pasv(Control) -> (String, Int32)
+
+pub async fn read_response(Control) -> @core.Response
+
+pub fn render_command(String, Array[String]) -> String raise @core.FtpError
+
+// Errors
+
+// Types and methods
+pub struct ConnOptions {
+  use_pret : Bool
+  skip_epsv : Bool
+  disable_epsv : Bool
+  trust_pasv_ip : Bool
+  timeout_ms : Int32
+  tls : Bool
+  server_name : String
+  trust : @tls.TrustedRoot
+}
+pub fn ConnOptions::new(use_pret? : Bool, skip_epsv? : Bool, disable_epsv? : Bool, trust_pasv_ip? : Bool, timeout_ms? : Int32, tls? : Bool, server_name? : String, trust? : @tls.TrustedRoot) -> Self
+
+pub struct Control {
+  mut reader : &@io.Reader
+  mut writer : &@io.Writer
+  host : String
+  server_name : String
+  timeout_ms : Int32
+  mut debug : @debug.DebugLog?
+}
+pub fn Control::debug_enabled(Self) -> Bool
+pub fn Control::host(Self) -> String
+pub fn Control::new(&@io.Reader, &@io.Writer, String, server_name? : String, timeout_ms? : Int32, debug? : @debug.DebugLog?) -> Self
+pub async fn Control::read_line(Self) -> String
+pub async fn Control::send_line(Self, String) -> Unit
+pub fn Control::server_name(Self) -> String
+pub fn Control::set_debug(Self, @debug.DebugLog?) -> Unit
+pub fn Control::upgrade(Self, &@io.Reader, &@io.Writer) -> Unit
+
+pub struct DataConn {
+  socket : @socket.Tcp
+  mut reader : &@io.Reader
+  mut writer : &@io.Writer
+  mut tls : @tls.Tls?
+}
+pub async fn DataConn::close(Self) -> Unit
+pub fn DataConn::from_parts(@socket.Tcp, &@io.Reader, &@io.Writer) -> Self
+pub fn DataConn::reader(Self) -> &@io.Reader
+pub async fn DataConn::start_tls(Self, String, @tls.TrustedRoot, Int32, Bool) -> Unit
+pub fn DataConn::writer(Self) -> &@io.Writer
+
+// Type aliases
+
+// Traits

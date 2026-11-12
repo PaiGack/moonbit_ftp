@@ -2,12 +2,13 @@
 // Licensed under the Apache License, Version 2.0.
 // Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.
 
-// Layer: IO — uses the `moonbitlang/async` stack from the root moon.pkg.
+// Package: `PaiGack/ftp` -- the public client API. Layers below it live in
+// `core/` (values), `connection/` (control + data channel) and `debug/` (traffic log).
 
 // Tests for the one-command wrappers in `commands.mbt`.
 //
 // Every function there is the same shape — lock, send one or two commands
-// through `cmd_format` / `cmd_expect`, check the status code — so the contract
+// through `@connection.cmd_format` / `@connection.cmd_expect`, check the status code — so the contract
 // worth pinning is per command: the exact rendering of the `{}` substitution,
 // the status code the server has to answer with, and the two-step `RNFR` /
 // `RNTO` sequence. The `extract_quoted` helper that `current_dir` depends on is

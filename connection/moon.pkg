@@ -1,0 +1,35 @@
+// Package `PaiGack/ftp/connection`: the control connection and the data
+// channel it negotiates.
+//
+// A control connection (`Control`) is a line buffered reader/writer pair plus
+// the commands sent over it; a data channel (`DataConn`) is the short-lived
+// socket each transfer opens next to it, in the clear or inside TLS. They live
+// in one package because neither is usable alone: every data connection starts
+// with a `PASV` / `EPSV` exchange on the control connection, and every
+// transfer command is answered on that same connection.
+import {
+  "PaiGack/ftp/core",
+  "PaiGack/ftp/debug",
+  "moonbitlang/async",
+  "moonbitlang/async/io",
+  "moonbitlang/async/socket",
+  "moonbitlang/async/tls",
+}
+
+// The whitebox tests script the control channel through `@io.MemoryReader` and
+// bind a loopback listener as the data channel.
+import {
+  "PaiGack/ftp/connection",
+  "PaiGack/ftp/core",
+  "PaiGack/ftp/debug",
+  "moonbitlang/async",
+  "moonbitlang/async/io",
+  "moonbitlang/async/socket",
+  "moonbitlang/async/tls",
+} for "wbtest"
+
+// The blackbox tests spell the package symbols `@connection.…`.
+import {
+  "PaiGack/ftp/connection",
+  "PaiGack/ftp/core",
+} for "test"

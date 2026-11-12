@@ -64,7 +64,7 @@ test "parse_decimal accepts digits and rejects everything else" {
 /// The feature list decides `MLSD` / `MFMT` / `MDTM` / `PRET`, so a missed
 /// name silently changes which command the client sends.
 test "parse_features caches the capabilities the client asks for" {
-  let features = @ftp.parse_features(
+  let features = @connection.parse_features(
     "Features:\n MLST\n MDTM\n MFMT\n PRET\n UTF8\nEnd",
   )
   assert_true(features.contains("MLST"))
@@ -79,7 +79,7 @@ test "parse_features caches the capabilities the client asks for" {
 /// A feature line with no description is cached under its own name; the
 /// uppercase form is what `has_feature` looks up.
 test "parse_features uppercases a bare feature name" {
-  let features = @ftp.parse_features("Features:\n mlst\nEnd")
+  let features = @connection.parse_features("Features:\n mlst\nEnd")
   assert_true(features.contains("MLST"))
   assert_false(features.contains("mlst"))
 }
@@ -88,7 +88,7 @@ test "parse_features uppercases a bare feature name" {
 /// A continuation line holding only a space trims to nothing and must be
 /// dropped instead of cached as an empty feature name.
 test "parse_features drops a whitespace-only feature line" {
-  let features = @ftp.parse_features("Features:\n \n MLST\nEnd")
+  let features = @connection.parse_features("Features:\n \n MLST\nEnd")
   assert_true(features.contains("MLST"))
   assert_false(features.contains(""))
   assert_eq(features.length(), 1)

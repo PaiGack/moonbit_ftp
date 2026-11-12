@@ -18,10 +18,8 @@
 /// Send `PASV` and return the `(ip, port)` pair the server advertises.
 ///
 /// `227 Entering Passive Mode (127,0,0,1,196,6)`
-pub async fn pasv(session : Session) -> (String, Int32) {
-  let response = cmd_expect(session.control(), "PASV", [
-    @core.status_enter_passive_mode,
-  ])
+pub async fn pasv(control : Control) -> (String, Int32) {
+  let response = cmd_expect(control, "PASV", [@core.status_enter_passive_mode])
   parse_pasv(response.message())
 }
 
@@ -156,8 +154,8 @@ fn ip_segments(ip : String) -> Array[Int32]? {
 /// Send `EPSV` (RFC 2428) and return the data port the server opened.
 ///
 /// `229 Entering Extended Passive Mode (|||6446|)`
-pub async fn epsv(session : Session) -> Int32 {
-  let response = cmd_expect(session.control(), "EPSV", [
+pub async fn epsv(control : Control) -> Int32 {
+  let response = cmd_expect(control, "EPSV", [
     @core.status_enter_extended_passive_mode,
   ])
   parse_epsv(response.message())
@@ -250,6 +248,20 @@ pub struct DataConn {
 }
 
 ///|
+/// Build a data connection over an already connected socket with a caller
+/// chosen reader/writer pair.
+///
+/// Only for tests: the production paths build the struct from `open_data_conn`
+/// so the reader and the writer are always the socket (or its TLS session).
+pub fn DataConn::from_parts(
+  socket : @socket.Tcp,
+  reader : &@io.Reader,
+  writer : &@io.Writer,
+) -> DataConn {
+  { socket, reader, writer, tls: None, }
+}
+
+///|
 /// The readable end of the data connection.
 pub fn DataConn::reader(self : DataConn) -> &@io.Reader {
   self.reader
@@ -284,8 +296,14 @@ pub fn DataConn::writer(self : DataConn) -> &@io.Writer {
 /// The call is idempotent (`self.tls is None` is the guard), because
 /// `stor_from` calls it again for a zero-byte upload -- the one case where
 /// nothing else would have driven the handshake. See that call site.
-pub async fn DataConn::start_tls(self : DataConn, session : Session) -> Unit {
-  if session.options().tls() == false {
+pub async fn DataConn::start_tls(
+  self : DataConn,
+  server_name : String,
+  trust : @tls.TrustedRoot,
+  timeout_ms : Int32,
+  tls : Bool,
+) -> Unit {
+  if tls == false {
     return
   }
   // Idempotent: `cmd_data_conn_from` already ran it right after the `150`, so
@@ -296,16 +314,12 @@ pub async fn DataConn::start_tls(self : DataConn, session : Session) -> Unit {
   guard self.tls is None else { return }
   // A hang here would be indistinguishable from a stalled transfer, so the
   // handshake gets the same connect timeout as the socket itself.
-  let tls = @async.with_timeout(session.options().timeout_ms(), async fn() {
-    @tls.Tls::client(
-      self.socket,
-      host=session.control().server_name(),
-      trust=session.options().trust(),
-    )
+  let session = @async.with_timeout(timeout_ms, async fn() {
+    @tls.Tls::client(self.socket, host=server_name, trust~)
   })
-  self.tls = Some(tls)
-  self.reader = tls
-  self.writer = tls
+  self.tls = Some(session)
+  self.reader = session
+  self.writer = session
 }
 
 ///|
@@ -344,24 +358,31 @@ pub async fn DataConn::close(self : DataConn) -> Unit {
 /// design choice: some servers answer `EPSV` with an error but also with a
 /// malformed `PASV` reply, and retrying `EPSV` on every transfer turns a fast
 /// failure into a timeout per file.
-pub async fn get_data_port(session : Session) -> (String, Int32) {
-  if session.options().disable_epsv() == false && session.skip_epsv() == false {
-    let port = epsv(session) catch {
+pub async fn get_data_port(
+  control : Control,
+  skip_epsv~ : Bool,
+  disable_epsv~ : Bool,
+  trust_pasv_ip~ : Bool,
+) -> (String, Int32, Bool) {
+  if disable_epsv == false && skip_epsv == false {
+    let port = epsv(control) catch {
       _ => {
-        session.set_skip_epsv(true)
-        return pasv(session)
+        let (ip, port) = pasv(control)
+        guard trust_pasv_ip && !is_bogus_data_ip(control.host(), ip) else {
+          return (control.host(), port, true)
+        }
+        return (ip, port, true)
       }
     }
-    return (session.control().host(), port)
+    return (control.host(), port, false)
   }
-  let (ip, port) = pasv(session)
+  let (ip, port) = pasv(control)
   // SSRF guard: use the control connection IP unless the caller explicitly
   // trusts the server's answer *and* the answer is not obviously bogus.
-  if session.options().trust_pasv_ip() &&
-    is_bogus_data_ip(session.control().host(), ip) == false {
-    return (ip, port)
+  if trust_pasv_ip && is_bogus_data_ip(control.host(), ip) == false {
+    return (ip, port, skip_epsv)
   }
-  (session.control().host(), port)
+  (control.host(), port, skip_epsv)
 }
 
 ///|
@@ -370,18 +391,29 @@ pub async fn get_data_port(session : Session) -> (String, Int32) {
 /// No TLS handshake happens here on purpose -- see `DataConn::start_tls` for
 /// why it belongs after the transfer command was accepted. The socket is left
 /// raw so the handshake can be triggered at the right moment.
-pub async fn open_data_conn(session : Session) -> DataConn {
-  let (ip, port) = get_data_port(session)
+pub async fn open_data_conn(
+  control : Control,
+  skip_epsv~ : Bool,
+  disable_epsv~ : Bool,
+  trust_pasv_ip~ : Bool,
+  timeout_ms~ : Int32,
+) -> (DataConn, Bool) {
+  let (ip, port, skipped) = get_data_port(
+    control,
+    skip_epsv~,
+    disable_epsv~,
+    trust_pasv_ip~,
+  )
   let addr = @socket.Addr::parse("\{ip}:\{port}") catch {
     _ =>
       raise @core.FtpError::ParseError(
         msg="invalid data connection address: \{ip}:\{port}",
       )
   }
-  let tcp = @async.with_timeout(session.options().timeout_ms(), async fn() {
+  let tcp = @async.with_timeout(timeout_ms, async fn() {
     @socket.Tcp::connect(addr)
   })
-  { socket: tcp, reader: tcp, writer: tcp, tls: None, }
+  ({ socket: tcp, reader: tcp, writer: tcp, tls: None, }, skipped)
 }
 
 ///|
@@ -401,13 +433,66 @@ pub async fn open_data_conn(session : Session) -> DataConn {
 /// inside `open_data_conn`, i.e. before step 4, which no real ftpd tolerates
 /// (see `DataConn::start_tls`). It now happens exactly once the server has
 /// answered `150` and is ready to read the data socket.
+
+///|
+/// The connection settings `cmd_data_conn_from` and `open_data_conn` need.
+///
+/// A plain value rather than the client's `Session`, so this package never
+/// depends on the root package: the caller (which owns the session) fills in
+/// the fields once per transfer.
+pub struct ConnOptions {
+  /// Send `PRET <cmd>` before the transfer command.
+  use_pret : Bool
+  /// `EPSV` already failed once; go straight to `PASV`.
+  skip_epsv : Bool
+  /// Never send `EPSV` at all.
+  disable_epsv : Bool
+  /// Trust the IP in a `PASV` reply (off: SSRF guard).
+  trust_pasv_ip : Bool
+  /// Connect timeout, and the deadline for the data-channel TLS handshake.
+  timeout_ms : Int32
+  /// Wrap the data channel in TLS after the `150`.
+  tls : Bool
+  /// Name to verify the data connection's certificate against.
+  server_name : String
+  /// Trust policy for the data connection's certificate.
+  trust : @tls.TrustedRoot
+}
+
+///|
+/// Build connection options; every field has an explicit caller.
+pub fn ConnOptions::new(
+  use_pret~ : Bool = false,
+  skip_epsv~ : Bool = false,
+  disable_epsv~ : Bool = false,
+  trust_pasv_ip~ : Bool = false,
+  timeout_ms~ : Int32 = 0,
+  tls~ : Bool = false,
+  server_name~ : String = "",
+  trust~ : @tls.TrustedRoot = @tls.TrustedRoot::SystemRoot,
+) -> ConnOptions {
+  {
+    use_pret,
+    skip_epsv,
+    disable_epsv,
+    trust_pasv_ip,
+    timeout_ms,
+    tls,
+    server_name,
+    trust,
+  }
+}
+
+///|
 pub async fn cmd_data_conn_from(
-  session : Session,
+  control : Control,
   offset : Int64,
   cmd : String,
   args : Array[String],
+  options~ : ConnOptions,
 ) -> DataConn {
-  if session.use_pret() {
+  let session = control
+  if options.use_pret {
     // `PRET` announces the command *about to be sent*, so it must carry the
     // same fully rendered line — including the substituted path — that the
     // transfer command will. Building it from the raw `cmd` format would put
@@ -416,7 +501,7 @@ pub async fn cmd_data_conn_from(
     let preview = render_command(cmd, args)
     let _ = try {
       ignore(
-        cmd_expect(session.control(), "PRET \{preview}", [
+        cmd_expect(session, "PRET \{preview}", [
           @core.status_cmd_ok, @core.status_file_action_pending_further_info,
         ]),
       )
@@ -425,11 +510,17 @@ pub async fn cmd_data_conn_from(
       _ => false
     }
   }
-  let conn = open_data_conn(session)
+  let (conn, _) = open_data_conn(
+    session,
+    skip_epsv=options.skip_epsv,
+    disable_epsv=options.disable_epsv,
+    trust_pasv_ip=options.trust_pasv_ip,
+    timeout_ms=options.timeout_ms,
+  )
   if offset != 0 {
     let ok = try {
       ignore(
-        cmd_format(session.control(), "REST {}", ["\{offset}"], [
+        cmd_format(session, "REST {}", ["\{offset}"], [
           @core.status_file_action_pending_further_info,
         ]),
       )
@@ -459,7 +550,7 @@ pub async fn cmd_data_conn_from(
   // inside the handler is either `fragile_catch_all`, which is denied here, or
   // a miscompile when it uses the caught error after async work.
   let (response, failure) : (@core.Response, Error?) = try {
-    let r = cmd_format(session.control(), cmd, args, [
+    let r = cmd_format(session, cmd, args, [
       @core.status_data_conn_already_in_use, 150,
     ])
     (r, None)
@@ -483,6 +574,11 @@ pub async fn cmd_data_conn_from(
       msg=response.message(),
     )
   }
-  conn.start_tls(session)
+  conn.start_tls(
+    options.server_name,
+    options.trust,
+    options.timeout_ms,
+    options.tls,
+  )
   conn
 }

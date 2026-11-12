@@ -2,12 +2,13 @@
 // Licensed under the Apache License, Version 2.0.
 // Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.
 
-// Layer: IO — uses the `moonbitlang/async` stack from the root moon.pkg.
+// Package: `PaiGack/ftp` -- the public client API. Layers below it live in
+// `core/` (values), `connection/` (control + data channel) and `debug/` (traffic log).
 
 // The FTP client handle and the connection state it carries.
 //
 // This file merges `client` and `state`: `FTPClient` owns a `Session`, the
-// `Session` owns the `Control` connection, and `Options` is the resolved form
+// `Session` owns the `@connection.Control` connection, and `Options` is the resolved form
 // of the caller facing `DialOptions`. The four types are a single object graph
 // and the accessors on `FTPClient` were the only readers of `Session::*`, so
 // keeping them in separate files only hid where the state lives.
@@ -177,9 +178,12 @@ pub fn FTPClient::session(self : FTPClient) -> Session {
 pub async fn file_size(client : FTPClient, path : String) -> UInt64 {
   client.lock()
   defer client.unlock()
-  let response = cmd_format(client.session.control(), "SIZE {}", [path], [
-    @core.status_file_status,
-  ])
+  let response = @connection.cmd_format(
+    client.session.control(),
+    "SIZE {}",
+    [path],
+    [@core.status_file_status],
+  )
   let text = response.message().trim().to_owned()
   @core.parse_uint(text, 10) catch {
     _ => raise @core.FtpError::ParseError(msg="invalid SIZE response: \{text}")
@@ -191,9 +195,12 @@ pub async fn file_size(client : FTPClient, path : String) -> UInt64 {
 pub async fn get_time(client : FTPClient, path : String) -> @time.ZonedDateTime {
   client.lock()
   defer client.unlock()
-  let response = cmd_format(client.session.control(), "MDTM {}", [path], [
-    @core.status_file_status,
-  ])
+  let response = @connection.cmd_format(
+    client.session.control(),
+    "MDTM {}",
+    [path],
+    [@core.status_file_status],
+  )
   parse_mdtm(response.message().trim().to_owned())
 }
 
@@ -260,17 +267,23 @@ pub async fn set_file_time(
   let encoded = format_mdtm(timestamp)
   if client.mfmt_supported {
     ignore(
-      cmd_format(client.session.control(), "MFMT {} {}", [encoded, path], [
-        @core.status_file_status,
-      ]),
+      @connection.cmd_format(
+        client.session.control(),
+        "MFMT {} {}",
+        [encoded, path],
+        [@core.status_file_status],
+      ),
     )
     return
   }
   if client.mdtm_supported && client.mdtm_can_write {
     ignore(
-      cmd_format(client.session.control(), "MDTM {} {}", [encoded, path], [
-        @core.status_file_status,
-      ]),
+      @connection.cmd_format(
+        client.session.control(),
+        "MDTM {} {}",
+        [encoded, path],
+        [@core.status_file_status],
+      ),
     )
     return
   }
@@ -510,7 +523,7 @@ pub struct Session {
   /// Negotiation results and connection parameters.
   options : Options
   /// The control connection state: reader, writer, peer address.
-  control : Control
+  control : @connection.Control
   /// `EPSV` failed once, fall back to `PASV` for the rest of the session.
   mut skip_epsv : Bool
   /// `PRET` is supported by the server (`FEAT` advertises it).
@@ -520,15 +533,37 @@ pub struct Session {
 ///|
 /// Build a session around an already established control connection.
 pub fn Session::new(
-  control : Control,
+  control : @connection.Control,
   options~ : Options = Options::default(),
 ) -> Session {
   { options, control, skip_epsv: false, use_pret: false, }
 }
 
 ///|
+/// Project a `Session` onto the settings the data channel needs.
+///
+/// This is the one place that knows both types: `@connection` takes a plain
+/// `ConnOptions` so it never has to import the client, and the client hands it
+/// over here rather than at every call site.
+pub fn Session::conn_options(
+  self : Session,
+  use_pret~ : Bool = self.use_pret(),
+) -> @connection.ConnOptions {
+  @connection.ConnOptions::new(
+    use_pret~,
+    skip_epsv=self.skip_epsv,
+    disable_epsv=self.options.disable_epsv(),
+    trust_pasv_ip=self.options.trust_pasv_ip(),
+    timeout_ms=self.options.timeout_ms(),
+    tls=self.options.tls(),
+    server_name=self.control.server_name(),
+    trust=self.options.trust(),
+  )
+}
+
+///|
 /// The control connection of this session.
-pub fn Session::control(self : Session) -> Control {
+pub fn Session::control(self : Session) -> @connection.Control {
   self.control
 }
 

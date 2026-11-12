@@ -2,7 +2,8 @@
 // Licensed under the Apache License, Version 2.0.
 // Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.
 
-// Layer: IO — uses the `moonbitlang/async` stack from the root moon.pkg.
+// Package: `PaiGack/ftp` -- the public client API. Layers below it live in
+// `core/` (values), `connection/` (control + data channel) and `debug/` (traffic log).
 
 // Making a connection: dial, upgrade to TLS, then log in and learn the
 // server's capabilities.
@@ -80,7 +81,7 @@ pub async fn dial(
   let peer_ip = addr_ip_text(socket_addr)
   // The two answers are not the same question. The data channel dials
   // `peer_ip`; the TLS client verifies the certificate against the name the
-  // caller used, which is why `Control` keeps them apart.
+  // caller used, which is why `@connection.Control` keeps them apart.
   let server_name = host
   let tcp = @async.with_timeout(timeout_ms, async fn() {
     @socket.Tcp::connect(socket_addr)
@@ -98,9 +99,15 @@ pub async fn dial(
     let encrypted = @async.with_timeout(timeout_ms, async fn() {
       @tls.Tls::client(tcp, host=server_name, trust~)
     })
-    Control::new(encrypted, encrypted, peer_ip, server_name~, timeout_ms~)
+    @connection.Control::new(
+      encrypted,
+      encrypted,
+      peer_ip,
+      server_name~,
+      timeout_ms~,
+    )
   } else {
-    Control::new(tcp, tcp, peer_ip, server_name~, timeout_ms~)
+    @connection.Control::new(tcp, tcp, peer_ip, server_name~, timeout_ms~)
   }
   // Attach the traffic log once the connection exists and before the greeting
   // is read, so the first record is what the server said first. Nothing is
@@ -128,10 +135,10 @@ pub async fn dial(
     features: {},
   }
   // Greeting: the server speaks first, so this only *reads* the `220` line.
-  // Sending a command here (`cmd_expect(control, "", ...)`) would push an
+  // Sending a command here (`@connection.cmd_expect(control, "", ...)`) would push an
   // empty line onto the wire and desynchronise the whole session, which real
   // servers answer with `500 Command "" not understood.`.
-  let greeting = read_response(session.control())
+  let greeting = @connection.read_response(session.control())
   guard greeting.code() == @core.status_service_ready_for_new_user else {
     raise @core.FtpError::ServerError(
       code=greeting.code(),
@@ -223,13 +230,13 @@ fn addr_ip_text(socket_addr : @socket.Addr) -> String {
 /// still waiting for a reply that is already in its own buffer.
 ///
 /// The upgraded connection is built with `Tls::client`, which owns a *new*
-/// reader/writer pair over the same socket (`Control` holds trait objects for
-/// exactly this), and `Control::upgrade` swaps them in. Reusing `DialOptions.tls`
+/// reader/writer pair over the same socket (`@connection.Control` holds trait objects for
+/// exactly this), and `@connection.Control::upgrade` swaps them in. Reusing `DialOptions.tls`
 /// here would be wrong: that flag means implicit TLS on port 990, where the
 /// greeting itself arrives encrypted and no `AUTH TLS` happens at all.
 async fn auth_tls(client : FTPClient, socket : @socket.Tcp) -> Unit {
   let control = client.session.control()
-  ignore(cmd_expect(control, "AUTH TLS", [@core.status_auth_ok]))
+  ignore(@connection.cmd_expect(control, "AUTH TLS", [@core.status_auth_ok]))
   // `Tls::client` drives a full handshake and blocks on the peer's reply. A
   // peer that answered `234` but never speaks TLS (a broken proxy, a stub, or
   // a server that lied) would otherwise park this task forever -- the timeout
@@ -283,14 +290,22 @@ pub async fn login(
   {
     client.lock()
     defer client.unlock()
-    let response = cmd_format(client.session.control(), "USER {}", [user], [
-      @core.status_username_ok_need_password, @core.status_user_logged_in_proceed,
-    ])
+    let response = @connection.cmd_format(
+      client.session.control(),
+      "USER {}",
+      [user],
+      [
+        @core.status_username_ok_need_password, @core.status_user_logged_in_proceed,
+      ],
+    )
     if response.code() == @core.status_username_ok_need_password {
       ignore(
-        cmd_format(client.session.control(), "PASS {}", [password], [
-          @core.status_user_logged_in_proceed,
-        ]),
+        @connection.cmd_format(
+          client.session.control(),
+          "PASS {}",
+          [password],
+          [@core.status_user_logged_in_proceed],
+        ),
       )
     }
   }
@@ -320,10 +335,14 @@ pub async fn login(
     client.lock()
     defer client.unlock()
     ignore(
-      cmd_expect(client.session.control(), "PBSZ 0", [@core.status_cmd_ok]),
+      @connection.cmd_expect(client.session.control(), "PBSZ 0", [
+        @core.status_cmd_ok,
+      ]),
     )
     ignore(
-      cmd_expect(client.session.control(), "PROT P", [@core.status_cmd_ok]),
+      @connection.cmd_expect(client.session.control(), "PROT P", [
+        @core.status_cmd_ok,
+      ]),
     )
   }
 }
@@ -335,12 +354,12 @@ pub async fn login(
 /// A server that answers `FEAT` with anything other than `211` simply has no
 /// feature list; that is **not** an error, upstream treats it the same way.
 pub async fn feat(client : FTPClient) -> Unit {
-  let response = cmd_expect(client.session.control(), "FEAT", [
+  let response = @connection.cmd_expect(client.session.control(), "FEAT", [
     @core.status_system_status,
   ]) catch {
     _ => return
   }
-  let features = parse_features(response.message())
+  let features = @connection.parse_features(response.message())
   client.set_features(features)
   client.set_mlst_supported(
     client.options.disable_mlsd == false && features.contains("MLST"),
@@ -352,36 +371,11 @@ pub async fn feat(client : FTPClient) -> Unit {
 }
 
 ///|
-/// Parse a `FEAT` body into a set of command names.
-///
-/// Feature lines have the shape ` COMMAND [description]`; only the first token
-/// is kept, uppercased.
-///
-/// The leading space test is not cosmetic: the body carries the text of the
-/// `211-Features:` and `211 End` framing lines too (see `read_response`), and
-/// once trimmed they would otherwise register as features named `FEATURES:`
-/// and `END`. Upstream filters with exactly this test.
-pub fn parse_features(body : String) -> Map[String, Bool] {
-  let features : Map[String, Bool] = Map([])
-  for line in body.split("\n") {
-    guard line.length() > 0 && line.unsafe_get(0) == ' ' else { continue }
-    let trimmed = line.trim()
-    guard trimmed != "" else { continue }
-    let name = match trimmed.find(" ") {
-      Some(index) => trimmed[0:index].to_owned()
-      None => trimmed.to_owned()
-    }
-    features[name.to_upper()] = true
-  }
-  features
-}
-
-///|
 /// Send `OPTS UTF8 ON`. Servers that do not implement it answer `501`, `504`
 /// or `202`; all three are acceptable per upstream.
 async fn set_utf8(client : FTPClient) -> Unit {
   ignore(
-    cmd_expect(client.session.control(), "OPTS UTF8 ON", [
+    @connection.cmd_expect(client.session.control(), "OPTS UTF8 ON", [
       @core.status_cmd_ok, @core.status_cmd_not_implemented_superfluous, @core.status_syntax_error_unknown_params,
       @core.status_not_implemented_for_param,
     ]),

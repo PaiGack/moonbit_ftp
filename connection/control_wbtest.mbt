@@ -5,8 +5,8 @@
 // Layer: IO — uses the `moonbitlang/async` stack from the root moon.pkg.
 
 // White box tests for the two pieces of `control.mbt` that need the shared
-// fixtures: `Control::upgrade` swaps in a `RecordingSink` (a package private
-// type), and `read_response` / `render_command` are exercised against the same
+// fixtures: `@connection.Control::upgrade` swaps in a `RecordingSink` (a package private
+// type), and `@connection.read_response` / `@connection.render_command` are exercised against the same
 // scripted reader the reply tests use.
 //
 // The reply parser's *shapes* are covered by `control_test.mbt`; what is
@@ -14,23 +14,23 @@
 // handshake now shares.
 
 ///|
-/// `Control::upgrade` swaps both directions of the connection in place, which
+/// `@connection.Control::upgrade` swaps both directions of the connection in place, which
 /// is how `AUTH TLS` is meant to replace the plain socket with a TLS session.
 /// The reader/writer are trait objects precisely so this works.
-async test "Control::upgrade swaps the reader and writer in place" {
+async test "@connection.Control::upgrade swaps the reader and writer in place" {
   let control = scripted_control_no_over("220 first\r\n")
-  assert_eq(read_response(control).code(), 220)
+  assert_eq(@connection.read_response(control).code(), 220)
 
-  // Point the same `Control` at a second in-memory reader and a recording
+  // Point the same `@connection.Control` at a second in-memory reader and a recording
   // writer; both halves must follow.
   let replacement : &@io.Reader = @io.MemoryReader(writer => {
     writer.write("221 second\r\n")
   })
   let sink = recording_sink()
   let writer : &@io.Writer = sink
-  Control::upgrade(control, replacement, writer)
-  assert_eq(read_response(control).message(), "second")
-  Control::send_line(control, "NOOP")
+  @connection.Control::upgrade(control, replacement, writer)
+  assert_eq(@connection.read_response(control).message(), "second")
+  @connection.Control::send_line(control, "NOOP")
   assert_eq(sink.lines, ["NOOP"])
 }
 
@@ -54,7 +54,7 @@ test "@core.Response::new and its accessors agree" {
 async test "a short terminating line is rejected" {
   let control = scripted_control_no_over("211-Features:\r\n UTF8\r\n211\r\n")
   let raised = try {
-    ignore(read_response(control))
+    ignore(@connection.read_response(control))
     None
   } catch {
     @core.FtpError::ParseError(msg~) => Some(msg)
@@ -79,26 +79,26 @@ test "@core.parse_code and @core.is_continuation handle the boundaries" {
 
 ///|
 /// `replace_first` backs the `{}` substitution, and the `PRET` handshake now
-/// shares it through `render_command`. A format with no placeholder is
+/// shares it through `@connection.render_command`. A format with no placeholder is
 /// returned unchanged rather than being mangled.
-test "render_command substitutes the first placeholder only" {
-  assert_eq(render_command("RETR {}", ["/a.txt"]), "RETR /a.txt")
-  // Only the first `{}` is replaced, matching `cmd_format`.
+test "@connection.render_command substitutes the first placeholder only" {
+  assert_eq(@connection.render_command("RETR {}", ["/a.txt"]), "RETR /a.txt")
+  // Only the first `{}` is replaced, matching `@connection.cmd_format`.
   assert_eq(
-    render_command("MFMT {} {}", ["20240102030405", "/a.txt"]),
+    @connection.render_command("MFMT {} {}", ["20240102030405", "/a.txt"]),
     "MFMT 20240102030405 /a.txt",
   )
-  assert_eq(render_command("NOOP", []), "NOOP")
+  assert_eq(@connection.render_command("NOOP", []), "NOOP")
   // Extra args with no placeholder left are ignored, not appended.
-  assert_eq(render_command("PWD", ["ignored"]), "PWD")
+  assert_eq(@connection.render_command("PWD", ["ignored"]), "PWD")
 }
 
 ///|
-/// `render_command` validates its arguments before substituting, so a crafted
+/// `@connection.render_command` validates its arguments before substituting, so a crafted
 /// path cannot smuggle a second command into the `PRET` preview either.
-test "render_command refuses a CR or LF in an argument" {
+test "@connection.render_command refuses a CR or LF in an argument" {
   let raised = try {
-    ignore(render_command("RETR {}", ["/a\r\nDELE /b"]))
+    ignore(@connection.render_command("RETR {}", ["/a\r\nDELE /b"]))
     None
   } catch {
     @core.FtpError::InvalidCommand(_) => Some(true)
@@ -108,13 +108,13 @@ test "render_command refuses a CR or LF in an argument" {
 }
 
 ///|
-/// A `Control` over an in-memory reader with a discarding writer, the
+/// A `@connection.Control` over an in-memory reader with a discarding writer, the
 /// white box twin of `control_over` in `control_test.mbt` (that one is a
 /// blackbox helper and is not visible from this target).
-fn scripted_control_no_over(text : String) -> Control {
+fn scripted_control_no_over(text : String) -> @connection.Control {
   let reader : &@io.Reader = @io.MemoryReader(writer => writer.write(text))
   let writer : &@io.Writer = NullSink::{ }
-  Control::new(reader, writer, "127.0.0.1")
+  @connection.Control::new(reader, writer, "127.0.0.1")
 }
 
 ///|
@@ -144,7 +144,7 @@ impl @io.Writer for NullSink with fn write_once(
 /// aborts the process, naming whichever *other* task happened to be parked —
 /// so the failure named a `MemoryReader` two files away from the real stall.
 /// With a deadline the wait is bounded and the error names the wait.
-async test "read_response times out on a silent server" {
+async test "@connection.read_response times out on a silent server" {
   let listener = @socket.TcpServer::TcpServer(
     @socket.Addr::parse("127.0.0.1:0"),
   )
@@ -157,9 +157,14 @@ async test "read_response times out on a silent server" {
     })
     let socket = @socket.Tcp::connect(listener.addr)
     // 100 ms is far below the 5 s the peer stays silent.
-    let control = Control::new(socket, socket, "127.0.0.1", timeout_ms=100)
+    let control = @connection.Control::new(
+      socket,
+      socket,
+      "127.0.0.1",
+      timeout_ms=100,
+    )
     let result = try {
-      ignore(read_response(control))
+      ignore(@connection.read_response(control))
       "no error"
     } catch {
       @core.FtpError::RequestTimeout => "RequestTimeout"
@@ -175,10 +180,10 @@ async test "read_response times out on a silent server" {
 /// in-package fixture relies on: a scripted reader has no peer to time out
 /// against and must still answer.
 async test "a zero deadline leaves the reply read unbounded" {
-  let control = Control::new(
+  let control = @connection.Control::new(
     @io.MemoryReader(writer => writer.write("220 ready\r\n")),
     NullSink::{ },
     "127.0.0.1",
   )
-  assert_eq(read_response(control).code(), 220)
+  assert_eq(@connection.read_response(control).code(), 220)
 }

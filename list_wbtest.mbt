@@ -2,7 +2,8 @@
 // Licensed under the Apache License, Version 2.0.
 // Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.
 
-// Layer: IO — uses the `moonbitlang/async` stack from the root moon.pkg.
+// Package: `PaiGack/ftp` -- the public client API. Layers below it live in
+// `core/` (values), `connection/` (control + data channel) and `debug/` (traffic log).
 
 // Tests for the `NLST` / `LIST` / `MLST` wrappers in `list.mbt`.
 //
@@ -269,7 +270,7 @@ async test "get_entry sends MLST and requires the 250 code" {
 /// RFC 3659 allows the facts of a single entry to span several lines, so the
 /// middle lines are merged into one entry instead of being read one by one.
 ///
-/// The first line of the body is *skipped*: `read_response` keeps the text of
+/// The first line of the body is *skipped*: `@connection.read_response` keeps the text of
 /// the `250-` framing line, so the body is
 /// `<head>\n<facts>...\n<tail>` and the loop starts at index 1 — upstream's
 /// `lines[1:lc-1]`. A real server puts a display header there, which is why
@@ -539,22 +540,21 @@ async test "name_list reports a data connection failure" {
 /// desynchronise the session for every later command.
 async test "read_payload records a broken reader and returns empty" {
   let errors : Array[Error] = []
-  // `DataConn` owns a real socket (the TLS handshake and `close` both need
+  // `@connection.DataConn` owns a real socket (the TLS handshake and `close` both need
   // it), so the fixture takes one from a loopback listener rather than
   // pretending. The reader is then swapped for the failing one.
-  let conn : DataConn = {
-    socket: connected_socket(),
-    reader: failing_source(),
-    writer: NullWriter::{ },
-    tls: None,
-  }
+  let conn = @connection.DataConn::from_parts(
+    connected_socket(),
+    failing_source(),
+    NullWriter::{ },
+  )
   let payload = read_payload(conn, errors)
   assert_eq(payload, "")
   assert_eq(errors.length(), 1)
 }
 
 ///|
-/// A writer that discards everything, for the `DataConn` fixtures that only
+/// A writer that discards everything, for the `@connection.DataConn` fixtures that only
 /// ever read.
 struct NullWriter {}
 

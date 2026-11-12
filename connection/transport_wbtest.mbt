@@ -2,8 +2,8 @@
 // Licensed under the Apache License, Version 2.0.
 // Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.
 
-// Layer: IO — uses the `moonbitlang/async` stack from the root moon.pkg.
-
+// Package: `PaiGack/ftp/connection`.
+//
 // Tests for the data channel negotiation in `transport.mbt`.
 //
 // `parse_pasv` / `parse_epsv` are pure and covered by `transport_test.mbt`.
@@ -12,7 +12,22 @@
 // `PRET` sent and what happens when the server refuses it, and which status
 // code ends the negotiation. All of it is command/response work over a
 // scripted control channel plus a real loopback data listener, which is what
-// `ftp_test_helpers_wbtest.mbt` provides.
+// `ftp_connection_helpers_wbtest.mbt` provides.
+
+///|
+/// `get_data_port` with the defaults this file exercises: `EPSV` allowed, the
+/// `PASV` answer not trusted.
+async fn data_port(
+  control : Control,
+  skip_epsv~ : Bool = false,
+) -> (String, Int32, Bool) {
+  @connection.get_data_port(
+    control,
+    skip_epsv~,
+    disable_epsv=false,
+    trust_pasv_ip=false,
+  )
+}
 
 ///|
 /// A loopback listener whose port is advertised in a `PASV` reply. The reply
@@ -21,17 +36,19 @@
 async test "get_data_port falls back to PASV when EPSV is refused" {
   let listener = data_listener()
   let port = listener.addr.port()
-  let (session, sink) = scripted_session(
+  let (control, sink) = scripted_control(
     "500 EPSV not understood.\r\n" + pasv_reply(port),
   )
-  let (ip, port) = get_data_port(session) catch { _ => fail("get_data_port") }
+  let (ip, port, skipped) = data_port(control) catch {
+    _ => fail("get_data_port")
+  }
   assert_eq(sink.lines, ["EPSV", "PASV"])
   // The `PASV` answer's IP is ignored (the SSRF guard) and the control
   // channel's host is used instead.
   assert_eq(ip, "127.0.0.1")
   assert_eq(port, listener.addr.port())
   // The failure latched, so the *next* transfer skips EPSV entirely.
-  assert_true(session.skip_epsv())
+  assert_true(skipped)
 }
 
 ///|
@@ -40,16 +57,15 @@ async test "get_data_port falls back to PASV when EPSV is refused" {
 async test "get_data_port honours disable_epsv from the first transfer" {
   let listener = data_listener()
   let port = listener.addr.port()
-  let options = Options::new(
-    true,
-    false,
-    false,
-    @core.default_dial_timeout_ms,
-    0,
-    @tls.TrustedRoot::SystemRoot,
-  )
-  let (session, sink) = scripted_session(pasv_reply(port), options~)
-  let (ip, port) = get_data_port(session) catch { _ => fail("get_data_port") }
+  let (control, sink) = scripted_control(pasv_reply(port))
+  let (ip, port, _) = @connection.get_data_port(
+    control,
+    skip_epsv=false,
+    disable_epsv=true,
+    trust_pasv_ip=false,
+  ) catch {
+    _ => fail("get_data_port")
+  }
   assert_eq(sink.lines, ["PASV"])
   assert_eq(ip, "127.0.0.1")
   assert_eq(port, listener.addr.port())
@@ -61,16 +77,15 @@ async test "get_data_port honours disable_epsv from the first transfer" {
 async test "get_data_port trusts the PASV answer when asked" {
   let listener = data_listener()
   let port = listener.addr.port()
-  let options = Options::new(
-    true,
-    true,
-    false,
-    @core.default_dial_timeout_ms,
-    0,
-    @tls.TrustedRoot::SystemRoot,
-  )
-  let (session, _) = scripted_session(pasv_reply(port), options~)
-  let (ip, port) = get_data_port(session) catch { _ => fail("get_data_port") }
+  let (control, _) = scripted_control(pasv_reply(port))
+  let (ip, port, _) = @connection.get_data_port(
+    control,
+    skip_epsv=false,
+    disable_epsv=true,
+    trust_pasv_ip=true,
+  ) catch {
+    _ => fail("get_data_port")
+  }
   assert_eq(ip, "127.0.0.1")
   assert_eq(port, listener.addr.port())
 }
@@ -79,21 +94,19 @@ async test "get_data_port trusts the PASV answer when asked" {
 /// A `PASV` answer pointing at a *different* private host is refused even with
 /// `trust_pasv_ip` set: the address is bogus, so the control host wins.
 async test "get_data_port refuses a bogus PASV answer even when trusting" {
-  let options = Options::new(
-    true,
-    true,
-    false,
-    @core.default_dial_timeout_ms,
-    0,
-    @tls.TrustedRoot::SystemRoot,
-  )
   // The scripted control channel's peer is `127.0.0.1`; the reply advertises a
   // public address, so the loopback-ness differs and the guard fires.
-  let (session, _) = scripted_session(
+  let (control, _) = scripted_control(
     "227 Entering Passive Mode (8,8,8,8,196,6)\r\n",
-    options~,
   )
-  let (ip, port) = get_data_port(session) catch { _ => fail("get_data_port") }
+  let (ip, port, _) = @connection.get_data_port(
+    control,
+    skip_epsv=false,
+    disable_epsv=true,
+    trust_pasv_ip=true,
+  ) catch {
+    _ => fail("get_data_port")
+  }
   assert_eq(ip, "127.0.0.1")
   assert_eq(port, 50182)
 }
@@ -102,11 +115,11 @@ async test "get_data_port refuses a bogus PASV answer even when trusting" {
 /// A refused `EPSV` followed by a refused `PASV` raises instead of connecting
 /// to a bogus address.
 async test "get_data_port raises when both EPSV and PASV fail" {
-  let (session, sink) = scripted_session(
+  let (control, sink) = scripted_control(
     "500 EPSV not understood.\r\n500 PASV not understood.\r\n",
   )
   let raised = try {
-    ignore(get_data_port(session))
+    ignore(data_port(control))
     None
   } catch {
     @core.FtpError::ServerError(code~, ..) => Some(code)
@@ -122,17 +135,25 @@ async test "get_data_port raises when both EPSV and PASV fail" {
 async test "open_data_conn connects to the EPSV port" {
   let listener = data_listener()
   let port = listener.addr.port()
-  let (session, _) = scripted_session(epsv_reply(port))
+  let (control, _) = scripted_control(epsv_reply(port))
   let (conn, received) = @async.with_task_group(async fn(group) {
     let server = group.spawn(no_wait=true, async fn() {
       let (peer, _) = listener.accept()
-      let payload = peer.read_all() catch { _ => empty_data() }
+      let payload = peer.read_all() catch { _ => "" }
       peer.close()
       payload.text() catch {
         _ => ""
       }
     })
-    let conn = open_data_conn(session) catch { _ => fail("open_data_conn") }
+    let (conn, _) = @connection.open_data_conn(
+      control,
+      skip_epsv=false,
+      disable_epsv=false,
+      trust_pasv_ip=false,
+      timeout_ms=@core.default_dial_timeout_ms,
+    ) catch {
+      _ => fail("open_data_conn")
+    }
     conn.writer().write("hello")
     conn.close()
     (conn, server.wait())
@@ -150,26 +171,25 @@ async test "open_data_conn connects to the EPSV port" {
 /// against a real ftpd the client wrote a `ClientHello` into a socket the server
 /// had not started reading and every transfer died with
 /// `425 Unable to build data connection`. The observable consequence is the one
-/// asserted here: after `open_data_conn` with TLS enabled, no TLS session exists
-/// yet.
+/// asserted here: after `open_data_conn`, no TLS session exists yet.
 async test "open_data_conn defers the TLS handshake until start_tls" {
   let listener = data_listener()
   let port = listener.addr.port()
-  let options = Options::new(
-    false,
-    false,
-    true,
-    @core.default_dial_timeout_ms,
-    0,
-    @tls.TrustedRoot::SystemRoot,
-  )
-  let (session, sink) = scripted_session(epsv_reply(port), options~)
+  let (control, sink) = scripted_control(epsv_reply(port))
   let tls_started = @async.with_task_group(async fn(group) {
     group.spawn_bg(no_wait=true, async fn() {
       let (peer, _) = listener.accept()
       peer.close()
     })
-    let conn = open_data_conn(session) catch { _ => fail("open_data_conn") }
+    let (conn, _) = @connection.open_data_conn(
+      control,
+      skip_epsv=false,
+      disable_epsv=false,
+      trust_pasv_ip=false,
+      timeout_ms=@core.default_dial_timeout_ms,
+    ) catch {
+      _ => fail("open_data_conn")
+    }
     let started = conn.tls is Some(_)
     conn.close()
     started
@@ -181,6 +201,24 @@ async test "open_data_conn defers the TLS handshake until start_tls" {
 }
 
 ///|
+/// Transfer options over an already negotiated control channel.
+fn transfer_options(use_pret~ : Bool = false) -> ConnOptions {
+  @connection.ConnOptions::new(
+    use_pret~,
+    timeout_ms=@core.default_dial_timeout_ms,
+    server_name="127.0.0.1",
+  )
+}
+
+///|
+/// A listener accepted and dropped immediately, so the client's data connect
+/// completes without the server ever speaking.
+async fn accept_and_close(listener : @socket.TcpServer) -> Unit {
+  let (peer, _) = listener.accept()
+  peer.close()
+}
+
+///|
 /// `PRET` is only sent when the server advertised it, and the transfer command
 /// follows it.
 async test "cmd_data_conn_from sends PRET when the server supports it" {
@@ -189,14 +227,16 @@ async test "cmd_data_conn_from sends PRET when the server supports it" {
   let script = "200 PRET command okay.\r\n" +
     epsv_reply(port) +
     "150 Opening BINARY mode data connection.\r\n"
-  let (session, sink) = scripted_session(script)
-  session.set_use_pret(true)
+  let (control, sink) = scripted_control(script)
   @async.with_task_group(async fn(group) {
-    group.spawn_bg(no_wait=true, async fn() {
-      let (peer, _) = listener.accept()
-      peer.close()
-    })
-    let conn = cmd_data_conn_from(session, 0, "RETR {}", ["/a.txt"]) catch {
+    group.spawn_bg(no_wait=true, async fn() { accept_and_close(listener) })
+    let conn = @connection.cmd_data_conn_from(
+      control,
+      0,
+      "RETR {}",
+      ["/a.txt"],
+      options=transfer_options(use_pret=true),
+    ) catch {
       _ => fail("cmd_data_conn_from")
     }
     conn.close()
@@ -214,14 +254,16 @@ async test "cmd_data_conn_from tolerates a refused PRET" {
   let script = "500 PRET not understood.\r\n" +
     epsv_reply(port) +
     "150 Opening BINARY mode data connection.\r\n"
-  let (session, sink) = scripted_session(script)
-  session.set_use_pret(true)
+  let (control, sink) = scripted_control(script)
   @async.with_task_group(async fn(group) {
-    group.spawn_bg(no_wait=true, async fn() {
-      let (peer, _) = listener.accept()
-      peer.close()
-    })
-    let conn = cmd_data_conn_from(session, 0, "RETR {}", ["/a.txt"]) catch {
+    group.spawn_bg(no_wait=true, async fn() { accept_and_close(listener) })
+    let conn = @connection.cmd_data_conn_from(
+      control,
+      0,
+      "RETR {}",
+      ["/a.txt"],
+      options=transfer_options(use_pret=true),
+    ) catch {
       _ => fail("cmd_data_conn_from")
     }
     conn.close()
@@ -242,14 +284,19 @@ async test "cmd_data_conn_from reports a refused transfer command" {
   let listener = data_listener()
   let port = listener.addr.port()
   let script = epsv_reply(port) + "550 No such file.\r\n"
-  let (session, sink) = scripted_session(script)
+  let (control, sink) = scripted_control(script)
   let message = @async.with_task_group(async fn(group) {
-    group.spawn_bg(no_wait=true, async fn() {
-      let (peer, _) = listener.accept()
-      peer.close()
-    })
+    group.spawn_bg(no_wait=true, async fn() { accept_and_close(listener) })
     try {
-      ignore(cmd_data_conn_from(session, 0, "RETR {}", ["/gone.txt"]))
+      ignore(
+        @connection.cmd_data_conn_from(
+          control,
+          0,
+          "RETR {}",
+          ["/gone.txt"],
+          options=transfer_options(),
+        ),
+      )
       "no error"
     } catch {
       @core.FtpError::ServerError(code~, msg~) => "\{code} \{msg}"
@@ -264,12 +311,12 @@ async test "cmd_data_conn_from reports a refused transfer command" {
 /// Both accepted transfer-start codes (`125` and `150`) are positive
 /// *intermediate* replies, which is why the guard after the `cmd_format` can
 /// only ever see one of them: the `cmd_format` expected list is exactly
-/// `[125, 150]`, so any other code already turned into a `ParseError` above.
+/// `[125, 150]`, so any other code already turned into an error above.
 ///
 /// The guard is therefore the assertion that the accepted set and the
-/// `@core.is_positive_intermediate` class have not drifted apart — the regression
-/// that once made this reject *every* real transfer. Pinning the two constants
-/// against the predicate is what keeps it honest.
+/// `@core.is_positive_intermediate` class have not drifted apart — the
+/// regression that once made this reject *every* real transfer. Pinning the two
+/// constants against the predicate is what keeps it honest.
 test "the accepted transfer-start codes are positive intermediates" {
   assert_true(
     @core.is_positive_intermediate(@core.status_data_conn_already_in_use),
@@ -294,13 +341,16 @@ async test "cmd_data_conn_from accepts 125 as a transfer start" {
   let port = listener.addr.port()
   let script = epsv_reply(port) +
     "125 Data connection already open, transfer starting.\r\n"
-  let (session, _) = scripted_session(script)
+  let (control, _) = scripted_control(script)
   @async.with_task_group(async fn(group) {
-    group.spawn_bg(no_wait=true, async fn() {
-      let (peer, _) = listener.accept()
-      peer.close()
-    })
-    let conn = cmd_data_conn_from(session, 0, "RETR {}", ["/a.txt"]) catch {
+    group.spawn_bg(no_wait=true, async fn() { accept_and_close(listener) })
+    let conn = @connection.cmd_data_conn_from(
+      control,
+      0,
+      "RETR {}",
+      ["/a.txt"],
+      options=transfer_options(),
+    ) catch {
       _ => fail("125 must be accepted")
     }
     conn.close()
@@ -317,13 +367,16 @@ async test "cmd_data_conn_from sends REST before the transfer command" {
   let script = epsv_reply(port) +
     "350 Restarting at 4096.\r\n" +
     "150 Opening BINARY mode data connection.\r\n"
-  let (session, sink) = scripted_session(script)
+  let (control, sink) = scripted_control(script)
   @async.with_task_group(async fn(group) {
-    group.spawn_bg(no_wait=true, async fn() {
-      let (peer, _) = listener.accept()
-      peer.close()
-    })
-    let conn = cmd_data_conn_from(session, 4096L, "RETR {}", ["/big.bin"]) catch {
+    group.spawn_bg(no_wait=true, async fn() { accept_and_close(listener) })
+    let conn = @connection.cmd_data_conn_from(
+      control,
+      4096L,
+      "RETR {}",
+      ["/big.bin"],
+      options=transfer_options(),
+    ) catch {
       _ => fail("cmd_data_conn_from")
     }
     conn.close()

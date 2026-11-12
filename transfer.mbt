@@ -2,7 +2,8 @@
 // Licensed under the Apache License, Version 2.0.
 // Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.
 
-// Layer: IO — uses the `moonbitlang/async` stack from the root moon.pkg.
+// Package: `PaiGack/ftp` -- the public client API. Layers below it live in
+// `core/` (values), `connection/` (control + data channel) and `debug/` (traffic log).
 
 ///|
 /// A data transfer in progress, returned by `retr` / `retr_from`.
@@ -64,10 +65,10 @@ pub async fn DataResponse::close(self : DataResponse) -> Unit {
 /// before the next command is sent.
 pub async fn check_data_shut(session : Session) -> Unit {
   // The wrap-up reply is *read*, never requested: sending an empty command
-  // here (`cmd_expect(control, "", ...)`) puts a stray CRLF on the wire and
+  // here (`@connection.cmd_expect(control, "", ...)`) puts a stray CRLF on the wire and
   // real servers answer `500 Command "" not understood.`, leaving the session
   // one reply behind.
-  let response = read_response(session.control())
+  let response = @connection.read_response(session.control())
   guard response.code() == @core.status_closing_data_connection ||
     response.code() == @core.status_file_action_ok else {
     raise @core.FtpError::ServerError(
@@ -92,7 +93,13 @@ pub async fn retr_from(
 ) -> DataResponse {
   client.lock()
   defer client.unlock()
-  let conn = cmd_data_conn_from(client.session, offset, "RETR {}", [path])
+  let conn = @connection.cmd_data_conn_from(
+    client.session.control(),
+    offset,
+    "RETR {}",
+    [path],
+    options=client.session.conn_options(),
+  )
   {
     reader: conn.reader(),
     closed: false,
@@ -119,7 +126,7 @@ pub async fn stor(
 /// written to, because the TLS handshake never happened. Uploading nothing
 /// while triggering the handshake explicitly keeps the server happy.
 ///
-/// See `DataConn::start_tls` for why the trigger is a real call here rather
+/// See `@connection.DataConn::start_tls` for why the trigger is a real call here rather
 /// than a poke at a session that already exists: Go's `tls.Conn` handshakes
 /// lazily, `@tls.Tls::client` handshakes while it is being built.
 pub async fn stor_from(
@@ -130,7 +137,13 @@ pub async fn stor_from(
 ) -> Unit {
   client.lock()
   defer client.unlock()
-  let conn = cmd_data_conn_from(client.session, offset, "STOR {}", [path])
+  let conn = @connection.cmd_data_conn_from(
+    client.session.control(),
+    offset,
+    "STOR {}",
+    [path],
+    options=client.session.conn_options(),
+  )
   let errors : Array[Error] = []
   let written = stream(source, conn.writer()) catch {
     err => {
@@ -140,7 +153,7 @@ pub async fn stor_from(
   }
   // Gate on the *folded* TLS flag (`DialOptions::to_state_options`), not on
   // `options.tls` alone: that one is false for explicit TLS (`AUTH TLS`), and
-  // `DataConn::start_tls` -- the call this branch exists to mirror -- is gated
+  // `@connection.DataConn::start_tls` -- the call this branch exists to mirror -- is gated
   // on the folded value for exactly that reason.
   if written == 0 && client.state_options.tls() {
     // The upstream workaround, spelled as the call it always described: an
@@ -148,11 +161,18 @@ pub async fn stor_from(
     // or write, so an upload that moved no bytes never touches the session and
     // the server never sees a `ClientHello`; upstream therefore calls
     // `Handshake()` here. `@tls.Tls::client` handshakes while it is being
-    // *built*, which `cmd_data_conn_from` already did right after the `150`, so
+    // *built*, which `@connection.cmd_data_conn_from` already did right after the `150`, so
     // on the happy path this call is a no-op rather than a second handshake.
     // It stays because it is what makes the promise local: remove the handshake
-    // from `cmd_data_conn_from` and this is the line that still satisfies it.
-    conn.start_tls(client.session) catch {
+    // from `@connection.cmd_data_conn_from` and this is the line that still satisfies it.
+    ignore(
+      conn.start_tls(
+        client.session.control().server_name(),
+        client.state_options.trust(),
+        client.state_options.timeout_ms(),
+        true,
+      ),
+    ) catch {
       err => errors.push(err)
     }
   }
@@ -175,7 +195,13 @@ pub async fn append(
 ) -> Unit {
   client.lock()
   defer client.unlock()
-  let conn = cmd_data_conn_from(client.session, 0, "APPE {}", [path])
+  let conn = @connection.cmd_data_conn_from(
+    client.session.control(),
+    0,
+    "APPE {}",
+    [path],
+    options=client.session.conn_options(),
+  )
   let errors : Array[Error] = []
   ignore(
     stream(source, conn.writer()) catch {
