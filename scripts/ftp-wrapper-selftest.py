@@ -50,6 +50,23 @@ variables itself and fails loudly on a missing one -- and `cmd/example/run.sh`
 needs no configuration at all, because `cmd/example/main.mbt` already defaults
 every variable it reads. A `.env` in front of a program that defaults its own
 variables is indirection that can only restate them, so there must not be one.
+
+That last point is why "the wrapper owns no configuration" was, on its own,
+the wrong contract: a setting that is neither forwarded nor defaulted anywhere
+is simply absent in CI. `cmd/ftp/run.sh` inherited-only once, and nothing
+exported a connection setting between `start-ftp.sh` and the wrapper, so the
+CLI fell through to its built-in `anonymous` default:
+
+    ===== cmd/ftp/run.sh =====
+    error: login failed: PaiGack/ftp.FtpError.ServerError
+
+while `cmd/example` and `cmd/profiles` -- which default `test`/`test`
+themselves -- passed against the same container. So the wrapper now sets the
+same `FTP_TEST_*` defaults `cmd/profiles/run.sh` does and exports them, and the
+checks below pin that: the four names default to the container's credentials,
+and the names the binary reads agree with the ones the wrapper exports, in
+`cmd/ftp/main.mbt` and in the other two clients. A rename on either side of
+that pair is exactly the silent `anonymous` login again.
 """
 
 import re
@@ -151,6 +168,54 @@ check("cmd/profiles/run.sh runs cmd/profiles",
 check("cmd/example/run.sh runs cmd/example",
       "moon run cmd/example" in example)
 check("cmd/example/run.sh ends in exec", "exec moon run cmd/example" in example)
+
+# --- the wrapper defaults the endpoint instead of only inheriting it -------
+# The credentials `scripts/start-ftp.sh` gives the container. This file spells
+# them out rather than importing them from `start-ftp.sh`, so the two have to
+# be kept in agreement by a failure rather than by a convention.
+CONTAINER_DEFAULTS = (("FTP_TEST_HOST", "127.0.0.1"), ("FTP_TEST_PORT", "21"),
+                      ("FTP_TEST_USER", "test"), ("FTP_TEST_PASS", "test"))
+
+for name, default in CONTAINER_DEFAULTS:
+    pattern = (r'export ' + name + r'="\$\{' + name + r':-' + re.escape(default)
+               + r'\}"')
+    check(f"cmd/ftp/run.sh defaults {name}", re.search(pattern, text) is not None,
+          "inheriting without a default means CI runs as `anonymous`")
+
+# `start-ftp.sh` is the authority for what the container actually accepts. The
+# user and password are `:=` defaults there; the control port is the literal
+# `PORT=21`, because it is not meant to be overridden.
+start_ftp = (ROOT / "scripts" / "start-ftp.sh").read_text()
+PORT_PATTERN = re.compile(r"^PORT=(\d+)$", re.M)
+port_match = PORT_PATTERN.search(start_ftp)
+check("scripts/start-ftp.sh publishes the container on a fixed port",
+      port_match is not None)
+check("cmd/ftp/run.sh defaults the port start-ftp.sh publishes",
+      port_match is not None and port_match.group(1) == "21",
+      "FTP_TEST_PORT must be the port the container listens on")
+for name, default in CONTAINER_DEFAULTS:
+    if name in ("FTP_TEST_HOST", "FTP_TEST_PORT"):
+        continue  # the address and port above cover these
+    variable = "FTP_" + name.removeprefix("FTP_TEST_")
+    check(f"scripts/start-ftp.sh gives the container {variable}={default}",
+          re.search(r'^: "\$\{' + variable + r':=' + re.escape(default)
+                    + r'\}"$', start_ftp, re.M) is not None,
+          "the wrapper's default must be a credential the container accepts")
+
+# The other side of the same pair: the binary has to read the name the wrapper
+# exports. Reading only the unprefixed spelling is what made the exported
+# value invisible in the first place.
+cli = (ROOT / "cmd" / "ftp" / "main.mbt").read_text()
+for name, _ in CONTAINER_DEFAULTS:
+    check(f"cmd/ftp/main.mbt reads {name}", f'"{name}"' in cli)
+
+# And the two clients beside it read the same spellings, so one exported
+# environment configures all three instead of each having a private name.
+example_main = (ROOT / "cmd" / "example" / "main.mbt").read_text()
+profiles_main = (ROOT / "cmd" / "profiles" / "main.mbt").read_text()
+for name, _ in CONTAINER_DEFAULTS:
+    check(f"cmd/example/main.mbt reads {name}", f'"{name}"' in example_main)
+    check(f"cmd/profiles/main.mbt reads {name}", f'"{name}"' in profiles_main)
 
 if failures:
     print("\ncmd/ftp wrapper self-test FAILED:", file=sys.stderr)

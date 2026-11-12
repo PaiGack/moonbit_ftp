@@ -26,8 +26,12 @@
 ///   -h, --help             print this usage and exit
 ///
 /// The same five connection settings can come from the environment
-/// (`FTP_HOST` / `FTP_PORT` / `FTP_USER` / `FTP_PASS` / `FTP_TIMEOUT`); an
-/// explicit flag always wins. See `env_or` for why that layer exists.
+/// (`FTP_TEST_HOST` / `FTP_TEST_PORT` / `FTP_TEST_USER` / `FTP_TEST_PASS` /
+/// `FTP_TEST_TIMEOUT`, the names `cmd/example`, `cmd/profiles` and the
+/// `scripts/*.sh` helpers all use); an explicit flag always wins. The
+/// unprefixed `FTP_HOST` / `FTP_PORT` / `FTP_USER` / `FTP_PASS` /
+/// `FTP_TIMEOUT` are still read as a second fallback, so an existing shell
+/// profile keeps working. See `env_or` for why that layer exists.
 ///
 /// Exit codes: 0 on success (including `--help`), 2 on a usage error such as an
 /// unknown option or a missing value, 1 on a failed FTP command.
@@ -87,11 +91,16 @@ fn parse_args(args : Array[String]) -> Result[CliArgs, String] {
     command: None,
     help: false,
     positional: [],
-    host: env_or("FTP_HOST", "127.0.0.1"),
-    port: env_port("FTP_PORT"),
-    user: env_or("FTP_USER", "anonymous"),
-    password: env_or("FTP_PASS", ""),
-    timeout_ms: env_timeout("FTP_TIMEOUT"),
+    host: fallback_env_or("FTP_TEST_HOST", "FTP_HOST", "127.0.0.1"),
+    port: fallback_env_port("FTP_TEST_PORT", "FTP_PORT"),
+    user: fallback_env_or("FTP_TEST_USER", "FTP_USER", "anonymous"),
+    password: fallback_env_or("FTP_TEST_PASS", "FTP_PASS", ""),
+    // `fallback_env_port` splits "unset" from "declared but malformed" so the
+    // default below is only replaced by a number the caller actually wrote.
+    timeout_ms: match fallback_env_port("FTP_TEST_TIMEOUT", "FTP_TIMEOUT") {
+      Some(ms) => ms
+      None => 30000
+    },
     tls: false,
     trust_pasv_ip: false,
   }
@@ -176,7 +185,7 @@ fn parse_args(args : Array[String]) -> Result[CliArgs, String] {
 }
 
 ///|
-/// `@env.get_env_var` as a plain `String`, with `fallback` for an unset variable.
+/// The first of `primary`, `legacy` that is set, else `fallback`.
 ///
 /// The environment is the *default* layer, and it is here so that a caller who
 /// knows the endpoint -- `cmd/ftp/run.sh` against the container it just started
@@ -187,33 +196,53 @@ fn parse_args(args : Array[String]) -> Result[CliArgs, String] {
 /// "connect to 127.0.0.1" into a usage error on an argument the caller never
 /// typed. Here the same value is read as a *flag value*, which is the shape it
 /// was always meant to have.
-fn env_or(name : String, fallback : String) -> String {
-  match @env.get_env_var(name) {
+///
+/// `primary` is the `FTP_TEST_*` name that `cmd/example`, `cmd/profiles` and
+/// the `scripts/*.sh` helpers all use, so one exported environment configures
+/// every client; `legacy` is the unprefixed name this CLI used on its own,
+/// kept so an existing profile does not silently stop applying. There used to
+/// be only the unprefixed one, and nothing in CI set it -- so the step ran as
+/// `anonymous` and failed its login while the two clients beside it, which
+/// read `FTP_TEST_*`, passed. One spelling for the whole repo is what makes
+/// that class of failure impossible; the legacy name is compatibility, not the
+/// contract, and `scripts/ftp-wrapper-selftest.py` checks the two agree.
+fn fallback_env_or(
+  primary : String,
+  legacy : String,
+  fallback : String,
+) -> String {
+  match @env.get_env_var(primary) {
     Some(value) => value
-    None => fallback
+    None =>
+      match @env.get_env_var(legacy) {
+        Some(value) => value
+        None => fallback
+      }
   }
 }
 
 ///|
-/// Read `name` as a decimal number, or `None` when it is unset or not
-/// decimal. A malformed value is treated as unset rather than fatal: the
-/// environment here is a convenience default, and the CLI's own `--port` /
-/// `--timeout` remain the authority, so a typo in a shell profile must not make
-/// the tool unusable.
-fn env_port(name : String) -> Int32? {
-  match @env.get_env_var(name) {
-    Some(value) => parse_int(value)
-    None => None
+/// The first of `primary`, `legacy` that is set *and* decimal, else `None`.
+///
+/// "Unset" and "set to something that is not a number" stay distinguishable
+/// on purpose: a malformed value must not replace the caller's documented
+/// default with a number nobody wrote (a non-decimal `primary` therefore falls
+/// through to `legacy`), while genuinely absent numbers are reported as
+/// `None` so the caller applies that default itself. The environment here is a
+/// convenience default, and the CLI's own `--port` / `--timeout` remain the
+/// authority, so a typo in a shell profile must not make the tool unusable.
+fn fallback_env_port(primary : String, legacy : String) -> Int32? {
+  for name in [primary, legacy] {
+    match @env.get_env_var(name) {
+      Some(value) =>
+        match parse_int(value) {
+          Some(number) => return Some(number)
+          None => ()
+        }
+      None => ()
+    }
   }
-}
-
-///|
-/// `FTP_TIMEOUT` in milliseconds, falling back to the documented default.
-fn env_timeout(name : String) -> Int32 {
-  match env_port(name) {
-    Some(value) => value
-    None => 30000
-  }
+  None
 }
 
 ///|

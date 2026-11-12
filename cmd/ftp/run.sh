@@ -51,10 +51,26 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Build/run from the repo root so `moon run cmd/ftp` resolves the package.
 cd "$SCRIPT_DIR/../.."
 
-# The endpoint is *not* passed as flags. `cmd/ftp/main.mbt` reads FTP_HOST /
-# FTP_PORT / FTP_USER / FTP_PASS / FTP_TIMEOUT itself, as defaults an explicit
-# flag on the command line still overrides, so the four settings are already
-# in the environment this script inherits and there is nothing to forward.
+# The endpoint is *not* passed as flags. `cmd/ftp/main.mbt` reads the four
+# connection settings itself, as defaults an explicit flag on the command line
+# still overrides, so they reach the CLI through the environment and this
+# script forwards nothing but argv.
 #
-# That is the whole contract: forward argv, own no configuration.
+# The environment is *defaulted*, not merely inherited, because CI exports
+# none of it: `scripts/ci.sh` starts the container and runs this wrapper, and
+# nothing in between sets a single connection variable. Inheriting-only once
+# meant the CLI fell through to its built-in `anonymous` default and failed
+# `login` -- `error: login failed: PaiGack/ftp.FtpError.ServerError` -- while
+# `cmd/example` and `cmd/profiles`, which default `test`/`test` for themselves,
+# passed against the same container. The names are `FTP_TEST_*`, the ones those
+# two clients and every `scripts/*.sh` helper use, so one exported environment
+# configures the whole repo; `cmd/ftp/main.mbt` also still reads the
+# unprefixed `FTP_*` names this wrapper used to document, as a second fallback.
+#
+# Defaulting here, rather than only inside the binary, keeps this wrapper's
+# contract the same as `cmd/profiles/run.sh`'s: set defaults, export, exec.
+export FTP_TEST_HOST="${FTP_TEST_HOST:-127.0.0.1}"
+export FTP_TEST_PORT="${FTP_TEST_PORT:-21}"
+export FTP_TEST_USER="${FTP_TEST_USER:-test}"
+export FTP_TEST_PASS="${FTP_TEST_PASS:-test}"
 exec moon run cmd/ftp --target native -- "$@"

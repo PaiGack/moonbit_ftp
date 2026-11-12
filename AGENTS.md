@@ -5,6 +5,10 @@ This is a [MoonBit](https://docs.moonbitlang.com) project.
 You can browse and install extra skills here:
 <https://github.com/moonbitlang/skills>
 
+## 重要
+- 永远使用中文回复
+- 永远使用 read/wite 读写文档，代码等文件
+
 ## Project Structure
 
 - This repository uses a **single flat package**: every `.mbt` source file lives
@@ -127,19 +131,36 @@ You can browse and install extra skills here:
   ways that can go wrong are both silent about their cause: an unset variable
   leaves `--host` to take the next argument with it, and a bare expansion that
   survives becomes a positional argument the CLI reports as a usage error on
-  input nobody typed. There is no `.env` now — `FTP_HOST` / `FTP_PORT` /
-  `FTP_USER` / `FTP_PASS` / `FTP_TIMEOUT` are read *as defaults* inside
-  `cmd/ftp/main.mbt` (`env_or` / `env_port` / `env_timeout`), so an unset
-  variable means "keep the built-in default" and can never consume a flag.
-  `cmd/profiles/run.sh` exports `FTP_TEST_*` the same way, and `cmd/profiles`
-  still fails loudly on a missing one. `cmd/example/run.sh` needs no
+  input nobody typed. There is no `.env` now. `scripts/ftp-wrapper-selftest.py`
+  (Docker-free, in `scripts/ci.sh`) asserts that the `.env` files are gone and
+  that `cmd/ftp/run.sh` emits **no** connection flag at all: the endpoint comes
+  through the environment, so any `--host`/`--port`/`--user`/`--pass`/
+  `--timeout` in the wrapper is a second reader of the same variables.
+
+  "Inherited, not built" is only half the rule, and taking it literally once
+  cost a CI step. `cmd/ftp/run.sh` inherited-only while nothing between
+  `start-ftp.sh` and it exported a connection setting, so the CLI fell through
+  to its built-in `anonymous` default:
+
+  ```
+  ===== cmd/ftp/run.sh =====
+  error: login failed: PaiGack/ftp.FtpError.ServerError
+  ```
+
+  — while `cmd/example` and `cmd/profiles`, which default `test`/`test`
+  themselves, passed against the same container. So the wrapper now **sets and
+  exports** the same `FTP_TEST_*` defaults `cmd/profiles/run.sh` does, and the
+  binary reads those names (`fallback_env_or` / `fallback_env_port`, with the
+  unprefixed `FTP_*` kept as a second fallback for existing profiles). One
+  spelling for the whole repo — `cmd/example` and `cmd/profiles` read the same
+  four — is what makes the class impossible: a variable nobody exports cannot
+  be silently missing from only one client. The gate checks both halves of the
+  pair (the wrapper's four `export ...="${VAR:-literal}"` lines against
+  `scripts/start-ftp.sh`'s credentials and fixed port, and the binary's
+  variable names against the wrapper's), because a rename on either side is
+  that same `anonymous` login again. `cmd/example/run.sh` still needs no
   configuration at all — `cmd/example/main.mbt` already defaults every variable
   it reads, so its `.env` could only restate them.
-  `scripts/ftp-wrapper-selftest.py`
-  (Docker-free, in `scripts/ci.sh`) asserts that the `.env` files are gone and
-  that `cmd/ftp/run.sh` emits **no** connection flag at all: the endpoint is
-  already in the inherited environment, so any `--host`/`--port`/`--user`/
-  `--pass`/`--timeout` in the wrapper is a second reader of the same variables.
 
   That assertion direction is itself load bearing, and it was once backwards.
   The gate used to require every emitted flag to be a `${VAR:-literal}`
