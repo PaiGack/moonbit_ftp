@@ -123,7 +123,7 @@ test {
 | --- | --- |
 | `dial(addr, ..)` | 建连，可选 `explicit_tls` / `tls` / `timeout_ms` / `trust_pasv_ip` 等参数 |
 | `login(client, user, pass)` | `USER`/`PASS` 登录，随后按上游顺序协商：`FEAT` → `TYPE I` → `OPTS UTF8 ON`（能力与开关都满足时）→ `PBSZ 0`/`PROT P`（TLS 时） |
-| `list(client, path)` | 列目录，返回 `Array[Entry]`（MLSD / LIST 自动回退） |
+| `list(client, path)` | 列目录，返回 `Array[@core.Entry]`（MLSD / LIST 自动回退） |
 | `name_list(client, path)` | `NLST`，只拿名字，返回 `Array[String]` |
 | `get_entry(client, path)` | `MLST` 取单个条目的 facts |
 | `retr` / `retr_from(client, path, offset)` | 下载 / 断点续传下载，返回 `DataResponse`（`read` 后必须 `close`） |
@@ -134,7 +134,8 @@ test {
 | `walk(client, root)` | 普通函数，拿到 `Walker`；`while w.next() { ... }` 深度优先遍历，`next()` 是 `async` 且失败时不抛错而是返回 `false`（原因读 `w.err()`） |
 | `no_op` / `logout` / `quit(client)` | `NOOP` / `REIN` / `QUIT`（`quit` 发 `QUIT` 并标记为已关闭；socket 不做显式 close，见下方"连接与关闭语义"） |
 
-> 错误以 `FtpError` 抛出，可用 `catch` / `try!` 统一处理；多次失败会被聚合成
+> 错误以 `@core.FtpError` 抛出（`Entry` / `FtpError` 在 `PaiGack/ftp/core` 包里，
+> 自己的包要 `moon add` 之外再 `import` 它才能写类型标注），可用 `catch` / `try!` 统一处理；多次失败会被聚合成
 > `FtpErrors::MultipleErrors` 一起报，而不是遇到第一个就吞掉。`list` / `walk`
 > 解析不出的行会被跳过而非中断。
 
@@ -251,26 +252,36 @@ FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同
 
 ## 目录结构
 
-所有源码直接平铺在仓库根目录，没有包目录层级，全部属于同一个包 `PaiGack/ftp`，
-包内互相引用使用裸名字（如 `Entry`、`parse_list_line`）。
+源码分成四个包，根目录是公开 API 包 `PaiGack/ftp`，另外三个是子目录里的实现层。
+对自己包里的符号直接写名字，对子包写 `@core.` / `@connection.` / `@debug.` 前缀：
+
+| 包 | 内容 | 你会拿到的类型 |
+| --- | --- | --- |
+| `PaiGack/ftp`（根目录） | `FTPClient` / `Session` / `DialOptions` 与全部操作函数 | `@ftp.dial`、`@ftp.list`、`@ftp.FTPClient` |
+| `PaiGack/ftp/core` | `Entry` / `FtpError` / 状态码 / 列表解析 | `@core.Entry`、`@core.FtpError` |
+| `PaiGack/ftp/connection` | 控制通道与数据通道 | `@connection.Control`、`@connection.DataConn` |
+| `PaiGack/ftp/debug` | 流量日志 | `@debug.DebugLog` |
 
 ```
 .
-├── entry.mbt                  Entry / EntryType / TransferType                    纯逻辑
-├── status.mbt                 RFC 959 状态码与常量 + status_text()                 纯逻辑
-├── error.mbt                  FtpError / FtpErrors                                纯逻辑
-├── parse.mbt                  RFC 3659 / UNIX ls / DOS DIR / hostedftp 解析器      纯逻辑
-│                              回退链 + LIST 时间字段解析 + 字段扫描器
-├── pathutil.mbt               远端路径 join（对齐 Go path.Join 语义）             纯逻辑
-├── control.mbt                控制通道：命令编码、多行响应、状态码校验            IO
-├── debug.mbt                  流量日志（DebugLog / MirrorWriter / TeeLogReader）  IO
-├── transport.mbt              EPSV / PASV / PRET / REST / 数据连接 / TLS 建立        IO
-├── client.mbt                 FTPClient + Session / Options + DialOptions + 时间/大小   IO
-├── dial.mbt                   dial / 登录 / FEAT 能力协商                           IO
-├── commands.mbt               CWD / PWD / MKD / RMD / DELE / RNFR+RNTO / QUIT       IO
-├── list.mbt                   目录列表
-├── transfer.mbt               文件传输（RETR / STOR / APPE / REST）
+├── client.mbt                 FTPClient + Session / Options + DialOptions + 时间/大小
+├── dial.mbt                   拨号 + 登录 + FEAT 能力协商
+├── commands.mbt               CWD / PWD / MKD / RMD / DELE / RNFR+RNTO / QUIT 等
+├── list.mbt                   NLST / LIST / MLST + set_transfer_type
+├── transfer.mbt               DataResponse：RETR / STOR / APPE
+├── transport.mbt              Session 到 @connection.ConnOptions 的薄适配
 ├── walker.mbt                 目录树遍历
+├── core/                      协议值类型与解析（无 IO）
+│   ├── entry.mbt              Entry / EntryType / TransferType
+│   ├── status.mbt             RFC 959 状态码与常量 + status_text()
+│   ├── error.mbt              FtpError / FtpErrors
+│   ├── parse.mbt              RFC 3659 / UNIX ls / DOS DIR / hostedftp 解析器
+│   ├── pathutil.mbt           远端路径 join
+│   └── reply.mbt              Response / parse_code / is_continuation
+├── connection/                控制通道与数据通道
+│   ├── control.mbt            命令编码、多行响应、FEAT 解析
+│   └── transport.mbt          EPSV / PASV / PRET / REST / 数据连接 / TLS 建立
+├── debug/                     流量日志（DebugLog）
 ├── cmd/ftp/                   CLI 示例：ls / get / put / walk / mkdir / rm
 │   ├── main.mbt
 │   └── run.sh                 只转发 argv：连接参数由 cmd/ftp/main.mbt 从环境读默认值
@@ -316,7 +327,9 @@ FTPS 用自签名 CA，客户端始终校验证书；两种传输方式共用同
 └── moon.mod                   模块定义
 ```
 
-纯逻辑与 IO 源码同属一个包，分层约束通过每个源文件头部的 `// Layer:` 注释标记。
+分层由包边界本身保证，不再靠注释约定：`core/` 不 import 任何 async 包，
+`connection/` 不认识 `FTPClient`，根包引用三者的先后顺序即依赖方向。
+每个文件头部的 `// Package:` 注释只说明它属于哪个包。
 
 > **`probe-ftps-selftest.py` 的用法**：`python3 scripts/ftps/probe-ftps-selftest.py PROBE [CA_FILE]`。
 > `PROBE` 是被测的探测脚本（`scripts/ftps/probe-ftps.sh`），`CA_FILE` 可选，默认用自测现场

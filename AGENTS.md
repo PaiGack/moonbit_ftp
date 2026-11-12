@@ -11,11 +11,50 @@ You can browse and install extra skills here:
 
 ## Project Structure
 
-- This repository uses a **single flat package**: every `.mbt` source file lives
-  directly in the repository root and `moon.pkg` there declares the only source
-  package (`PaiGack/ftp`). There are no per-directory layer packages any more,
-  so symbols are referenced by bare name (`Entry`, `parse_list_line`) instead of
-  `@types.Entry` / `@parse.parse_list_line`.
+- This repository has **four source packages**, each in its own directory at
+  the repository root (there is no `src/` layer):
+
+  | directory | package | holds |
+  | --- | --- | --- |
+  | (root) | `PaiGack/ftp` | the public API: `FTPClient` / `Session` / `Options` / `DialOptions` and every client operation |
+  | `core/` | `PaiGack/ftp/core` | protocol values and parsers, no IO: `Entry` / `FtpError` / status codes / `Response` / list parsing |
+  | `connection/` | `PaiGack/ftp/connection` | the control channel `Control` and the data channel `DataConn`, `PASV` / `EPSV` / TLS setup |
+  | `debug/` | `PaiGack/ftp/debug` | the traffic log `DebugLog` |
+
+  Within a package symbols are referenced by bare name; across packages they
+  need a prefix (`@core.Entry`, `@connection.Control`, `@debug.DebugLog`). The
+  root package aliases the log as `@ftplog` because `moonbitlang/core/debug`
+  already owns `@debug`. Dependencies run one way: `core` and `debug` are
+  leaves, `connection` depends on both, the root package on all three.
+
+- **There is no re-export in `moon.pkg`.** `pub use` is a reserved word and
+  `export *` / `reexport` do not lex, so the root package cannot publish
+  `@ftp.Entry` again; a user naming the type writes `@core.Entry` and imports
+  `PaiGack/ftp/core`. Do not add a file of one-line forwarding functions to fake
+  it — that is the "public API at the top, implementation below" boundary being
+  crossed by hand, and it drifts.
+
+- **A package that mentions `@io` / `@tls` types must import those packages
+  itself**, even when a sibling package already re-exports the type. The
+  compiler reports `Cannot use @io: package io is not imported` otherwise.
+
+- **`impl` only exists in the defining package.** That is why the traffic log
+  exposes `DebugLog::write_path` / `read_path` instead of the upstream
+  `MirrorWriter` / `TeeLogReader` decorators: a decorator is a new type with an
+  `impl @io.Writer`, and only `debug/` may write it — so it could never wrap the
+  socket `Control` (in `connection/`) holds. The two paths keep the old
+  semantics (write first, record what was accepted; record the line that was
+  read).
+
+- **`connection` must not learn about `Session`.** The data channel's settings
+  are passed as the `ConnOptions` value type; the root package projects its
+  `Session` onto it with `Session::conn_options`. `DataConn::start_tls`,
+  `open_data_conn`, `get_data_port` and `cmd_data_conn_from` therefore take
+  fields, not the session — `Session` is a private member of `FTPClient` and
+  cannot be moved down.
+
+- **The root `transport.mbt` is a thin projection, not a layer.** If it grows a
+  protocol decision, that decision belongs in `connection/transport.mbt`.
 
 - `cmd/ftp/` (CLI)、`cmd/example/`（明文真实服务器演示）、`cmd/ftps/`（FTPS
   端到端冒烟）和 `cmd/profiles/`（四个客户端能力画像）是独立包；其余代码都在根
@@ -23,14 +62,19 @@ You can browse and install extra skills here:
   因为 async 运行时需要它。
 
 - Test files keep the usual naming: `*_test.mbt` (blackbox) and `*_wbtest.mbt`
-  (whitebox). They live in the same root package as the code.
+  (whitebox) and live in the same package directory as the code they cover, so a
+  package's tests run with `moon test -p PaiGack/ftp/core` (and so on). A
+  whitebox fixture that needs `Control` / `DataConn` belongs to `connection/`; one
+  that needs `FTPClient` belongs to the root package. The two cannot share a
+  file: a whitebox test only sees its own package's private symbols, and the
+  root package cannot reach into `connection`'s helpers.
 
-- The root `moon.pkg` has one plain import block (shared by the pure logic
-  files, the IO files and the in-package tests, because MoonBit 0.1.20260920 has
-  no per-file imports) plus a `for "wbtest"` block. The async packages therefore
-  sit in the plain block on purpose; the pure logic / IO split is carried by the
-  per-file `// Layer:` markers and by the grouped file tree in
-  `docs/porting.md` section 2.3 (package layout).
+- Each `moon.pkg` has one plain import block (shared by every file in that
+  package, because MoonBit 0.1.20260920 has no per-file imports) plus the
+  `for "wbtest"` / `for "test"` blocks its tests need. The layered split is now
+  carried by the package boundaries themselves and by the tree in
+  `docs/porting.md` section 2.3; the per-file `// Package:` markers only name
+  which package a file belongs to.
 
 - In the toplevel directory, there is a `moon.mod` file listing module
   metadata.

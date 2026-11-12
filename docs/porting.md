@@ -30,7 +30,7 @@
 | `status.go` | 119 | RFC 959 状态码常量与文本 |
 | `scanner.go` | 58 | 按空白切分的字段扫描器 |
 | `walker.go` | 98 | 目录树遍历器（`Walk` / `SkipDir` / `Stat` / `Path`） |
-| `debug.go` | 37 | 调试输出包装（TeeReader / MultiWriter）——**已移植**，重构后落在 `debug.mbt`，接线点见第 3 节 |
+| `debug.go` | 37 | 调试输出包装（TeeReader / MultiWriter）——**已移植**，重构后落在 `debug/debug.mbt`，接线点见第 3 节 |
 
 ### 1.3 功能矩阵
 
@@ -67,12 +67,12 @@
 
 ### 1.4 关键实现要点（移植时必须保留的"隐性知识"）
 
-1. **数据通道生命周期**：上游 `cmdDataConnFrom` 统一处理 `PRET` 预热 → 建数据连接 → 可选 `REST offset` → 发传输命令 → 校验 `125/150`；非 `2xx` 时关闭数据连接并返回 `textproto.Error`。本仓库对应 `transport.mbt` 的 `cmd_data_conn_from`，错误类型是 `FtpError::ServerError`。
+1. **数据通道生命周期**：上游 `cmdDataConnFrom` 统一处理 `PRET` 预热 → 建数据连接 → 可选 `REST offset` → 发传输命令 → 校验 `125/150`；非 `2xx` 时关闭数据连接并返回 `textproto.Error`。本仓库对应 `connection/transport.mbt` 的 `cmd_data_conn_from`，错误类型是 `FtpError::ServerError`。
 2. **关闭语义**：数据传输结束后必须回控制连接读 `226/250`（上游 `checkDataShut`，本仓库 `transfer.mbt` 的 `check_data_shut`），否则后续命令会错位。`ShutTimeout` 在本仓库是 `DialOptions::set_shut_timeout_ms`：`DataResponse::close` 在它非零时用 `@async.with_timeout` 把整个 `check_data_shut` 包起来，超时即放弃等待（不是逐连接推 deadline，控制通道本身的回复读仍只由 `Control::timeout_ms` 计时）。
-3. **错误聚合**：Go 的 `errors.Join` 被大量使用（`Quit` / `Stor` / `Append` / `List` / `Response.Close`），即「传输错误 + 关闭错误 + 状态读取错误」要一起返回。本仓库对应 `error.mbt` 的 `join_errors` / `FtpErrors::MultipleErrors`。
-4. **命令注入防护**：上游 `checkForCommandInjection` 拒绝参数中含 `\r` / `\n`，对应 `ErrInvalidCommand`；本仓库是 `control.mbt` 的 `check_for_command_injection` + `FtpError::InvalidCommand`。
+3. **错误聚合**：Go 的 `errors.Join` 被大量使用（`Quit` / `Stor` / `Append` / `List` / `Response.Close`），即「传输错误 + 关闭错误 + 状态读取错误」要一起返回。本仓库对应 `core/error.mbt` 的 `join_errors` / `FtpErrors::MultipleErrors`。
+4. **命令注入防护**：上游 `checkForCommandInjection` 拒绝参数中含 `\r` / `\n`，对应 `ErrInvalidCommand`；本仓库是 `connection/control.mbt` 的 `check_for_command_injection` + `FtpError::InvalidCommand`。
 5. **EPSV 回退**：`EPSV` 失败一次后置 `skipEPSV`，后续走 `PASV`；本仓库是 `Session::set_skip_epsv` / `Session::skip_epsv`。
-6. **PASV 防 SSRF**：默认使用控制连接的 IP，仅当显式信任（`trust_pasv_ip`）且数据 IP 非组播/私网跨界的「可疑 IP」时才用 PASV 返回的 IP；判定在 `transport.mbt` 的 `is_bogus_data_ip`。
+6. **PASV 防 SSRF**：默认使用控制连接的 IP，仅当显式信任（`trust_pasv_ip`）且数据 IP 非组播/私网跨界的「可疑 IP」时才用 PASV 返回的 IP；判定在 `connection/transport.mbt` 的 `is_bogus_data_ip`。
 7. **TLS 数据连接**：不能直接用 `tls.DialWithDialer`（proftpd/pureftpd 会挂），需 `Dial` + `tls.Client` 延迟握手；零字节上传需显式 `Handshake()`。**本仓库的口径差异见第 3 节**：`@tls.Tls::client` 构造时即握手，所以「延迟到 `150` 之后」由调用时机保证，零字节分支那次调用是显式记账而非第二次握手。
 8. **LIST 解析容错**：依次尝试 RFC3659 → Unix ls → DOS DIR → hostedftp 四种解析器，全部失败才报 `UnsupportedListLine`；时间字段有"半年规则"（无年份且超过 6 个月视为去年）。
 9. **`Close` 幂等**：`Response.Close` 二次调用返回 nil。本仓库对应 `DataResponse::close` 的 `closed` 标志（`transfer.mbt`）。
@@ -114,27 +114,38 @@
 
 ### 2.3 包结构设计
 
-源码全部平铺在仓库根目录，只有一个包 `PaiGack/ftp`，没有子目录，也没有 `src/` 中间层。
-引用直接写裸符号（`Entry` / `parse_list_line`），不再有 `@types.` / `@parse.` 前缀。
+源码分成四个包，在仓库根目录下各占一个子目录（没有 `src/` 中间层），
+互相按 `@包名.` 引用：
+
+| 目录 | 包名 | 内容 |
+| --- | --- | --- |
+| （根目录） | `PaiGack/ftp` | 对外 API：`FTPClient` / `Session` / `Options` / `DialOptions` 与全部客户端操作 |
+| `core/` | `PaiGack/ftp/core` | 协议值类型与解析器：`Entry` / `FtpError` / 状态码 / `Response` / 列表解析 |
+| `connection/` | `PaiGack/ftp/connection` | 控制通道 `Control` 与数据通道 `DataConn`，含 `PASV` / `EPSV` / TLS 建立 |
+| `debug/` | `PaiGack/ftp/debug` | 流量日志 `DebugLog` |
 
 ```
 .
-├── entry.mbt                 Entry / EntryType / TransferType            纯逻辑
-├── status.mbt                RFC 959 状态码常量 + status_text()            纯逻辑
-├── error.mbt                 FtpError / FtpErrors（join_errors）          纯逻辑
-├── parse.mbt                 RFC3659 / ls / DIR / hostedftp 列表解析      纯逻辑
-│                             时间字段解析 + 空白字段扫描器
-├── pathutil.mbt              远端路径 join                               纯逻辑
-├── control.mbt               控制通道：命令编码、多行响应、状态码校验        IO
-├── debug.mbt                 流量日志（DebugLog / MirrorWriter / TeeLogReader）IO
-├── transport.mbt             EPSV / PASV / PRET / REST / 数据连接 / TLS   IO
-├── client.mbt                FTPClient + Session / Options + DialOptions   IO
-│                             file_size / get_time / set_file_time          IO
-├── dial.mbt                  拨号 + 登录 + FEAT 能力协商                   IO
-├── commands.mbt              CWD / PWD / MKD / RMD / DELE / RNFR+RNTO / QUIT 等  IO
-├── list.mbt                  NLST / LIST / MLST + set_transfer_type        IO
-├── transfer.mbt              DataResponse：RETR / STOR / APPE / REST       IO
-├── walker.mbt                目录树遍历（walk / Walker）                   IO
+├── client.mbt                FTPClient + Session / Options + DialOptions
+│                             file_size / get_time / set_file_time / MDTM 解析
+├── dial.mbt                  拨号 + 登录 + FEAT 能力协商
+├── commands.mbt              CWD / PWD / MKD / RMD / DELE / RNFR+RNTO / QUIT 等
+├── list.mbt                  NLST / LIST / MLST + set_transfer_type
+├── transfer.mbt              DataResponse：RETR / STOR / APPE / REST
+├── transport.mbt             Session → @connection.ConnOptions 的薄适配
+├── walker.mbt                目录树遍历（walk / Walker）
+├── core/
+│   ├── entry.mbt             Entry / EntryType / TransferType
+│   ├── status.mbt            RFC 959 状态码常量 + status_text() + 默认超时
+│   ├── error.mbt             FtpError / FtpErrors（join_errors）
+│   ├── parse.mbt             RFC3659 / ls / DIR / hostedftp 列表解析 + Scanner
+│   ├── pathutil.mbt          远端路径 join
+│   └── reply.mbt             Response / parse_code / is_continuation
+├── connection/
+│   ├── control.mbt           控制通道：Send/Read、命令编码、多行响应、FEAT 解析
+│   └── transport.mbt         DataConn / PASV / EPSV / PRET / REST / TLS 建立
+├── debug/
+│   └── debug.mbt             流量日志（DebugLog + 写/读两条记录路径）
 ├── cmd/                      CLI 与端到端程序：ftp / example / ftps / profiles
 │   ├── ftp/                  CLI 示例（ls / get / put / walk / mkdir / rm）
 │   ├── example/              明文端到端演示（真实 vsftpd）
@@ -148,18 +159,32 @@
 │   ├── ftps/                 FTPS 容器 + 证书 + 探测 + 它的无 Docker 自测
 │   └── profiles/             cmd/profiles 的无 Docker 自测（`ftp_profile_mock.py`
 │                             带真实文件系统的 mock + 命令流断言）
-├── docs/                     porting.md（本文）+ proposal.md
+├── docs/                     porting.md（本文）+ proposal.md + 本目录的 AGENTS.md
 └── testdata/ftp/             测试与演示 fixture
     ├── fixture/              明文演示用的 hello.txt + sub/（每个容器各拷一份，见 AGENTS.md）
     └── tls/                  gen-cert.sh 每次现签的证书（gitignored）
 ```
 
-分层依赖（文件级）：纯逻辑（`entry` / `status` / `error` / `parse` / `pathutil`）←
-`control` ← `transport` ← `client` ← `walker`。
-`parse` / `walker` / `pathutil` 不碰网络，可独立单测。
+包依赖是单向的：`debug` 与 `core` 各自独立（`core` 只用 `x/time` 与 `Debug` derive，
+`debug` 只用 `async/io`）← `connection`（依赖 `core` 与 `debug`）← 根包。
+`cmd/*` 只依赖根包。
 
-平铺之后编译器不再按包隔离，分层约束改由文件头部的 `// Layer:` 标记 +
-本节的分组目录树守住，review 与新增文件时按它核对。
+两条边界是这个分层存在的理由：
+
+- **`connection` 不认识 `FTPClient` / `Session`。** 数据通道需要的设置由根包的
+  `Session::conn_options` 投影成 `@connection.ConnOptions` 值类型，
+  `DataConn::start_tls` / `open_data_conn` / `get_data_port` 因此收字段参数而不是
+  `Session`。`Session` 本身是 `FTPClient` 的私有成员，搬不动。
+- **`debug` 不摆成装饰器。** MoonBit 只允许定义包给自己类型写 `impl`，
+  `MirrorWriter` / `TeeLogReader` 那种"包内包一层"的写法没法跨包，
+  所以是 `DebugLog::write_path` / `read_path` 两个函数，语义与原来一致。
+
+实测确认的两条 MoonBit 约束（不要尝试"简化"回去）：
+
+1. `moon.pkg` 没有重导出语法（`pub use` 是保留字，`export *` / `reexport` 词法报错），
+   所以根包无法把子包的符号再导出成 `@ftp.Entry`；用户对子包类型写 `@core.Entry`。
+2. 一个包用到 `@io` / `@tls` 的类型，必须在自己的 `moon.pkg` 里 import 对应包，
+   不能经由兄弟包转口。
 
 > 这棵树与仓库的实际布局之间不允许漂移：`README.mbt.md` 的"目录结构"一节是同一份
 > 内容的用户视角版本，两边改动要一起改。
@@ -334,7 +359,7 @@ while w.next() {
 
 **保留**：RFC 959 全量命令、EPSV/PASV、FTPS、列表四解析器、Walker、防注入、防 SSRF、调试输出、时间操作。
 
-**调试输出**（`debug.go` → `debug.mbt` 的 `DebugLog`）与上游形似而接线点不同，
+**调试输出**（`debug.go` → `debug/debug.mbt` 的 `DebugLog`）与上游形似而接线点不同，
 两处差异是刻意的，改动前请先读：
 
 - 上游把开关（`DialWithDebugOutput`）编进 `wrapConn` / `wrapStream`，在 dial 时就把
@@ -347,10 +372,12 @@ while w.next() {
   等价物，`Control` 直接走这两个装饰器。
 
 **文件归属**：开关在 `Control` 上（`Control::set_debug`），记录器与两个装饰器在
-`debug.mbt`。1.2 那张表里 `debug.go` 曾标注"已移植，见 `control.mbt`"，那既是过时的
+`debug/debug.mbt`。1.2 那张表里 `debug.go` 曾标注"已移植，见 `control.mbt`"，那既是过时的
 位置，也暗示了上游那种 dial 时包连接的做法；本仓库的接线点见上面两条，位置是
-`debug.mbt`。拆开的理由是这两个文件此后各自只有一个主题：`control.mbt` 讲命令成帧，
-`debug.mbt` 讲记录，而 `Control` 只保留"要不要记"这一个决定。
+`debug/debug.mbt`。拆开的理由是这两个文件此后各自只有一个主题：`connection/control.mbt`
+讲命令成帧，`debug/debug.mbt` 讲记录，而 `Control` 只保留"要不要记"这一个决定。
+装饰器在拆包时改成了 `DebugLog::write_path` / `read_path`：跨包不能给别人的类型写
+`impl`，两条路径的语义（先写 socket 再记实际写出的字节；记录实际读到的行）不变。
 
 日志是诊断，因此**不得改变协议行为**：sink 抛错只丢日志行，不影响命令与回复；回复读
 的超时只包住 socket 读，装饰层不参与计时（AGENTS.md 的 deadline 规则），否则一个慢
