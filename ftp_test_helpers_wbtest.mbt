@@ -37,25 +37,24 @@ fn recording_sink() -> RecordingSink {
 }
 
 ///|
-/// A traffic log sink that keeps whole decoded records.
+/// A traffic log sink that keeps whole decoded records verbatim.
 ///
-/// The log renders `>>> CMD\r\n` / `<<< 220 ready\r\n`, so a `RecordingSink`
-/// needed only to decode bytes would work too -- but its `pending` re-splits on
-/// CRLF and would drop the trailing empty piece, which is exactly the boundary
-/// the log tests assert. This one reads bytes and keeps the raw text.
-struct LogSink {
+/// The log writes `>>> CMD\r\n` / `<<< 220 ready\r\n` per record, so a sink
+/// that decodes bytes and keeps the raw text is enough; `RecordingSink` would
+/// drop the trailing empty piece at exactly the boundary these tests assert.
+struct TextSink {
   text : StringBuilder
 }
 
 ///|
-/// An empty traffic log sink.
-fn log_sink() -> LogSink {
+/// An empty text sink.
+fn text_sink() -> TextSink {
   { text: StringBuilder(), }
 }
 
 ///|
-impl @io.Writer for LogSink with fn write_once(
-  self : LogSink,
+impl @io.Writer for TextSink with fn write_once(
+  self : TextSink,
   buf : Bytes,
   offset~ : Int32,
   len~ : Int32,
@@ -68,27 +67,8 @@ impl @io.Writer for LogSink with fn write_once(
 
 ///|
 /// The captured transcript, as one string.
-fn LogSink::text(self : LogSink) -> String {
+fn TextSink::text(self : TextSink) -> String {
   self.text.to_string()
-}
-
-///|
-/// A traffic log sink whose every write fails, to prove logging never changes
-/// the outcome of a command or a reply read.
-struct FailingSink {}
-
-///|
-impl @io.Writer for FailingSink with fn write_once(
-  self : FailingSink,
-  buf : Bytes,
-  offset~ : Int32,
-  len~ : Int32,
-) -> Int32 {
-  ignore(self)
-  ignore(buf)
-  ignore(offset)
-  ignore(len)
-  raise @io.ReaderClosed
 }
 
 ///|
@@ -143,7 +123,7 @@ fn logged_control(
   control.set_debug(
     match log {
       None => None
-      Some(sink) => Some(DebugLog::new(sink))
+      Some(sink) => Some(@ftplog.DebugLog::new(sink))
     },
   )
   (control, sink)

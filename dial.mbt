@@ -108,7 +108,7 @@ pub async fn dial(
   control.set_debug(
     match debug_sink {
       None => None
-      Some(sink) => Some(DebugLog::new(sink))
+      Some(sink) => Some(@ftplog.DebugLog::new(sink))
     },
   )
   let state_options = options.to_state_options()

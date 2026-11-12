@@ -1,0 +1,15 @@
+// Package `PaiGack/ftp/debug`: the traffic log.
+//
+// It records, it never speaks the protocol, so its only dependency is the
+// async IO stack. `Control` (in `PaiGack/ftp/connection`) is the unit that
+// decides *whether* to record; everything here is the recorder itself.
+import {
+  "moonbitlang/async/io",
+}
+
+// The whitebox tests need the async runtime to run at all, and they drive
+// `MemoryReader` through `@io`.
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/io",
+} for "wbtest"

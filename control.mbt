@@ -68,7 +68,7 @@ pub struct Control {
   /// session every later command travels over. Keeping the switch here also
   /// means the logging layer never owns a `Reader`, so the `MemoryReader`
   /// ownership rule in AGENTS.md cannot be broken by turning logging on.
-  mut debug : DebugLog?
+  mut debug : @ftplog.DebugLog?
 }
 
 ///|
@@ -79,7 +79,7 @@ pub fn Control::new(
   host : String,
   server_name~ : String = "",
   timeout_ms~ : Int32 = 0,
-  debug~ : DebugLog? = None,
+  debug~ : @ftplog.DebugLog? = None,
 ) -> Control {
   // An empty `server_name` means "the peer address is also the name", which is
   // the case for every loopback fixture and for a caller that asked for an IP.
@@ -92,7 +92,7 @@ pub fn Control::new(
 ///
 /// Separate from `Control::new` so `dial` can attach the sink the caller asked
 /// for without every other call site growing the label.
-pub fn Control::set_debug(self : Control, debug : DebugLog?) -> Unit {
+pub fn Control::set_debug(self : Control, debug : @ftplog.DebugLog?) -> Unit {
   self.debug = debug
 }
 
@@ -131,13 +131,11 @@ pub fn Control::upgrade(
 pub async fn Control::send_line(self : Control, line : String) -> Unit {
   match self.debug {
     None => self.writer.write(line + "\r\n")
-    Some(log) => {
-      // Logging wraps the *same* write, and a sink that raises is swallowed
-      // inside the decorator: the log is a diagnostic, so a broken sink must
+    Some(log) =>
+      // Logging rides on the *same* write, and a sink that raises is swallowed
+      // inside `write_path`: the log is a diagnostic, so a broken sink must
       // not stop a command upstream would have sent.
-      let mirror = MirrorWriter::new(self.writer, log~)
-      @io.Writer::write(mirror, line + "\r\n")
-    }
+      log.write_path(self.writer, b"\{line}\r\n")
   }
 }
 
@@ -154,18 +152,21 @@ pub async fn Control::read_line(self : Control) -> String {
   // by the same `read_until` that frames it, so a transcript cannot disagree
   // with what the parser saw. The trait object keeps this branch free of any
   // extra buffering.
-  let source : &@io.Reader = match self.debug {
-    None => self.reader
-    Some(log) => {
-      let tee = TeeLogReader::new(self.reader, log~)
-      tee
-    }
-  }
-  let read = async fn() -> String {
-    match source.read_until("\r\n") {
-      Some(line) => line
-      None => raise @io.ReaderClosed
-    }
+  let read = match self.debug {
+    None =>
+      async fn() -> String {
+        match self.reader.read_until("\r\n") {
+          Some(line) => line
+          None => raise @io.ReaderClosed
+        }
+      }
+    Some(log) =>
+      async fn() -> String {
+        match log.read_path(self.reader, "\r\n") {
+          Some(line) => line
+          None => raise @io.ReaderClosed
+        }
+      }
   }
   // The deadline wraps *only* the socket read. Logging rides inside it, but
   // `TeeLogReader` swallows every sink error, so it can neither raise nor

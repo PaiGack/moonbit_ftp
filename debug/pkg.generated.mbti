@@ -1,0 +1,31 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "PaiGack/ftp/debug"
+
+import {
+  "moonbitlang/async/io",
+}
+
+// Values
+
+// Errors
+
+// Types and methods
+pub(all) enum DebugDirection {
+  Command
+  Reply
+}
+
+pub(all) struct DebugLog {
+  sink : &@io.Writer
+  prefix : Bool
+}
+pub fn DebugLog::new(&@io.Writer, prefix? : Bool) -> Self
+pub async fn DebugLog::read_path(Self, &@io.Reader, StringView) -> String?
+pub async fn DebugLog::record(Self, BytesView) -> Unit
+pub fn DebugLog::render(Self, DebugDirection, String) -> String
+pub async fn DebugLog::write_line(Self, DebugDirection, String) -> Unit
+pub async fn DebugLog::write_path(Self, &@io.Writer, BytesView) -> Unit
+
+// Type aliases
+
+// Traits

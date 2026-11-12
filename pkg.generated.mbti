@@ -6,7 +6,6 @@ import {
   "moonbitlang/async/io",
   "moonbitlang/async/socket",
   "moonbitlang/async/tls",
-  "moonbitlang/core/debug",
   "moonbitlang/x/time",
 }
 
@@ -276,7 +275,7 @@ pub async fn stor_from(FTPClient, String, &@io.Reader, offset? : Int64) -> Unit
 pub fn walk(FTPClient, String) -> Walker
 
 // Errors
-#derive(@debug.Debug)
+#derive(@moonbitlang/core/debug.Debug)
 pub(all) suberror FtpError {
   ServerError(code~ : Int32, msg~ : String)
   InvalidCommand(arg~ : String)
@@ -285,13 +284,13 @@ pub(all) suberror FtpError {
   ParseError(msg~ : String)
   RequestTimeout
 }
-pub fn FtpError::to_repr(Self) -> @debug.Repr
+pub fn FtpError::to_repr(Self) -> @moonbitlang/core/debug.Repr
 
-#derive(@debug.Debug)
+#derive(@moonbitlang/core/debug.Debug)
 pub(all) suberror FtpErrors {
   MultipleErrors(errors~ : Array[Error])
 }
-pub fn FtpErrors::to_repr(Self) -> @debug.Repr
+pub fn FtpErrors::to_repr(Self) -> @moonbitlang/core/debug.Repr
 
 // Types and methods
 pub struct Control {
@@ -300,15 +299,15 @@ pub struct Control {
   host : String
   server_name : String
   timeout_ms : Int32
-  mut debug : DebugLog?
+  mut debug : @PaiGack/ftp/debug.DebugLog?
 }
 pub fn Control::debug_enabled(Self) -> Bool
 pub fn Control::host(Self) -> String
-pub fn Control::new(&@io.Reader, &@io.Writer, String, server_name? : String, timeout_ms? : Int32, debug? : DebugLog?) -> Self
+pub fn Control::new(&@io.Reader, &@io.Writer, String, server_name? : String, timeout_ms? : Int32, debug? : @PaiGack/ftp/debug.DebugLog?) -> Self
 pub async fn Control::read_line(Self) -> String
 pub async fn Control::send_line(Self, String) -> Unit
 pub fn Control::server_name(Self) -> String
-pub fn Control::set_debug(Self, DebugLog?) -> Unit
+pub fn Control::set_debug(Self, @PaiGack/ftp/debug.DebugLog?) -> Unit
 pub fn Control::upgrade(Self, &@io.Reader, &@io.Writer) -> Unit
 
 pub struct DataConn {
@@ -330,19 +329,6 @@ pub struct DataResponse {
 }
 pub async fn DataResponse::close(Self) -> Unit
 pub async fn DataResponse::read(Self, FixedArray[Byte], offset? : Int32, max_len? : Int32) -> Int32
-
-pub(all) enum DebugDirection {
-  Command
-  Reply
-}
-
-pub(all) struct DebugLog {
-  sink : &@io.Writer
-  prefix : Bool
-}
-pub fn DebugLog::new(&@io.Writer, prefix? : Bool) -> Self
-pub fn DebugLog::render(Self, DebugDirection, String) -> String
-pub async fn DebugLog::write_line(Self, DebugDirection, String) -> Unit
 
 pub struct DialOptions {
   mut timeout_ms : Int32
@@ -378,7 +364,7 @@ pub fn DialOptions::set_trust_pasv_ip(Self, Bool) -> Unit
 pub fn DialOptions::set_writing_mdtm(Self, Bool) -> Unit
 pub fn DialOptions::to_state_options(Self) -> Options
 
-#derive(@debug.Debug)
+#derive(@moonbitlang/core/debug.Debug)
 pub struct Entry {
   mut name : String
   mut target : String
@@ -391,9 +377,9 @@ pub fn Entry::set_size(Self, UInt64) -> Unit
 pub fn Entry::set_target(Self, String) -> Unit
 pub fn Entry::set_time(Self, @time.ZonedDateTime) -> Unit
 pub fn Entry::set_type(Self, EntryType) -> Unit
-pub fn Entry::to_repr(Self) -> @debug.Repr
+pub fn Entry::to_repr(Self) -> @moonbitlang/core/debug.Repr
 
-#derive(Eq, @debug.Debug)
+#derive(Eq, @moonbitlang/core/debug.Debug)
 pub(all) enum EntryType {
   File
   Folder
@@ -401,7 +387,7 @@ pub(all) enum EntryType {
 }
 pub fn EntryType::equal(Self, Self) -> Bool
 pub fn EntryType::not_equal(Self, Self) -> Bool
-pub fn EntryType::to_repr(Self) -> @debug.Repr
+pub fn EntryType::to_repr(Self) -> @moonbitlang/core/debug.Repr
 pub fn EntryType::to_string(Self) -> String
 
 pub struct FTPClient {
@@ -447,7 +433,7 @@ pub fn ListDateField::minute(Self) -> Int32
 pub fn ListDateField::next(Self) -> Int32
 pub fn ListDateField::year(Self) -> Int32
 
-#derive(Eq, @debug.Debug)
+#derive(Eq, @moonbitlang/core/debug.Debug)
 pub(all) enum ListFormat {
   Rfc3659
   UnixLs
@@ -456,13 +442,7 @@ pub(all) enum ListFormat {
 }
 pub fn ListFormat::equal(Self, Self) -> Bool
 pub fn ListFormat::not_equal(Self, Self) -> Bool
-pub fn ListFormat::to_repr(Self) -> @debug.Repr
-
-pub struct MirrorWriter {
-  inner : &@io.Writer
-  log : DebugLog
-}
-pub fn MirrorWriter::new(&@io.Writer, log~ : DebugLog) -> Self
+pub fn ListFormat::to_repr(Self) -> @moonbitlang/core/debug.Repr
 
 pub struct Options {
   disable_epsv : Bool
@@ -481,7 +461,7 @@ pub fn Options::tls(Self) -> Bool
 pub fn Options::trust(Self) -> @tls.TrustedRoot
 pub fn Options::trust_pasv_ip(Self) -> Bool
 
-#derive(@debug.Debug)
+#derive(@moonbitlang/core/debug.Debug)
 pub struct Response {
   code : Int32
   message : String
@@ -489,7 +469,7 @@ pub struct Response {
 pub fn Response::code(Self) -> Int32
 pub fn Response::message(Self) -> String
 pub fn Response::new(Int32, String) -> Self
-pub fn Response::to_repr(Self) -> @debug.Repr
+pub fn Response::to_repr(Self) -> @moonbitlang/core/debug.Repr
 
 pub struct Scanner {
   src : String
@@ -515,13 +495,7 @@ pub fn Session::set_use_pret(Self, Bool) -> Unit
 pub fn Session::skip_epsv(Self) -> Bool
 pub fn Session::use_pret(Self) -> Bool
 
-pub struct TeeLogReader {
-  inner : &@io.Reader
-  log : DebugLog
-}
-pub fn TeeLogReader::new(&@io.Reader, log~ : DebugLog) -> Self
-
-#derive(Eq, @debug.Debug)
+#derive(Eq, @moonbitlang/core/debug.Debug)
 pub(all) enum TransferType {
   Binary
   ASCII
@@ -530,7 +504,7 @@ pub fn TransferType::argument(Self) -> String
 pub fn TransferType::equal(Self, Self) -> Bool
 pub fn TransferType::from_string(String) -> Self?
 pub fn TransferType::not_equal(Self, Self) -> Bool
-pub fn TransferType::to_repr(Self) -> @debug.Repr
+pub fn TransferType::to_repr(Self) -> @moonbitlang/core/debug.Repr
 pub fn TransferType::to_string(Self) -> String
 
 pub struct Walker {

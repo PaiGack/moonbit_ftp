@@ -424,7 +424,7 @@ test "control keeps the TLS server name apart from the peer address" {
 async test "dial installs the traffic log before the greeting" {
   let listener = data_listener()
   let port = listener.addr.port()
-  let sink = log_sink()
+  let sink = text_sink()
   let log : &@io.Writer = sink
   let client = @async.with_task_group(async fn(group) {
     group.spawn_bg(no_wait=true, async fn() {

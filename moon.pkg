@@ -10,6 +10,7 @@
 // the per-file `// Layer:` markers; section 3 states the rule.
 
 import {
+  "PaiGack/ftp/debug" @ftplog,
   "moonbitlang/async",
   "moonbitlang/async/io",
   "moonbitlang/async/socket",
@@ -32,6 +33,7 @@ import {
 // plus a custom `@io.Writer` stand in for the control channel, and a loopback
 // `@socket.TcpServer` stands in for the data channel.
 import {
+  "PaiGack/ftp/debug" @ftplog,
   "moonbitlang/async",
   "moonbitlang/async/io",
   "moonbitlang/async/socket",

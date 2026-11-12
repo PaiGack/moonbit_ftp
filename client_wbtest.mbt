@@ -69,7 +69,7 @@ test "DialOptions setters round trip through the getters" {
   assert_eq(options.location, @time.utc_zone)
   // The log sink is an `&@io.Writer?`: with one installed the getter hands it
   // back, and `None` turns logging off again.
-  let sink = log_sink()
+  let sink = recording_sink()
   let writer : &@io.Writer = sink
   options.set_debug_sink(Some(writer))
   assert_true(options.debug_sink() is Some(_))
