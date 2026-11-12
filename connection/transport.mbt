@@ -406,10 +406,27 @@ pub async fn get_data_port(
   trust_pasv_ip~ : Bool,
 ) -> (String, Int32, Bool) {
   if disable_epsv == false && skip_epsv == false {
-    let port = epsv(control) catch {
-      _ => return pasv_data_addr(control, trust_pasv_ip, true)
+    // A port of `0` is RFC 2428's "I do not know which port", and dialling it
+    // means "whatever the OS picks" on some stacks and an immediate refusal
+    // on others. Either way the transfer cannot work, so it is treated as a
+    // failure like any other, and the reason reaches the fallback warning.
+    let answer : Result[Int32, Error] = try {
+      let port = epsv(control)
+      guard port != 0 else {
+        raise @core.FtpError::ParseError(msg="EPSV answered port 0")
+      }
+      Ok(port)
+    } catch {
+      e => Err(e)
     }
-    return (control.host(), port, false)
+    match answer {
+      Ok(port) => return (control.host(), port, false)
+      // The fallback is kept, but it used to take the session from `EPSV` to
+      // "`PASV` for the rest of this session" silently -- a latch the caller
+      // could not see and, on an IPv6-only server, could not undo.
+      Err(failure) => @core.warn_epsv_fallback(@core.describe_error(failure))
+    }
+    return pasv_data_addr(control, trust_pasv_ip, true)
   }
   pasv_data_addr(control, trust_pasv_ip, skip_epsv)
 }
@@ -620,19 +637,27 @@ async fn cmd_data_conn_from_raw(
     timeout_ms=options.timeout_ms,
   )
   if offset != 0 {
-    let ok = try {
+    // The server's own reply is carried out, not replaced. A `501` means
+    // "this server cannot resume" and a timeout means "this server stopped
+    // answering"; a generic `ParseError` made both look like a client bug, so
+    // a caller that wanted to fall back to a full download on `ServerError`
+    // never matched.
+    let rest_failure : Error? = try {
       ignore(
         cmd_format(session, "REST {}", ["\{offset}"], [
           @core.status_file_action_pending_further_info,
         ]),
       )
-      true
+      None
     } catch {
-      _ => false
+      e => Some(e)
     }
-    guard ok else {
-      conn.close(timeout_ms=options.shut_bound())
-      raise @core.FtpError::ParseError(msg="REST command failed")
+    match rest_failure {
+      Some(e) => {
+        conn.close(timeout_ms=options.shut_bound())
+        raise e
+      }
+      None => ()
     }
   }
   // The reason the command was rejected propagates untouched. It used to be
@@ -676,11 +701,31 @@ async fn cmd_data_conn_from_raw(
       msg=response.message(),
     )
   }
-  conn.start_tls(
-    options.server_name,
-    options.trust,
-    options.timeout_ms,
-    options.tls,
-  )
+  // The handshake raises on a missing server name, a timeout, and a failed
+  // certificate check. Unlike every failure above it used to be the one exit
+  // that did not close the connection: `start_tls` only assigns `self.tls`
+  // *after* the handshake succeeds, so `DataConn::close` had no session to
+  // shut down -- but it still owns the socket, and nothing else would ever
+  // close it. A server whose certificate expired therefore leaked one open
+  // data connection per failed transfer. Caught and re-raised after the close
+  // for the same `fragile_catch_all` reason as the command failure above.
+  let tls_failure : Error? = try {
+    conn.start_tls(
+      options.server_name,
+      options.trust,
+      options.timeout_ms,
+      options.tls,
+    )
+    None
+  } catch {
+    e => Some(e)
+  }
+  match tls_failure {
+    Some(e) => {
+      conn.close(timeout_ms=options.shut_bound())
+      raise e
+    }
+    None => ()
+  }
   (conn, latched)
 }

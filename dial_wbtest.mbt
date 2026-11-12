@@ -119,6 +119,8 @@ async test "feat leaves is_set_time_supported off for a read-only MDTM server" {
 async test "feat tolerates a server without a feature list" {
   let script = "500 Unknown command.\r\n"
   let (client, sink) = scripted_client(script)
+  // A `500` is the "no feature list" answer: `feat` returns normally rather
+  // than raising, and the flags stay off.
   feat(client) catch {
     e => fail("feat should not raise: \{e}")
   }
@@ -721,8 +723,32 @@ async test "login runs the plaintext warning decision on every path" {
     "230 Logged in.\r\n" +
     "211-Features:\r\n PASV\r\n211 End\r\n" +
     "200 Switching to Binary mode.\r\n"
-  let (plain, _) = scripted_client(plain_script)
+  let (plain, plain_sink) = scripted_client(plain_script)
   login(plain, "test", "secret") catch {
     e => fail("login: \{e}")
   }
+  // A server that answered `FEAT` has already answered the TLS question:
+  // no follow-up `AUTH TLS` is sent, or every plaintext-only server would
+  // get one on every login.
+  assert_false(plain_sink.lines.contains("AUTH TLS"))
+}
+
+///|
+/// `AUTH TLS;TLS-C` is vsftpd's spelling of a TLS-capable server (RFC 2228
+/// allows the mechanism list after the name). It must make `login` decide
+/// "the server offers TLS" exactly like the bare `AUTH TLS` line does -- the
+/// only observable difference is on stderr, which the test cannot read, so
+/// this pins the input the decision is made from.
+async test "login sees AUTH TLS behind a mechanism list" {
+  let script = "331 Password.\r\n" +
+    "230 Logged in.\r\n" +
+    "211-Features:\r\n AUTH TLS;TLS-C\r\n PBSZ\r\n PROT\r\n211 End\r\n" +
+    "200 Switching to Binary mode.\r\n"
+  let (client, sink) = scripted_client(script)
+  login(client, "test", "secret") catch {
+    e => fail("login: \{e}")
+  }
+  assert_true(client.has_feature("AUTH TLS"))
+  // The server answered `FEAT`, so no probe is appended after the login tail.
+  assert_false(sink.lines.contains("AUTH TLS"))
 }

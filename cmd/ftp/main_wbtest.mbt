@@ -263,3 +263,37 @@ test "safe_local_name rejects names that would escape the current directory" {
   // it explicitly rather than relying on `/`.
   assert_eq(basename("a\\b"), "a\\b")
 }
+
+///|
+/// A subcommand with too few arguments is a usage error -- exit 2 -- and is
+/// recognised *before* connecting, so a script whose variable expanded to
+/// nothing learns that its own call was malformed instead of getting a
+/// connect failure for a server it never meant to reach.
+test "usage_of identifies every subcommand that is missing arguments" {
+  assert_eq(usage_of("get", []), Some("get <remote> [local]"))
+  assert_eq(usage_of("put", []), Some("put <local> [remote]"))
+  assert_eq(usage_of("mkdir", []), Some("mkdir <path>"))
+  assert_eq(usage_of("rm", []), Some("rm [-r] <path>"))
+  assert_eq(usage_of("rm", ["-r"]), Some("rm [-r] <path>"))
+  // Once the argument is there, the command runs -- including `ls` / `walk`,
+  // whose path defaults to `/`.
+  assert_eq(usage_of("get", ["/a.txt"]), None)
+  assert_eq(usage_of("put", ["a.txt"]), None)
+  assert_eq(usage_of("mkdir", ["/d"]), None)
+  assert_eq(usage_of("rm", ["/f"]), None)
+  assert_eq(usage_of("rm", ["-r", "/d"]), None)
+  assert_eq(usage_of("ls", []), None)
+  assert_eq(usage_of("walk", []), None)
+}
+
+///|
+/// A walk that stopped on an error is a failure, not a success with a
+/// diagnostic: the listing it printed is partial, and exit 0 told a script
+/// otherwise. A walk that finished reports success.
+test "walk_outcome turns a walker error into a failure status" {
+  assert_true(walk_outcome(None) is Outcome::Succeeded)
+  let failed = walk_outcome(
+    Some(Error::Failure("550 /root/sub: Permission denied")),
+  )
+  assert_true(failed is Outcome::Failed)
+}

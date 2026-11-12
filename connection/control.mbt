@@ -408,17 +408,43 @@ pub async fn read_response(control : Control) -> @core.Response {
 /// `211-Features:` and `211 End` framing lines too (see `@connection.read_response`), and
 /// once trimmed they would otherwise register as features named `FEATURES:`
 /// and `END`. Upstream filters with exactly this test.
+///
+/// A feature name may carry a parameter list after a `;`: RFC 2228 registers
+/// the security extensions as `AUTH <mechanism>` and lets a server list the
+/// mechanisms it supports on the same line, so vsftpd configured with
+/// `ssl_enable=YES` may answer `AUTH TLS;TLS-C`. The name is cut at the `;`
+/// as well as at the first space: a caller asking `has_feature("AUTH TLS")`
+/// means "does this server speak TLS", and `AUTH TLS;TLS-C` is a yes. Without
+/// the cut the entry was keyed `AUTH TLS;TLS-C`, the plaintext-login warning
+/// in `login` never fired, and a server that advertises TLS *most* explicitly
+/// was the one that stayed silent.
 pub fn parse_features(body : String) -> Map[String, Bool] {
   let features : Map[String, Bool] = Map([])
   for line in body.split("\n") {
     guard line.length() > 0 && line.unsafe_get(0) == ' ' else { continue }
     let trimmed = line.trim()
     guard trimmed != "" else { continue }
-    let name = match trimmed.find(" ") {
+    // The first space separates a feature name from its description, and the
+    // name stops there -- `REST STREAM` caches `REST`, which is the name the
+    // client asks for. The `;` lists the *parameters* of the name before it,
+    // so it is cut first: `AUTH TLS;TLS-C` is `AUTH` with the mechanism `TLS`
+    // and `TLS-C`, which is what `login`'s TLS warning has to recognise. The
+    // second token is reattached for `AUTH` specifically, because RFC 2228
+    // spells the mechanism-bearing name with a space.
+    let head = match trimmed.find(";") {
       Some(index) => trimmed[0:index].to_owned()
       None => trimmed.to_owned()
     }
-    features[name.to_upper()] = true
+    let first = match head.find(" ") {
+      Some(index) => head[0:index].to_owned()
+      None => head
+    }
+    guard first != "" else { continue }
+    let upper_first = first.to_upper()
+    if upper_first == "AUTH" && head.to_upper().has_prefix("AUTH TLS") {
+      features["AUTH TLS"] = true
+    }
+    features[upper_first] = true
   }
   features
 }

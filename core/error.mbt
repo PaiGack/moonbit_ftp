@@ -36,6 +36,24 @@ pub(all) suberror FtpError {
 pub extend FtpError with @debug.Debug::{to_repr}
 
 ///|
+/// A one-line human description of an `FtpError`, for diagnostics that go to
+/// stderr. `Debug` is for debugging -- it spells the package path, which makes
+/// a log line read `PaiGack/ftp/core.FtpError.ServerError` instead of
+/// `the server answered 500`.
+pub fn describe_error(err : Error) -> String {
+  match err {
+    FtpError::ServerError(code~, msg~) => "the server answered \{code}: \{msg}"
+    FtpError::InvalidCommand(arg~) =>
+      "refused to send '\{arg}' (contains CR/LF)"
+    FtpError::UnsupportedListLine(line~) => "unrecognised listing line: \{line}"
+    FtpError::UnsupportedListDate(field~) => "unrecognised date field: \{field}"
+    FtpError::ParseError(msg~) => "malformed reply: \{msg}"
+    FtpError::RequestTimeout => "the server did not answer in time"
+    _ => "\{err}"
+  }
+}
+
+///|
 /// Aggregation of several failures that happened during one logical
 /// operation. This mirrors Go's `errors.Join`: the upstream implementation
 /// deliberately keeps *every* error (transfer + close + status read) instead

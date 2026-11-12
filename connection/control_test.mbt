@@ -230,6 +230,26 @@ async test "FEAT parsing keeps only the first token of a feature line" {
 }
 
 ///|
+async test "FEAT parsing cuts a security mechanism list at the semicolon" {
+  // RFC 2228 lets a server name the mechanisms next to `AUTH`: vsftpd with
+  // `ssl_enable=YES` answers `AUTH TLS;TLS-C`. Keyed whole, the entry never
+  // matched `AUTH TLS`, so `login`'s plaintext warning stayed silent on the
+  // server that advertises TLS most explicitly.
+  let features = @connection.parse_features(
+    "Features:\n AUTH TLS;TLS-C\n PBSZ\n PROT\nEnd",
+  )
+  assert_true(features.contains("AUTH TLS"))
+  // The bare command name is still cached, as it would be for any other
+  // feature line; only the parameter list is dropped.
+  assert_true(features.contains("AUTH"))
+  assert_false(features.contains("AUTH TLS;TLS-C"))
+  assert_false(features.contains("TLS-C"))
+  assert_true(features.contains("PBSZ"))
+  assert_true(features.contains("PROT"))
+  assert_eq(features.length(), 4)
+}
+
+///|
 async test "MLST merges the fact lines of the middle of the reply" {
   let control = control_over(
     "250-File details\r\n Type=file;Size=1024;Modify=20220813133357; lo\r\n250 End\r\n",

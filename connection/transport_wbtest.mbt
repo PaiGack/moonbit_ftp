@@ -259,6 +259,63 @@ fn transfer_options(use_pret~ : Bool = false) -> ConnOptions {
 }
 
 ///|
+/// A data-channel TLS handshake that fails must still close the socket it
+/// opened. `start_tls` only assigns `tls` *after* the handshake succeeds, so
+/// the failure path used to raise out of `cmd_data_conn_from_raw` with the
+/// socket still open and no owner left to close it -- one leaked connection
+/// per failed transfer (an expired certificate is enough to trigger it).
+///
+/// The server end proves the close: it accepts, then blocks on a read, which
+/// returns `None` only once the client's socket is shut down. `server_name`
+/// is `None` on a TLS connection here, which is `start_tls`'s first raise.
+async test "a failed data-channel TLS handshake closes the socket" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let (control, _) = scripted_control(epsv_reply(port) + "150 Ready.\r\n")
+  // Short timeout: the point is that the read ends *early*, so a leaked
+  // socket answers the question by timing out instead of returning.
+  let probe_timeout = 2000
+  let mut handshake_raised = false
+  let peer_saw_eof = @async.with_task_group(async fn(group) {
+    let server = group.spawn(no_wait=true, async fn() {
+      let (peer, _) = listener.accept()
+      // `start_tls` fails before it writes, so the only bytes that can come
+      // from the client are none; a conforming close ends this read at once.
+      let saw = try {
+        ignore(
+          @async.with_timeout(probe_timeout, async fn() { peer.read_some() }),
+        )
+        true
+      } catch {
+        _ => false
+      }
+      peer.close()
+      saw
+    })
+    ignore(
+      @connection.cmd_data_conn_from(
+        control,
+        0,
+        "RETR {}",
+        ["/a.txt"],
+        options=@connection.ConnOptions::new(
+          timeout_ms=@core.default_dial_timeout_ms,
+          tls=true,
+          server_name=None,
+        ),
+      ),
+    ) catch {
+      _ => handshake_raised = true
+    }
+    server.wait()
+  })
+  // The handshake raised -- that is the premise of the test -- and the peer
+  // saw EOF, not a timeout: the socket was closed on the way out.
+  assert_true(handshake_raised)
+  assert_true(peer_saw_eof)
+}
+
+///|
 /// A listener accepted and dropped immediately, so the client's data connect
 /// completes without the server ever speaking.
 async fn accept_and_close(listener : @socket.TcpServer) -> Unit {
@@ -431,4 +488,23 @@ async test "cmd_data_conn_from sends REST before the transfer command" {
     ()
   })
   assert_eq(sink.lines, ["EPSV", "REST 4096", "RETR /big.bin"])
+}
+
+///|
+/// `EPSV` answering port `0` is RFC 2428's "port unknown", not a usable
+/// address: it must be treated as an `EPSV` failure (and fall back to `PASV`)
+/// rather than dialled, which on some stacks means "any free port".
+async test "get_data_port treats an EPSV port 0 as a failure" {
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let (control, sink) = scripted_control(
+    "229 Entering Extended Passive Mode (|||0|)\r\n" + pasv_reply(port),
+  )
+  let (ip, answer, skipped) = data_port(control) catch {
+    _ => fail("get_data_port")
+  }
+  assert_eq(sink.lines, ["EPSV", "PASV"])
+  assert_eq(ip, "127.0.0.1")
+  assert_eq(answer, port)
+  assert_true(skipped)
 }

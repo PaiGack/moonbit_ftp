@@ -43,7 +43,17 @@ async fn main {
         false =>
           match parsed.command {
             None => print_usage()
-            Some(cmd) => if run_command(parsed, cmd) { exit_with(1) }
+            Some(cmd) => {
+              // The status is the command's own: 0 success, 1 a failed FTP
+              // command, 2 a usage error (`get` with no arguments). It used
+              // to be a `Bool`, so a missing argument printed the usage line
+              // and exited 0 -- a script's `ftp get "$x" && next` carried on
+              // after a call that never transferred anything.
+              let code = run_command(parsed, cmd)
+              if code != 0 {
+                exit_with(code)
+              }
+            }
           }
       }
     Err(message) => {
@@ -59,6 +69,52 @@ async fn main {
 /// plain `return` from `main` always yields exit status 0.
 fn exit_with(code : Int32) -> Unit {
   exit(code)
+}
+
+///|
+/// The usage line for a subcommand that cannot run with these arguments, or
+/// `None` when the arguments are well-formed. Checked by `run_command` before
+/// it connects, and kept next to the subcommands it guards so the two cannot
+/// disagree about how many arguments each takes.
+fn usage_of(command : String, positional : Array[String]) -> String? {
+  match command {
+    "get" =>
+      if positional.length() < 1 {
+        Some("get <remote> [local]")
+      } else {
+        None
+      }
+    "put" =>
+      if positional.length() < 1 {
+        Some("put <local> [remote]")
+      } else {
+        None
+      }
+    "mkdir" => if positional.length() < 1 { Some("mkdir <path>") } else { None }
+    "rm" => {
+      let rest = match positional {
+        ["-r", .. rest] => rest
+        _ => positional
+      }
+      if rest.length() < 1 {
+        Some("rm [-r] <path>")
+      } else {
+        None
+      }
+    }
+    _ => None
+  }
+}
+
+///|
+/// How one subcommand ended, mapped by `run_command` onto an exit status.
+#derive(@debug.Debug)
+enum Outcome {
+  Succeeded
+  /// The FTP operation failed: the error was printed, status 1.
+  Failed
+  /// The arguments were wrong: the usage line was printed, status 2.
+  Usage
 }
 
 ///|
@@ -316,9 +372,21 @@ fn print_usage() -> Unit {
 // ---------------------------------------------------------------------------
 
 ///|
-/// Run one subcommand, returning `true` when it failed so `main` can set a
-/// non-zero exit status.
-async fn run_command(args : CliArgs, command : String) -> Bool {
+/// Run one subcommand and report the exit status `main` should use: 0 on
+/// success, 1 for a failed FTP command, 2 for a usage error (a subcommand
+/// called with too few arguments).
+///
+/// The subcommands return `Outcome` rather than `Unit` so that "I
+/// printed a usage line and stopped" is distinguishable from "the server
+/// refused". The argument count is checked *before* connecting: a script
+/// that calls `ftp get` with an empty variable should learn that its own
+/// call was malformed, not that a server it never meant to reach is down.
+async fn run_command(args : CliArgs, command : String) -> Int32 {
+  let usage_error = usage_of(command, args.positional)
+  if usage_error is Some(message) {
+    println("usage: \{message}")
+    return 2
+  }
   let port = match args.port {
     Some(p) => p
     None => if args.tls { 990 } else { 21 }
@@ -331,18 +399,17 @@ async fn run_command(args : CliArgs, command : String) -> Bool {
   ) catch {
     e => {
       println("error: connect failed: \{e}")
-      return true
+      return 1
     }
   }
   @lib.login(client, args.user, args.password) catch {
     e => {
       println("error: login failed: \{e}")
-      return true
+      return 1
     }
   }
-  let mut failed = false
-  let result : Result[Unit, Error] = try {
-    match command {
+  let outcome : Result[Outcome, Error] = try {
+    let outcome = match command {
       "ls" => cmd_ls(client, args.positional)
       "get" => cmd_get(client, args.positional)
       "put" => cmd_put(client, args.positional)
@@ -352,25 +419,30 @@ async fn run_command(args : CliArgs, command : String) -> Bool {
       other => {
         println("error: unknown command '\{other}'")
         print_usage()
-        failed = true
+        Outcome::Failed
       }
     }
-    Ok(())
+    Ok(outcome)
   } catch {
     e => Err(e)
   }
-  if result is Err(e) {
-    println("error: \{e}")
-    failed = true
+  let code = match outcome {
+    Err(e) => {
+      println("error: \{e}")
+      1
+    }
+    Ok(Outcome::Succeeded) => 0
+    Ok(Outcome::Failed) => 1
+    Ok(Outcome::Usage) => 2
   }
   @lib.quit(client) catch {
     _ => ()
   }
-  failed
+  code
 }
 
 ///|
-async fn cmd_ls(client : @lib.FTPClient, positional : Array[String]) -> Unit {
+async fn cmd_ls(client : @lib.FTPClient, positional : Array[String]) -> Outcome {
   let path = match positional {
     [p, ..] => p
     [] => "/"
@@ -378,13 +450,17 @@ async fn cmd_ls(client : @lib.FTPClient, positional : Array[String]) -> Unit {
   for entry in @lib.list(client, path) {
     println("\{entry.type_.to_string()}  \{entry.size}  \{entry.name}")
   }
+  Outcome::Succeeded
 }
 
 ///|
-async fn cmd_get(client : @lib.FTPClient, positional : Array[String]) -> Unit {
+async fn cmd_get(
+  client : @lib.FTPClient,
+  positional : Array[String],
+) -> Outcome {
   guard positional is [remote, .. rest] else {
     println("usage: get <remote> [local]")
-    return
+    return Outcome::Usage
   }
   // An explicit local name is the caller's own choice; a derived one comes
   // from the remote path (or the server), so it must stay a plain file name in
@@ -397,7 +473,7 @@ async fn cmd_get(client : @lib.FTPClient, positional : Array[String]) -> Unit {
     Ok(name) => name
     Err(message) => {
       println("error: \{message}")
-      return
+      return Outcome::Failed
     }
   }
   // Resume if the local file exists and is shorter than the remote file.
@@ -426,13 +502,17 @@ async fn cmd_get(client : @lib.FTPClient, positional : Array[String]) -> Unit {
   // way to forget the `close`.
   response.read_to(file)
   println("\{remote} -> \{dest} (\{remote_size} bytes)")
+  Outcome::Succeeded
 }
 
 ///|
-async fn cmd_put(client : @lib.FTPClient, positional : Array[String]) -> Unit {
+async fn cmd_put(
+  client : @lib.FTPClient,
+  positional : Array[String],
+) -> Outcome {
   guard positional is [src_path, .. rest] else {
     println("usage: put <local> [remote]")
-    return
+    return Outcome::Usage
   }
   let dest = match rest {
     [r, ..] => r
@@ -441,7 +521,7 @@ async fn cmd_put(client : @lib.FTPClient, positional : Array[String]) -> Unit {
         Ok(name) => name
         Err(message) => {
           println("error: \{message}")
-          return
+          return Outcome::Failed
         }
       }
   }
@@ -450,10 +530,14 @@ async fn cmd_put(client : @lib.FTPClient, positional : Array[String]) -> Unit {
   @lib.stor(client, dest, file)
   let uploaded = @lib.file_size(client, dest)
   println("\{src_path} -> \{dest} (\{uploaded} bytes)")
+  Outcome::Succeeded
 }
 
 ///|
-async fn cmd_walk(client : @lib.FTPClient, positional : Array[String]) -> Unit {
+async fn cmd_walk(
+  client : @lib.FTPClient,
+  positional : Array[String],
+) -> Outcome {
   let root = match positional {
     [r, ..] => r
     [] => "/"
@@ -462,23 +546,44 @@ async fn cmd_walk(client : @lib.FTPClient, positional : Array[String]) -> Unit {
   while w.next() {
     println("\{w.path()}")
   }
-  if w.err() is Some(e) {
-    println("error during walk: \{e}")
+  walk_outcome(w.err())
+}
+
+///|
+/// The status a finished walk reports. Split out of `cmd_walk` because the
+/// decision is the whole point and `cmd/ftp`'s tests have no way to drive a
+/// failing listing without a server.
+///
+/// `Walker::next` stops at the first directory it cannot list, so an error
+/// means the output is *partial*: the subtrees after the failure were never
+/// visited. Reporting that and exiting 0 (what a `println` with no status did)
+/// left a script believing it had seen the whole tree.
+fn walk_outcome(error : Error?) -> Outcome {
+  match error {
+    Some(e) => {
+      println("error during walk: \{e}")
+      Outcome::Failed
+    }
+    None => Outcome::Succeeded
   }
 }
 
 ///|
-async fn cmd_mkdir(client : @lib.FTPClient, positional : Array[String]) -> Unit {
+async fn cmd_mkdir(
+  client : @lib.FTPClient,
+  positional : Array[String],
+) -> Outcome {
   guard positional is [path, ..] else {
     println("usage: mkdir <path>")
-    return
+    return Outcome::Usage
   }
   @lib.make_dir(client, path)
   println("created \{path}")
+  Outcome::Succeeded
 }
 
 ///|
-async fn cmd_rm(client : @lib.FTPClient, positional : Array[String]) -> Unit {
+async fn cmd_rm(client : @lib.FTPClient, positional : Array[String]) -> Outcome {
   // `-r` is peeled off here rather than in the shared option parser, which
   // would otherwise make it a global flag for every subcommand.
   let (recursive, rest) = match positional {
@@ -487,33 +592,37 @@ async fn cmd_rm(client : @lib.FTPClient, positional : Array[String]) -> Unit {
   }
   guard rest is [path, ..] else {
     println("usage: rm [-r] <path>")
-    return
+    return Outcome::Usage
   }
   if recursive {
     @lib.remove_dir_recur(client, path)
     println("removed directory tree \{path}")
-    return
+    return Outcome::Succeeded
   }
   let entry = @lib.get_entry(client, path) catch {
     e => {
       println("error: \{e}")
-      return
+      return Outcome::Failed
     }
   }
   match entry.type_ {
     File | Link => {
       @lib.delete(client, path)
       println("deleted \{path}")
+      Outcome::Succeeded
     }
     Folder =>
       try {
         @lib.remove_dir(client, path)
         println("removed directory \{path}")
+        Outcome::Succeeded
       } catch {
-        e =>
+        e => {
           println(
             "error: cannot remove non-empty directory '\{path}': \{e}. Re-run with -r to remove it recursively.",
           )
+          Outcome::Failed
+        }
       }
   }
 }

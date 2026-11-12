@@ -11,6 +11,8 @@ pub fn apply_list_time(Entry, Int32, Int32, Int32, Bool, Int32, Int32, @time.Zon
 
 pub let default_dial_timeout_ms : Int32
 
+pub fn describe_error(Error) -> String
+
 pub let epoch : @time.ZonedDateTime
 
 pub fn find_date_start_pub(String, Int32) -> Int32?
@@ -162,6 +164,8 @@ pub let status_user_logged_in_proceed : Int32
 pub let status_username_ok : Int32
 
 pub let status_username_ok_need_password : Int32
+
+pub fn warn_epsv_fallback(String) -> Unit
 
 pub fn warn_plaintext_login(String) -> Unit
 

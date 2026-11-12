@@ -93,7 +93,10 @@ async test "retr omits REST at offset zero" {
 
 ///|
 /// `REST` must answer `350`; when it does not, the transfer is abandoned
-/// instead of silently restarting from zero.
+/// instead of silently restarting from zero. The server's own refusal is what
+/// reaches the caller -- a `501` is "this server cannot resume", which a
+/// caller can fall back from, and it used to arrive as a generic
+/// `ParseError` that read like a client bug.
 async test "retr_from abandons the transfer when REST fails" {
   let listener = data_listener()
   let port = listener.addr.port()
@@ -108,11 +111,11 @@ async test "retr_from abandons the transfer when REST fails" {
       ignore(retr_from(client, "/big.bin", offset=1024))
       None
     } catch {
-      @core.FtpError::ParseError(msg~) => Some(msg)
+      @core.FtpError::ServerError(code~, msg~) => Some((code, msg))
       _ => None
     }
   })
-  assert_eq(raised, Some("REST command failed"))
+  assert_eq(raised, Some((501, "Bad restart offset.")))
   // `RETR` was never sent: the guard fires before it.
   assert_eq(sink.lines, ["EPSV", "REST 1024"])
 }

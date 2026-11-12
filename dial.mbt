@@ -341,11 +341,19 @@ pub async fn login(
   // server that does not advertise `AUTH TLS` says nothing either way, and
   // stays silent: every plaintext-only server would otherwise warn on every
   // login.
-  let server_offers_tls = client.has_feature("AUTH TLS") ||
-    client.has_feature("AUTH SSL")
-  if server_offers_tls &&
-    client.options.tls == false &&
-    client.options.explicit_tls == false {
+  //
+  // A `FEAT` that *failed* is not probed further. The probe would have to
+  // send `AUTH TLS`, and a `234` to it means the server has already switched
+  // to expecting a handshake -- the session cannot go back to plaintext, so
+  // a warning about a password already sent is not worth breaking the login.
+  // The `;`-list spelling some servers use (`AUTH TLS;TLS-C`) is handled
+  // where the feature is parsed, in `@connection.parse_features`.
+  //
+  // The `plaintext` guard is what keeps a TLS session silent: on one, the
+  // password never went out in the clear and there is nothing to warn about.
+  if client.options.tls == false &&
+    client.options.explicit_tls == false &&
+    (client.has_feature("AUTH TLS") || client.has_feature("AUTH SSL")) {
     @core.warn_plaintext_login(user)
   }
   // `TYPE I` comes *before* `OPTS UTF8 ON`, which is upstream's order. The two

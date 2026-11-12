@@ -22,3 +22,20 @@ pub fn warn_plaintext_login(user : String) -> Unit {
     "warning: login for '\{user}' was sent in plaintext, but the server advertises AUTH TLS; pass explicit_tls=true to protect the password",
   )
 }
+
+///|
+/// Say that a transfer fell back from `EPSV` to `PASV` because `EPSV` failed.
+///
+/// The fallback is upstream behaviour and is kept -- some servers only speak
+/// one of the two -- but it is not free: the session latches `PASV` and keeps
+/// using it, and on an IPv6-only server `PASV` is usually refused, so one
+/// transient `EPSV` timeout can turn every later transfer into that refusal.
+/// Without a line on stderr the caller only sees the symptom.
+///
+/// The failure is named, because "the server does not support EPSV" and "the
+/// `EPSV` reply was lost" call for different actions.
+pub fn warn_epsv_fallback(reason : String) -> Unit {
+  eprintln(
+    "warning: EPSV failed (\{reason}); falling back to PASV for the rest of this session",
+  )
+}

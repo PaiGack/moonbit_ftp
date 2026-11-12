@@ -13,6 +13,9 @@ import {
 #derive(@debug.Debug)
 type CliArgs
 
+#derive(@debug.Debug)
+type Outcome
+
 // Type aliases
 
 // Traits
