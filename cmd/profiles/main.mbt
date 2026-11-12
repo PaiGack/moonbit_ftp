@@ -225,10 +225,10 @@ async fn run_profile(
   let entries = @ftp.list(client, scratch)
   let listed = find_entry(entries, "sample.txt")
   guard listed is Some(entry) else {
-    raise @ftp.FtpError::ParseError(msg="LIST did not report sample.txt")
+    raise @core.FtpError::ParseError(msg="LIST did not report sample.txt")
   }
   guard entry.size == payload.length().to_uint64() else {
-    raise @ftp.FtpError::ParseError(
+    raise @core.FtpError::ParseError(
       msg="LIST reported size \{entry.size}, expected \{payload.length()}",
     )
   }
@@ -247,7 +247,7 @@ async fn run_profile(
   println("==> NLST \{scratch}")
   let names = @ftp.name_list(client, scratch)
   guard names.contains("sample.txt") || names.contains(file) else {
-    raise @ftp.FtpError::ParseError(
+    raise @core.FtpError::ParseError(
       msg="NLST did not report sample.txt (nor \{file}): \{format_repr(join_named(names))}",
     )
   }
@@ -260,7 +260,7 @@ async fn run_profile(
   response.close()
   let downloaded = bytes.text()
   guard downloaded == payload else {
-    raise @ftp.FtpError::ParseError(
+    raise @core.FtpError::ParseError(
       msg="RETR returned \{format_repr(downloaded)}, expected \{format_repr(payload)}",
     )
   }
@@ -366,18 +366,18 @@ async fn check_set_time(
       @ftp.set_file_time(client, file, target)
       false
     } catch {
-      @ftp.FtpError::ServerError(code=502, ..) => true
+      @core.FtpError::ServerError(code=502, ..) => true
       _ => false
     }
     guard refused else {
-      raise @ftp.FtpError::ServerError(
+      raise @core.FtpError::ServerError(
         code=502,
         msg="set_file_time was expected to refuse without MFMT / writing MDTM",
       )
     }
     let after = @ftp.get_time(client, file)
     guard @ftp.format_mdtm(after) == @ftp.format_mdtm(before) else {
-      raise @ftp.FtpError::ParseError(
+      raise @core.FtpError::ParseError(
         msg="a refused set_file_time changed the timestamp anyway: \{@ftp.format_mdtm(before)} -> \{@ftp.format_mdtm(after)}",
       )
     }
@@ -397,7 +397,7 @@ async fn check_set_time(
   @ftp.set_file_time(client, file, target)
   let after = @ftp.get_time(client, file)
   guard @ftp.format_mdtm(after) == @ftp.format_mdtm(target) else {
-    raise @ftp.FtpError::ParseError(
+    raise @core.FtpError::ParseError(
       msg="set_file_time did not stick: wrote \{@ftp.format_mdtm(target)}, server reports \{@ftp.format_mdtm(after)}",
     )
   }
@@ -422,13 +422,13 @@ async fn expect_empty_rmd_refused(
     _ => true
   }
   guard refused else {
-    raise @ftp.FtpError::ServerError(
+    raise @core.FtpError::ServerError(
       code=550,
       msg="RMD \{path} succeeded on a non-empty directory",
     )
   }
   guard entry_exists(client, path) else {
-    raise @ftp.FtpError::ParseError(
+    raise @core.FtpError::ParseError(
       msg="the refused RMD removed \{path} anyway",
     )
   }
@@ -438,7 +438,7 @@ async fn expect_empty_rmd_refused(
 /// Assert the server no longer holds `path`.
 async fn expect_absent(client : @ftp.FTPClient, path : String) -> Unit {
   guard entry_exists(client, path) == false else {
-    raise @ftp.FtpError::ParseError(msg="\{path} is still on the server")
+    raise @core.FtpError::ParseError(msg="\{path} is still on the server")
   }
 }
 
@@ -455,7 +455,7 @@ async fn entry_exists(client : @ftp.FTPClient, path : String) -> Bool {
 
 ///|
 /// Find the entry named `name`, if the listing has one.
-fn find_entry(entries : Array[@ftp.Entry], name : String) -> @ftp.Entry? {
+fn find_entry(entries : Array[@core.Entry], name : String) -> @core.Entry? {
   for entry in entries {
     if entry.name == name {
       return Some(entry)

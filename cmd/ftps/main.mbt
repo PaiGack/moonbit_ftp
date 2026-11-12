@@ -289,7 +289,7 @@ async fn smoke(
     // file this user cannot replace.
     e =>
       match e {
-        @ftp.FtpError::ServerError(code=553, ..) =>
+        @core.FtpError::ServerError(code=553, ..) =>
           fail(
             "\{label}: STOR \{scratch} refused with 553. The server could not create the file: its FTP root is not writable by the logged-in user. Check the container's home directory is owned by (and writable to) that user, and that it is not a directory another container has chowned. The starters give each container its own fixture copy for that reason: see scripts/start-ftp.sh and scripts/ftps/start-ftps.sh.",
           )

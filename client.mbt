@@ -178,11 +178,11 @@ pub async fn file_size(client : FTPClient, path : String) -> UInt64 {
   client.lock()
   defer client.unlock()
   let response = cmd_format(client.session.control(), "SIZE {}", [path], [
-    status_file_status,
+    @core.status_file_status,
   ])
   let text = response.message().trim().to_owned()
-  parse_uint(text, 10) catch {
-    _ => raise FtpError::ParseError(msg="invalid SIZE response: \{text}")
+  @core.parse_uint(text, 10) catch {
+    _ => raise @core.FtpError::ParseError(msg="invalid SIZE response: \{text}")
   }
 }
 
@@ -192,16 +192,16 @@ pub async fn get_time(client : FTPClient, path : String) -> @time.ZonedDateTime 
   client.lock()
   defer client.unlock()
   let response = cmd_format(client.session.control(), "MDTM {}", [path], [
-    status_file_status,
+    @core.status_file_status,
   ])
   parse_mdtm(response.message().trim().to_owned())
 }
 
 ///|
 /// Parse a `yyyyMMddHHmmss` timestamp as UTC.
-pub fn parse_mdtm(text : String) -> @time.ZonedDateTime raise FtpError {
+pub fn parse_mdtm(text : String) -> @time.ZonedDateTime raise @core.FtpError {
   guard text.length() >= 14 else {
-    raise FtpError::ParseError(msg="invalid MDTM response: \{text}")
+    raise @core.FtpError::ParseError(msg="invalid MDTM response: \{text}")
   }
   let year = digit_field(text, 0, 4)
   let month = digit_field(text, 4, 2)
@@ -218,7 +218,7 @@ pub fn parse_mdtm(text : String) -> @time.ZonedDateTime raise FtpError {
     second~,
     zone=@time.utc_zone,
   ) catch {
-    _ => raise FtpError::ParseError(msg="invalid MDTM response: \{text}")
+    _ => raise @core.FtpError::ParseError(msg="invalid MDTM response: \{text}")
   }
 }
 
@@ -228,15 +228,15 @@ fn digit_field(
   src : String,
   start : Int32,
   width : Int32,
-) -> Int32 raise FtpError {
+) -> Int32 raise @core.FtpError {
   guard start + width <= src.length() else {
-    raise FtpError::ParseError(msg="invalid date field")
+    raise @core.FtpError::ParseError(msg="invalid date field")
   }
   let mut value = 0
   for i = start; i < start + width; i = i + 1 {
     let c = src.unsafe_get(i).to_int()
     guard c >= 48 && c <= 57 else {
-      raise FtpError::ParseError(msg="invalid date field")
+      raise @core.FtpError::ParseError(msg="invalid date field")
     }
     value = value * 10 + (c - 48)
   }
@@ -261,7 +261,7 @@ pub async fn set_file_time(
   if client.mfmt_supported {
     ignore(
       cmd_format(client.session.control(), "MFMT {} {}", [encoded, path], [
-        status_file_status,
+        @core.status_file_status,
       ]),
     )
     return
@@ -269,13 +269,13 @@ pub async fn set_file_time(
   if client.mdtm_supported && client.mdtm_can_write {
     ignore(
       cmd_format(client.session.control(), "MDTM {} {}", [encoded, path], [
-        status_file_status,
+        @core.status_file_status,
       ]),
     )
     return
   }
-  raise FtpError::ServerError(
-    code=status_not_implemented,
+  raise @core.FtpError::ServerError(
+    code=@core.status_not_implemented,
     msg="server does not support setting modification time",
   )
 }
@@ -339,7 +339,7 @@ pub struct DialOptions {
   /// `DialWithDebugOutput`, here it is a `set_*` setter like the rest.
   mut debug_sink : &@io.Writer?
   /// Clock backing the `LIST` half-year rule, in milliseconds since the UNIX
-  /// epoch. Defaults to the system time; tests inject a fixed clock so the
+  /// @core.epoch. Defaults to the system time; tests inject a fixed clock so the
   /// rule can be asserted on the production path (`list`) instead of only in
   /// the pure parsers.
   mut now_ms : () -> UInt64
@@ -350,7 +350,7 @@ pub struct DialOptions {
 /// `PASV` IP untrusted, UTF8 and MLSD enabled, UTC timestamps.
 pub fn DialOptions::default() -> DialOptions {
   {
-    timeout_ms: default_dial_timeout_ms,
+    timeout_ms: @core.default_dial_timeout_ms,
     shut_timeout_ms: 0,
     tls: false,
     explicit_tls: false,
@@ -489,7 +489,7 @@ pub fn DialOptions::debug_sink(self : DialOptions) -> &@io.Writer? {
 /// Replace the clock backing `FTPClient::now`.
 ///
 /// The default reads the system time on every `list()`; a test injects a
-/// fixed clock to pin the half-year rule's reference instant. Go's epoch
+/// fixed clock to pin the half-year rule's reference instant. Go's @core.epoch
 /// fallback is deliberately *not* an option here — see `FTPClient::now`.
 pub fn DialOptions::set_now_ms(
   self : DialOptions,
@@ -589,7 +589,7 @@ pub fn Options::default() -> Options {
     disable_epsv: false,
     trust_pasv_ip: false,
     tls: false,
-    timeout_ms: default_dial_timeout_ms,
+    timeout_ms: @core.default_dial_timeout_ms,
     shut_timeout_ms: 0,
     trust: @tls.TrustedRoot::SystemRoot,
   }

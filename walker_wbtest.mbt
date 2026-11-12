@@ -17,7 +17,7 @@
 /// `walk` normalises the root to a trailing slash and starts with an empty
 /// stack, no current entry and no error.
 ///
-/// The trailing slash matters: every child path is `join(root, name)`, so a
+/// The trailing slash matters: every child path is `@core.join(root, name)`, so a
 /// missing slash would produce `rootsub/` instead of `root/sub`.
 async test "walk normalises the root and starts empty" {
   let (client, _) = scripted_client("")
@@ -44,9 +44,9 @@ async test "walker push and pop are LIFO" {
   let w = walk(client, "/root")
   assert_true(w.pop() is None)
 
-  w.push(make_file("a"), "/root/a")
-  w.push(make_file("b"), "/root/b")
-  w.push(make_entry("d", EntryType::Folder), "/root/d")
+  w.push(@core.make_file("a"), "/root/a")
+  w.push(@core.make_file("b"), "/root/b")
+  w.push(@core.make_entry("d", @core.EntryType::Folder), "/root/d")
   assert_eq(w.pending(), 3)
 
   let (top, path) = match w.pop() {
@@ -71,7 +71,10 @@ async test "walker push and pop are LIFO" {
 async test "walker entries and set_stack round-trip" {
   let (client, _) = scripted_client("")
   let w = walk(client, "/root")
-  w.set_stack([(make_file("x"), "/root/x"), (make_file("y"), "/root/y")])
+  w.set_stack([
+    (@core.make_file("x"), "/root/x"),
+    (@core.make_file("y"), "/root/y"),
+  ])
   let entries = w.entries()
   assert_eq(entries.length(), 2)
   assert_eq(entries[0].1, "/root/x")
@@ -92,7 +95,7 @@ async test "stat is not changed by a bare pop" {
   let w = walk(client, "/root")
   assert_true(w.stat() is None)
   assert_eq(w.path(), "/root/")
-  w.set_stack([(make_entry("sub", EntryType::Folder), "/root/sub")])
+  w.set_stack([(@core.make_entry("sub", @core.EntryType::Folder), "/root/sub")])
   ignore(w.pop())
   assert_true(w.stat() is None)
   assert_eq(w.path(), "/root/")
@@ -181,7 +184,7 @@ async test "walker descends into subdirectories and drops dot entries" {
   })
   assert_eq(visited, ["/root/top", "/root/sub", "/root/sub/nested.txt"])
   // The root is listed with the trailing slash from `walk`; the child paths
-  // lose it because `join("/root/", "sub")` drops the separator. Only folders
+  // lose it because `@core.join("/root/", "sub")` drops the separator. Only folders
   // are listed: `top` and `sub` each get an `MLSD`, and `nested.txt` — a
   // *file* — is visited but never listed, so no fourth `EPSV` follows.
   assert_eq(sink.lines, [

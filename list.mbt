@@ -28,7 +28,7 @@ pub async fn name_list(client : FTPClient, path : String) -> Array[String] {
   check_data_shut(client.session) catch {
     err => errors.push(err)
   }
-  match join_errors(errors) {
+  match @core.join_errors(errors) {
     Some(err) => raise err
     None => ()
   }
@@ -42,7 +42,7 @@ pub async fn name_list(client : FTPClient, path : String) -> Array[String] {
 /// `-a` when `force_list_hidden` is set) is parsed with the four parser
 /// fallback. Lines that no parser recognises are **skipped**, not fatal: real
 /// servers emit `total 1` headers and other noise.
-pub async fn list(client : FTPClient, path : String) -> Array[Entry] {
+pub async fn list(client : FTPClient, path : String) -> Array[@core.Entry] {
   client.lock()
   defer client.unlock()
   let use_mlsd = client.mlst_supported &&
@@ -56,7 +56,7 @@ pub async fn list(client : FTPClient, path : String) -> Array[Entry] {
   }
   let conn = cmd_data_conn_from(client.session, 0, command, [path])
   let errors : Array[Error] = []
-  let entries : Array[Entry] = []
+  let entries : Array[@core.Entry] = []
   let payload = read_payload(conn, errors) catch {
     err => {
       errors.push(err)
@@ -67,12 +67,12 @@ pub async fn list(client : FTPClient, path : String) -> Array[Entry] {
     let trimmed = line.trim().to_owned()
     guard trimmed != "" else { continue }
     if use_mlsd {
-      match parse_rfc3659_line(trimmed) {
+      match @core.parse_rfc3659_line(trimmed) {
         Some(entry) => entries.push(entry)
         None => ()
       }
     } else {
-      let parsed = Some(parse_list_line(trimmed, client.now())) catch {
+      let parsed = Some(@core.parse_list_line(trimmed, client.now())) catch {
         _ => None
       }
       match parsed {
@@ -85,7 +85,7 @@ pub async fn list(client : FTPClient, path : String) -> Array[Entry] {
   check_data_shut(client.session) catch {
     err => errors.push(err)
   }
-  match join_errors(errors) {
+  match @core.join_errors(errors) {
     Some(err) => raise err
     None => ()
   }
@@ -99,19 +99,19 @@ pub async fn list(client : FTPClient, path : String) -> Array[Entry] {
 /// the message must split into at least three lines, the first and the last
 /// are dropped, and the remaining lines are merged into one entry (RFC 3659
 /// allows the facts of a single file to be spread over several lines).
-pub async fn get_entry(client : FTPClient, path : String) -> Entry {
+pub async fn get_entry(client : FTPClient, path : String) -> @core.Entry {
   client.lock()
   defer client.unlock()
   let response = cmd_format(client.session.control(), "MLST {}", [path], [
-    status_file_action_ok,
+    @core.status_file_action_ok,
   ])
   let lines = response.message().split("\n").collect()
   // `lc < 3` is upstream's "invalid response": anything shorter than
   // `<head>\n<facts>\n<tail>` cannot carry a fact line.
   guard lines.length() >= 3 else {
-    raise FtpError::ParseError(msg="invalid response")
+    raise @core.FtpError::ParseError(msg="invalid response")
   }
-  let mut entry : Entry? = None
+  let mut entry : @core.Entry? = None
   for i = 1; i < lines.length() - 1; i = i + 1 {
     // RFC 3659 requires a leading space; some servers omit it and some add
     // several, so all forms are accepted here.
@@ -119,13 +119,13 @@ pub async fn get_entry(client : FTPClient, path : String) -> Entry {
     // Some servers send a trailing blank line, which is ignored.
     guard line != "" else { continue }
     entry = match entry {
-      None => parse_rfc3659_line(line)
-      Some(entry) => Some(parse_next_rfc3659_line(entry, line))
+      None => @core.parse_rfc3659_line(line)
+      Some(entry) => Some(@core.parse_next_rfc3659_line(entry, line))
     }
   }
   match entry {
     Some(entry) => entry
-    None => raise FtpError::UnsupportedListLine(line=response.message())
+    None => raise @core.FtpError::UnsupportedListLine(line=response.message())
   }
 }
 
@@ -133,7 +133,7 @@ pub async fn get_entry(client : FTPClient, path : String) -> Entry {
 /// `TYPE I` / `TYPE A`.
 pub async fn set_transfer_type(
   client : FTPClient,
-  transfer_type : TransferType,
+  transfer_type : @core.TransferType,
 ) -> Unit {
   client.lock()
   defer client.unlock()
@@ -142,7 +142,7 @@ pub async fn set_transfer_type(
       client.session.control(),
       "TYPE {}",
       [transfer_type.to_string()],
-      [status_cmd_ok],
+      [@core.status_cmd_ok],
     ),
   )
 }
@@ -153,17 +153,17 @@ pub async fn set_transfer_type(
 ///
 /// A yearless `MMM DD HH:MM` field is resolved by comparing the candidate
 /// against `now + 6 months`, so the parsers need a real "now". Handing them
-/// the epoch instead is not "off by a little": every such field fails the
+/// the @core.epoch instead is not "off by a little": every such field fails the
 /// comparison against 1970 + 6 months and collapses to 1969. Hence a clock on
 /// `DialOptions` (system time by default, injectable in tests) rather than a
-/// constant; the epoch is only the impossible-clock fallback.
+/// constant; the @core.epoch is only the impossible-clock fallback.
 fn FTPClient::now(self : FTPClient) -> @time.ZonedDateTime {
   let millis = (self.options.now_ms)()
   @time.ZonedDateTime::from_unix_second(
     (millis / 1000).reinterpret_as_int64(),
     zone=self.location,
   ) catch {
-    _ => epoch
+    _ => @core.epoch
   }
 }
 

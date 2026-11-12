@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 // Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.
 
-// Layer: pure logic — no IO, no `moonbitlang/async` dependency.
+// Package: `PaiGack/ftp/core` — pure values and parsers, no IO.
 
 // RFC 959 / RFC 2228 / RFC 2428 / RFC 3659 status codes and the constants
 // the client shares with them.

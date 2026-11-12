@@ -68,9 +68,12 @@ pub async fn check_data_shut(session : Session) -> Unit {
   // real servers answer `500 Command "" not understood.`, leaving the session
   // one reply behind.
   let response = read_response(session.control())
-  guard response.code() == status_closing_data_connection ||
-    response.code() == status_file_action_ok else {
-    raise FtpError::ServerError(code=response.code(), msg=response.message())
+  guard response.code() == @core.status_closing_data_connection ||
+    response.code() == @core.status_file_action_ok else {
+    raise @core.FtpError::ServerError(
+      code=response.code(),
+      msg=response.message(),
+    )
   }
 }
 
@@ -157,7 +160,7 @@ pub async fn stor_from(
   check_data_shut(client.session) catch {
     err => errors.push(err)
   }
-  match join_errors(errors) {
+  match @core.join_errors(errors) {
     Some(err) => raise err
     None => ()
   }
@@ -186,7 +189,7 @@ pub async fn append(
   check_data_shut(client.session) catch {
     err => errors.push(err)
   }
-  match join_errors(errors) {
+  match @core.join_errors(errors) {
     Some(err) => raise err
     None => ()
   }

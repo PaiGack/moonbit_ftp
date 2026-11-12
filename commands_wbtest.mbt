@@ -49,7 +49,7 @@ async test "change_dir rejects a non 250 reply" {
     change_dir(client, "/nope")
     None
   } catch {
-    FtpError::ServerError(code~, msg~) => Some((code, msg))
+    @core.FtpError::ServerError(code~, msg~) => Some((code, msg))
     _ => None
   }
   assert_eq(raised, Some((550, "Failed to change directory.")))
@@ -89,7 +89,7 @@ async test "current_dir rejects a 257 reply with no quotes" {
     ignore(current_dir(client))
     None
   } catch {
-    FtpError::ParseError(msg~) => Some(msg)
+    @core.FtpError::ParseError(msg~) => Some(msg)
     _ => None
   }
   assert_eq(raised, Some("invalid PWD response"))
@@ -150,7 +150,7 @@ async test "rename does not send RNTO when RNFR is refused" {
     rename(client, "/missing.txt", "/b.txt")
     None
   } catch {
-    FtpError::ServerError(code~, ..) => Some(code)
+    @core.FtpError::ServerError(code~, ..) => Some(code)
     _ => None
   }
   assert_eq(raised, Some(550))
@@ -168,7 +168,7 @@ async test "rename surfaces a rejected RNTO" {
     rename(client, "/a.txt", "/b.txt")
     None
   } catch {
-    FtpError::ServerError(code~, ..) => Some(code)
+    @core.FtpError::ServerError(code~, ..) => Some(code)
     _ => None
   }
   assert_eq(raised, Some(550))
@@ -380,7 +380,7 @@ async test "remove_dir_recur aborts on a refused CWD" {
     remove_dir_recur(client, "/nope")
     None
   } catch {
-    FtpError::ServerError(code~, ..) => Some(code)
+    @core.FtpError::ServerError(code~, ..) => Some(code)
     _ => None
   }
   assert_eq(raised, Some(550))

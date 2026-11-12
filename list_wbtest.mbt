@@ -81,10 +81,10 @@ async test "list prefers MLSD when the server supports MLST" {
   assert_eq(sink.lines, ["EPSV", "MLSD /"])
   assert_eq(entries.length(), 2)
   assert_eq(entries[0].name, "hello.txt")
-  assert_eq(entries[0].type_, EntryType::File)
+  assert_eq(entries[0].type_, @core.EntryType::File)
   assert_eq(entries[0].size, 12UL)
   assert_eq(entries[1].name, "sub")
-  assert_eq(entries[1].type_, EntryType::Folder)
+  assert_eq(entries[1].type_, @core.EntryType::Folder)
 }
 
 ///|
@@ -111,7 +111,7 @@ async test "list sends LIST -a when force_list_hidden is set" {
   assert_eq(sink.lines, ["EPSV", "LIST -a /"])
   assert_eq(entries.length(), 1)
   assert_eq(entries[0].name, "sub")
-  assert_eq(entries[0].type_, EntryType::Folder)
+  assert_eq(entries[0].type_, @core.EntryType::Folder)
 }
 
 ///|
@@ -143,7 +143,7 @@ async test "list falls back to LIST and skips unparsable lines" {
   assert_eq(sink.lines, ["EPSV", "LIST /"])
   assert_eq(entries.length(), 1)
   assert_eq(entries[0].name, "message.ftp")
-  assert_eq(entries[0].type_, EntryType::File)
+  assert_eq(entries[0].type_, @core.EntryType::File)
   assert_eq(entries[0].time.year(), 1996)
 }
 
@@ -166,7 +166,7 @@ async test "list raises ServerError when the transfer command is refused" {
       ignore(list(client, "/"))
       None
     } catch {
-      FtpError::ServerError(code~, msg~) => Some("\{code} \{msg}")
+      @core.FtpError::ServerError(code~, msg~) => Some("\{code} \{msg}")
       _ => None
     }
     result
@@ -242,7 +242,7 @@ async test "check_data_shut accepts 226 and 250 but rejects others" {
     check_data_shut(Session::new(bad.0))
     None
   } catch {
-    FtpError::ServerError(code~, msg~) => Some((code, msg))
+    @core.FtpError::ServerError(code~, msg~) => Some((code, msg))
     _ => None
   }
   assert_eq(raised, Some((550, "Failed to open file.")))
@@ -261,7 +261,7 @@ async test "get_entry sends MLST and requires the 250 code" {
   }
   assert_eq(sink.lines, ["MLST /hello.txt"])
   assert_eq(entry.name, "hello.txt")
-  assert_eq(entry.type_, EntryType::File)
+  assert_eq(entry.type_, @core.EntryType::File)
   assert_eq(entry.size, 951UL)
 }
 
@@ -297,7 +297,7 @@ async test "get_entry rejects a reply with no fact line" {
     ignore(get_entry(client, "/hello.txt"))
     None
   } catch {
-    FtpError::ParseError(msg~) => Some(msg)
+    @core.FtpError::ParseError(msg~) => Some(msg)
     _ => None
   }
   assert_eq(raised, Some("invalid response"))
@@ -315,7 +315,7 @@ async test "get_entry raises UnsupportedListLine when no fact line parses" {
     ignore(get_entry(client, "/hello.txt"))
     None
   } catch {
-    FtpError::UnsupportedListLine(_) => Some(true)
+    @core.FtpError::UnsupportedListLine(_) => Some(true)
     _ => None
   }
   assert_eq(raised, Some(true))
@@ -330,24 +330,24 @@ async test "get_entry requires the 250 status code" {
     ignore(get_entry(client, "/hello.txt"))
     None
   } catch {
-    FtpError::ServerError(code~, ..) => Some(code)
+    @core.FtpError::ServerError(code~, ..) => Some(code)
     _ => None
   }
   assert_eq(raised, Some(450))
 }
 
 ///|
-/// `set_transfer_type` sends the `TYPE` argument from `TransferType`, so the
+/// `set_transfer_type` sends the `TYPE` argument from `@core.TransferType`, so the
 /// enum and the wire format cannot drift apart.
 async test "set_transfer_type sends the TYPE argument" {
   let (client, sink) = scripted_client("200 Switching to Binary mode.\r\n")
-  set_transfer_type(client, TransferType::Binary) catch {
+  set_transfer_type(client, @core.TransferType::Binary) catch {
     e => fail("TYPE I: \{e}")
   }
   assert_eq(sink.lines, ["TYPE I"])
 
   let (client, sink) = scripted_client("200 Switching to ASCII mode.\r\n")
-  set_transfer_type(client, TransferType::ASCII) catch {
+  set_transfer_type(client, @core.TransferType::ASCII) catch {
     e => fail("TYPE A: \{e}")
   }
   assert_eq(sink.lines, ["TYPE A"])
@@ -358,10 +358,10 @@ async test "set_transfer_type sends the TYPE argument" {
 async test "set_transfer_type rejects a non 200 reply" {
   let (client, _) = scripted_client("504 Command not implemented.\r\n")
   let raised = try {
-    set_transfer_type(client, TransferType::Binary)
+    set_transfer_type(client, @core.TransferType::Binary)
     None
   } catch {
-    FtpError::ServerError(code~, ..) => Some(code)
+    @core.FtpError::ServerError(code~, ..) => Some(code)
     _ => None
   }
   assert_eq(raised, Some(504))
@@ -429,7 +429,7 @@ async test "get_entry merges the fact lines and skips a blank one" {
   let entry = get_entry(client, "/hello.txt") catch { _ => fail("get_entry") }
   assert_eq(entry.name, "hello.txt")
   assert_eq(entry.size, 1024UL)
-  assert_eq(entry.type_, EntryType::File)
+  assert_eq(entry.type_, @core.EntryType::File)
 }
 
 ///|
@@ -475,7 +475,7 @@ async test "get_entry rejects a two line reply" {
     ignore(get_entry(client, "/a"))
     false
   } catch {
-    FtpError::ParseError(msg~) => msg == "invalid response"
+    @core.FtpError::ParseError(msg~) => msg == "invalid response"
     _ => false
   }
   assert_true(raised)
@@ -573,15 +573,15 @@ impl @io.Writer for NullWriter with fn write_once(
 
 ///|
 /// The reference instant `list()` hands the parsers must be the *real* now,
-/// not the epoch.
+/// not the @core.epoch.
 ///
 /// `MMM DD HH:MM` carries no year, so the parsers resolve it against
-/// `now + 6 months` (the GNU `ls` half-year rule). With the epoch as the
+/// `now + 6 months` (the GNU `ls` half-year rule). With the @core.epoch as the
 /// reference every such field fails that comparison and collapses to 1969,
-/// which is what `FTPClient::now` returning `epoch` used to do. The clock is
+/// which is what `FTPClient::now` returning `@core.epoch` used to do. The clock is
 /// injectable through `DialOptions` precisely so this can be asserted on
 /// `list()` — the production path where the bug lived — and not only through
-/// `parse_list_line`, whose own tests always passed.
+/// `@core.parse_list_line`, whose own tests always passed.
 async test "list resolves a yearless LIST field against the injected now" {
   let listener = data_listener()
   let port = listener.addr.port()
@@ -596,7 +596,7 @@ async test "list resolves a yearless LIST field against the injected now" {
   let entries = @async.with_task_group(async fn(group) {
     group.spawn_bg(no_wait=true, async fn() {
       // Both fields sit inside the six months after 2017-03-10, so the rule
-      // keeps them in 2017. Under the epoch reference the window started at
+      // keeps them in 2017. Under the @core.epoch reference the window started at
       // 1970-07-01 and both read 1969.
       serve_payload(
         listener,
@@ -619,7 +619,7 @@ async test "list resolves a yearless LIST field against the injected now" {
 /// belongs to the previous year.
 ///
 /// This is the assertion a frozen reference instant cannot satisfy — with the
-/// epoch the comparison never decrements — so it pins that the injected clock
+/// @core.epoch the comparison never decrements — so it pins that the injected clock
 /// is really driving `list()`, in both directions.
 async test "list applies the half-year rule in the previous year direction" {
   let listener = data_listener()

@@ -25,7 +25,7 @@
 /// the control connection.
 pub async fn dial(
   addr : String,
-  timeout_ms~ : Int32 = default_dial_timeout_ms,
+  timeout_ms~ : Int32 = @core.default_dial_timeout_ms,
   shut_timeout_ms~ : Int32 = 0,
   tls~ : Bool = false,
   explicit_tls~ : Bool = false,
@@ -58,7 +58,7 @@ pub async fn dial(
   }
   let (host, port) = split_addr(addr, if tls { 990 } else { 21 })
   let socket_addr = @socket.Addr::parse("\{host}:\{port}") catch {
-    _ => raise FtpError::ParseError(msg="invalid address: \{addr}")
+    _ => raise @core.FtpError::ParseError(msg="invalid address: \{addr}")
   }
   // The peer we reached, captured *before* connecting.
   //
@@ -132,8 +132,11 @@ pub async fn dial(
   // empty line onto the wire and desynchronise the whole session, which real
   // servers answer with `500 Command "" not understood.`.
   let greeting = read_response(session.control())
-  guard greeting.code() == status_service_ready_for_new_user else {
-    raise FtpError::ServerError(code=greeting.code(), msg=greeting.message())
+  guard greeting.code() == @core.status_service_ready_for_new_user else {
+    raise @core.FtpError::ServerError(
+      code=greeting.code(),
+      msg=greeting.message(),
+    )
   }
   if explicit_tls {
     auth_tls(client, tcp)
@@ -226,7 +229,7 @@ fn addr_ip_text(socket_addr : @socket.Addr) -> String {
 /// greeting itself arrives encrypted and no `AUTH TLS` happens at all.
 async fn auth_tls(client : FTPClient, socket : @socket.Tcp) -> Unit {
   let control = client.session.control()
-  ignore(cmd_expect(control, "AUTH TLS", [status_auth_ok]))
+  ignore(cmd_expect(control, "AUTH TLS", [@core.status_auth_ok]))
   // `Tls::client` drives a full handshake and blocks on the peer's reply. A
   // peer that answered `234` but never speaks TLS (a broken proxy, a stub, or
   // a server that lied) would otherwise park this task forever -- the timeout
@@ -240,8 +243,8 @@ async fn auth_tls(client : FTPClient, socket : @socket.Tcp) -> Unit {
     )
   }) catch {
     e =>
-      raise FtpError::ServerError(
-        code=status_service_unavailable,
+      raise @core.FtpError::ServerError(
+        code=@core.status_service_unavailable,
         msg="TLS handshake after AUTH TLS failed: \{e}",
       )
   }
@@ -281,12 +284,12 @@ pub async fn login(
     client.lock()
     defer client.unlock()
     let response = cmd_format(client.session.control(), "USER {}", [user], [
-      status_username_ok_need_password, status_user_logged_in_proceed,
+      @core.status_username_ok_need_password, @core.status_user_logged_in_proceed,
     ])
-    if response.code() == status_username_ok_need_password {
+    if response.code() == @core.status_username_ok_need_password {
       ignore(
         cmd_format(client.session.control(), "PASS {}", [password], [
-          status_user_logged_in_proceed,
+          @core.status_user_logged_in_proceed,
         ]),
       )
     }
@@ -297,7 +300,7 @@ pub async fn login(
   // filename encoding), so reversing them changes nothing a server can see --
   // but it would make this file's "matches upstream" claim false, and the
   // order is exactly what a reader compares against `ftp.go`.
-  set_transfer_type(client, TransferType::Binary)
+  set_transfer_type(client, @core.TransferType::Binary)
   if client.options.disable_utf8 == false && client.has_feature("UTF8") {
     set_utf8(client) catch {
       _ => ()
@@ -316,8 +319,12 @@ pub async fn login(
   if client.options.tls || client.options.explicit_tls {
     client.lock()
     defer client.unlock()
-    ignore(cmd_expect(client.session.control(), "PBSZ 0", [status_cmd_ok]))
-    ignore(cmd_expect(client.session.control(), "PROT P", [status_cmd_ok]))
+    ignore(
+      cmd_expect(client.session.control(), "PBSZ 0", [@core.status_cmd_ok]),
+    )
+    ignore(
+      cmd_expect(client.session.control(), "PROT P", [@core.status_cmd_ok]),
+    )
   }
 }
 
@@ -329,7 +336,7 @@ pub async fn login(
 /// feature list; that is **not** an error, upstream treats it the same way.
 pub async fn feat(client : FTPClient) -> Unit {
   let response = cmd_expect(client.session.control(), "FEAT", [
-    status_system_status,
+    @core.status_system_status,
   ]) catch {
     _ => return
   }
@@ -375,8 +382,8 @@ pub fn parse_features(body : String) -> Map[String, Bool] {
 async fn set_utf8(client : FTPClient) -> Unit {
   ignore(
     cmd_expect(client.session.control(), "OPTS UTF8 ON", [
-      status_cmd_ok, status_cmd_not_implemented_superfluous, status_syntax_error_unknown_params,
-      status_not_implemented_for_param,
+      @core.status_cmd_ok, @core.status_cmd_not_implemented_superfluous, @core.status_syntax_error_unknown_params,
+      @core.status_not_implemented_for_param,
     ]),
   )
 }

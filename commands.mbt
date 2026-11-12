@@ -20,7 +20,7 @@ pub async fn change_dir(client : FTPClient, dir : String) -> Unit {
   defer client.unlock()
   ignore(
     cmd_format(client.session.control(), "CWD {}", [dir], [
-      status_file_action_ok,
+      @core.status_file_action_ok,
     ]),
   )
 }
@@ -30,7 +30,9 @@ pub async fn change_dir(client : FTPClient, dir : String) -> Unit {
 pub async fn change_dir_to_parent(client : FTPClient) -> Unit {
   client.lock()
   defer client.unlock()
-  ignore(cmd_expect(client.session.control(), "CDUP", [status_file_action_ok]))
+  ignore(
+    cmd_expect(client.session.control(), "CDUP", [@core.status_file_action_ok]),
+  )
 }
 
 ///|
@@ -38,10 +40,12 @@ pub async fn change_dir_to_parent(client : FTPClient) -> Unit {
 pub async fn current_dir(client : FTPClient) -> String {
   client.lock()
   defer client.unlock()
-  let response = cmd_expect(client.session.control(), "PWD", [status_dir_create])
+  let response = cmd_expect(client.session.control(), "PWD", [
+    @core.status_dir_create,
+  ])
   match extract_quoted(response.message()) {
     Some(path) => path
-    None => raise FtpError::ParseError(msg="invalid PWD response")
+    None => raise @core.FtpError::ParseError(msg="invalid PWD response")
   }
 }
 
@@ -67,7 +71,9 @@ pub async fn make_dir(client : FTPClient, dir : String) -> Unit {
   client.lock()
   defer client.unlock()
   ignore(
-    cmd_format(client.session.control(), "MKD {}", [dir], [status_dir_create]),
+    cmd_format(client.session.control(), "MKD {}", [dir], [
+      @core.status_dir_create,
+    ]),
   )
 }
 
@@ -78,7 +84,7 @@ pub async fn remove_dir(client : FTPClient, dir : String) -> Unit {
   defer client.unlock()
   ignore(
     cmd_format(client.session.control(), "RMD {}", [dir], [
-      status_file_action_ok,
+      @core.status_file_action_ok,
     ]),
   )
 }
@@ -110,7 +116,7 @@ pub async fn remove_dir_recur(client : FTPClient, path : String) -> Unit {
     if entry.name == "." || entry.name == ".." {
       continue
     }
-    if entry.type_ is EntryType::Folder {
+    if entry.type_ is @core.EntryType::Folder {
       remove_dir_recur(client, current_dir + "/" + entry.name)
     } else {
       // A bare name is enough: the recursion just `CWD`-ed into
@@ -129,7 +135,7 @@ pub async fn delete(client : FTPClient, path : String) -> Unit {
   defer client.unlock()
   ignore(
     cmd_format(client.session.control(), "DELE {}", [path], [
-      status_file_action_ok,
+      @core.status_file_action_ok,
     ]),
   )
 }
@@ -141,12 +147,12 @@ pub async fn rename(client : FTPClient, from : String, to : String) -> Unit {
   defer client.unlock()
   ignore(
     cmd_format(client.session.control(), "RNFR {}", [from], [
-      status_file_action_pending_further_info,
+      @core.status_file_action_pending_further_info,
     ]),
   )
   ignore(
     cmd_format(client.session.control(), "RNTO {}", [to], [
-      status_file_action_ok,
+      @core.status_file_action_ok,
     ]),
   )
 }
@@ -156,7 +162,7 @@ pub async fn rename(client : FTPClient, from : String, to : String) -> Unit {
 pub async fn no_op(client : FTPClient) -> Unit {
   client.lock()
   defer client.unlock()
-  ignore(cmd_expect(client.session.control(), "NOOP", [status_cmd_ok]))
+  ignore(cmd_expect(client.session.control(), "NOOP", [@core.status_cmd_ok]))
 }
 
 ///|
@@ -167,7 +173,7 @@ pub async fn logout(client : FTPClient) -> Unit {
   defer client.unlock()
   ignore(
     cmd_expect(client.session.control(), "REIN", [
-      status_service_ready_for_new_user,
+      @core.status_service_ready_for_new_user,
     ]),
   )
 }
@@ -192,7 +198,7 @@ pub async fn quit(client : FTPClient) -> Unit {
   client.set_closed(true)
   let errors : Array[Error] = []
   let response = cmd_expect(client.session.control(), "QUIT", [
-    status_closing_control_connection, status_cmd_ok, status_service_ready_for_new_user,
+    @core.status_closing_control_connection, @core.status_cmd_ok, @core.status_service_ready_for_new_user,
   ]) catch {
     err => {
       errors.push(err)
@@ -204,16 +210,16 @@ pub async fn quit(client : FTPClient) -> Unit {
 }
 
 ///|
-/// Raise the errors collected by `quit` as one `FtpErrors::MultipleErrors`,
+/// Raise the errors collected by `quit` as one `@core.FtpErrors::MultipleErrors`,
 /// or return normally when there are none.
 ///
 /// The list is always empty or a single `QUIT` failure today -- there is no
-/// socket to close, so there is no second error to join. It stays a list
+/// socket to close, so there is no second error to @core.join. It stays a list
 /// because that is upstream's `errors.Join` shape and because the error
 /// aggregation rule (`docs/porting.md` section 1.4 point 3) applies to it as
 /// soon as a second step appears.
 fn finish_quit(errors : Array[Error]) -> Unit raise {
-  match join_errors(errors) {
+  match @core.join_errors(errors) {
     Some(err) => raise err
     None => ()
   }

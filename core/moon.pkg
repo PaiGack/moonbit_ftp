@@ -1,0 +1,22 @@
+// Package `PaiGack/ftp/core`: the protocol's value types and their parsers.
+//
+// Nothing here does IO, so every parser and every constructor is reachable
+// from a plain unit test. The only external dependency is the time zone type
+// that `Entry` and the `LIST` parsers carry, plus the `Debug` derive.
+import {
+  "moonbitlang/x/time",
+  "moonbitlang/core/debug",
+}
+
+// The whitebox tests build the same values; the pair is also what makes an
+// async-free package still count under `moon test`.
+import {
+  "moonbitlang/x/time",
+  "moonbitlang/core/debug",
+} for "wbtest"
+
+// The blackbox tests spell the package symbols `@core.…`.
+import {
+  "PaiGack/ftp/core",
+  "moonbitlang/x/time",
+} for "test"

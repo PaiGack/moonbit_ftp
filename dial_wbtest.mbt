@@ -258,7 +258,7 @@ async test "login reports a rejected USER" {
     login(client, "test", "wrong")
     None
   } catch {
-    FtpError::ServerError(code~, msg~) => Some((code, msg))
+    @core.FtpError::ServerError(code~, msg~) => Some((code, msg))
     _ => None
   }
   assert_eq(raised, Some((530, "Login incorrect.")))
@@ -274,7 +274,7 @@ async test "login reports a rejected PASS" {
     login(client, "test", "wrong")
     None
   } catch {
-    FtpError::ServerError(code~, ..) => Some(code)
+    @core.FtpError::ServerError(code~, ..) => Some(code)
     _ => None
   }
   assert_eq(raised, Some(530))
@@ -295,7 +295,7 @@ async test "login reports a rejected TYPE" {
     login(client, "test", "secret")
     None
   } catch {
-    FtpError::ServerError(code~, ..) => Some(code)
+    @core.FtpError::ServerError(code~, ..) => Some(code)
     _ => None
   }
   assert_eq(raised, Some(504))
@@ -318,7 +318,7 @@ async test "login reports a rejected PBSZ" {
     login(client, "test", "secret")
     None
   } catch {
-    FtpError::ServerError(code~, ..) => Some(code)
+    @core.FtpError::ServerError(code~, ..) => Some(code)
     _ => None
   }
   assert_eq(raised, Some(500))
@@ -349,7 +349,7 @@ async test "dial reads the greeting from a real socket" {
   // The peer we reached is `127.0.0.1`, so the trusted `PASV` IP is that
   // dotted quad and not the hostname the caller passed.
   assert_eq(client.session().control().host(), "127.0.0.1")
-  assert_eq(client.options().timeout_ms, default_dial_timeout_ms)
+  assert_eq(client.options().timeout_ms, @core.default_dial_timeout_ms)
   assert_false(client.is_closed())
 }
 
@@ -497,7 +497,7 @@ async test "dial rejects a greeting that is not 220" {
       ignore(dial("127.0.0.1:\{port}"))
       -1
     } catch {
-      FtpError::ServerError(code~, ..) => code
+      @core.FtpError::ServerError(code~, ..) => code
       _ => -2
     }
   })
@@ -512,7 +512,7 @@ async test "dial reports an unparsable address" {
     ignore(dial("not a host::::", timeout_ms=200))
     None
   } catch {
-    FtpError::ParseError(_) => Some(true)
+    @core.FtpError::ParseError(_) => Some(true)
     _ => None
   }
   assert_eq(raised, Some(true))
@@ -567,7 +567,7 @@ async test "dial reports a refused AUTH TLS" {
       ignore(dial("127.0.0.1:\{port}", explicit_tls=true))
       -1
     } catch {
-      FtpError::ServerError(code~, ..) => code
+      @core.FtpError::ServerError(code~, ..) => code
       _ => -2
     }
   })

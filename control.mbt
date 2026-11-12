@@ -56,7 +56,7 @@ pub struct Control {
   /// how a plain `STOR` came to be blamed on a `MemoryReader` two files away.
   /// A deadline makes the wait bounded: the loop has a timer to expire, the
   /// deadlock check never runs, and a genuinely silent peer turns into a plain
-  /// `FtpError` the caller can read.
+  /// `@core.FtpError` the caller can read.
   timeout_ms : Int32
   /// Traffic log sink, `None` when logging is off.
   ///
@@ -175,7 +175,7 @@ pub async fn Control::read_line(self : Control) -> String {
   // of the deadline rule in AGENTS.md.
   if self.timeout_ms > 0 {
     @async.with_timeout(self.timeout_ms, read) catch {
-      @async.TimeoutError => raise FtpError::RequestTimeout
+      @async.TimeoutError => raise @core.FtpError::RequestTimeout
       err => raise err
     }
   } else {
@@ -185,7 +185,7 @@ pub async fn Control::read_line(self : Control) -> String {
 
 ///|
 /// Send `cmd` (already encoded) and return the reply.
-pub async fn cmd(control : Control, command : String) -> Response {
+pub async fn cmd(control : Control, command : String) -> @core.Response {
   check_for_command_injection(command)
   control.send_line(command)
   read_response(control)
@@ -196,17 +196,20 @@ pub async fn cmd(control : Control, command : String) -> Response {
 ///
 /// An empty `expected` list accepts any code, which is how upstream spells
 /// `cmd(..., -1)` for the `expected == -1` case. A mismatch raises
-/// `FtpError::ServerError` carrying the original message.
+/// `@core.FtpError::ServerError` carrying the original message.
 pub async fn cmd_expect(
   control : Control,
   command : String,
   expected : Array[Int32],
-) -> Response {
+) -> @core.Response {
   let response = cmd(control, command)
   if expected.length() == 0 || expected.contains(response.code()) {
     return response
   }
-  raise FtpError::ServerError(code=response.code(), msg=response.message())
+  raise @core.FtpError::ServerError(
+    code=response.code(),
+    msg=response.message(),
+  )
 }
 
 ///|
@@ -218,7 +221,7 @@ pub async fn cmd_format(
   format : String,
   args : Array[String],
   expected : Array[Int32],
-) -> Response {
+) -> @core.Response {
   cmd_expect(control, render_command(format, args), expected)
 }
 
@@ -232,7 +235,7 @@ pub async fn cmd_format(
 pub fn render_command(
   format : String,
   args : Array[String],
-) -> String raise FtpError {
+) -> String raise @core.FtpError {
   let mut rendered = format
   for arg in args {
     check_for_command_injection(arg)
@@ -247,10 +250,10 @@ pub fn render_command(
 /// Upstream calls this `checkForCommandInjection`; the check must happen
 /// before a single byte is written to the socket, otherwise a crafted path
 /// could smuggle extra FTP commands into the session.
-pub fn check_for_command_injection(arg : String) -> Unit raise FtpError {
+pub fn check_for_command_injection(arg : String) -> Unit raise @core.FtpError {
   for byte in arg {
     if byte == '\r' || byte == '\n' {
-      raise FtpError::InvalidCommand(arg~)
+      raise @core.FtpError::InvalidCommand(arg~)
     }
   }
 }
@@ -265,44 +268,6 @@ fn replace_first(format : String, pattern : String, value : String) -> String {
   format[0:index].to_owned() +
   value +
   format[index + pattern.length():].to_owned()
-}
-
-///|
-/// A parsed FTP reply: the numeric status code and the (possibly multi line)
-/// message body.
-///
-/// The body keeps the text of the framing status lines, matching the semantics
-/// of Go's `textproto.ReadResponse`; see `read_response` for why the callers
-/// depend on that.
-#derive(@debug.Debug)
-pub struct Response {
-  /// The 3 digit status code of the reply.
-  code : Int32
-  /// The message, with continuation lines joined by `\n`.
-  message : String
-}
-
-///|
-/// `Response` promotes its `Debug` methods as regular methods; declare the
-/// promotion explicitly so the deprecation warning stays away.
-pub extend Response with @debug.Debug::{to_repr}
-
-///|
-/// Build a reply value.
-pub fn Response::new(code : Int32, message : String) -> Response {
-  { code, message, }
-}
-
-///|
-/// The status code of the reply.
-pub fn Response::code(self : Response) -> Int32 {
-  self.code
-}
-
-///|
-/// The message body of the reply.
-pub fn Response::message(self : Response) -> String {
-  self.message
 }
 
 ///|
@@ -323,51 +288,32 @@ pub fn Response::message(self : Response) -> String {
 /// The multi line terminator is the line that repeats the code *without* a
 /// dash. Getting that wrong makes `FEAT` swallow the next reply, so it has a
 /// dedicated test.
-pub async fn read_response(control : Control) -> Response {
+pub async fn read_response(control : Control) -> @core.Response {
   let first = control.read_line()
-  let code = match parse_code(first) {
+  let code = match @core.parse_code(first) {
     Some(code) => code
-    None => raise FtpError::ParseError(msg="invalid response line: \{first}")
+    None =>
+      raise @core.FtpError::ParseError(msg="invalid response line: \{first}")
   }
   guard first.length() > 3 else {
-    raise FtpError::ParseError(msg="short response: \{first}")
+    raise @core.FtpError::ParseError(msg="short response: \{first}")
   }
   let head = first[4:].to_owned()
-  if is_continuation(first) {
+  if @core.is_continuation(first) {
     let body : Array[String] = [head]
     while true {
       let line = control.read_line()
-      let line_code = parse_code(line)
-      if line_code == Some(code) && is_continuation(line) == false {
+      let line_code = @core.parse_code(line)
+      if line_code == Some(code) && @core.is_continuation(line) == false {
         guard line.length() > 3 else {
-          raise FtpError::ParseError(msg="short response: \{line}")
+          raise @core.FtpError::ParseError(msg="short response: \{line}")
         }
         body.push(line[4:].to_owned())
         break
       }
       body.push(line)
     }
-    return { code, message: body.join("\n"), }
+    return @core.Response::new(code, body.join("\n"))
   }
-  { code, message: head, }
-}
-
-///|
-/// Parse the leading three digits of a reply line.
-pub fn parse_code(line : String) -> Int32? {
-  guard line.length() >= 3 else { return None }
-  let mut value = 0
-  for i = 0; i < 3; i = i + 1 {
-    let c = line.unsafe_get(i).to_int()
-    guard c >= 48 && c <= 57 else { return None }
-    value = value * 10 + (c - 48)
-  }
-  Some(value)
-}
-
-///|
-/// Whether the line is a multi line continuation (`211-Features:`), i.e. the
-/// fourth byte is `-`.
-pub fn is_continuation(line : String) -> Bool {
-  line.length() > 3 && line.unsafe_get(3).to_int() == 45
+  @core.Response::new(code, head)
 }

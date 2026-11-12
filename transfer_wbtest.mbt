@@ -107,7 +107,7 @@ async test "retr_from abandons the transfer when REST fails" {
       ignore(retr_from(client, "/big.bin", offset=1024))
       None
     } catch {
-      FtpError::ParseError(msg~) => Some(msg)
+      @core.FtpError::ParseError(msg~) => Some(msg)
       _ => None
     }
   })
@@ -222,8 +222,8 @@ async test "stor raises when the transfer command is refused" {
     None
   } catch {
     // The server's own code and message survive the refusal.
-    FtpError::ServerError(code~, msg~) => Some("\{code} \{msg}")
-    FtpError::ParseError(msg~) => Some("parse: \{msg}")
+    @core.FtpError::ServerError(code~, msg~) => Some("\{code} \{msg}")
+    @core.FtpError::ParseError(msg~) => Some("parse: \{msg}")
     _ => None
   }
   listener.close()
@@ -304,7 +304,7 @@ async test "stor aggregates the read error and the wrap-up error" {
       stor(client, "/up.txt", failing_source())
       None
     } catch {
-      e => Some(flatten_errors(e).length())
+      e => Some(@core.flatten_errors(e).length())
     }
   })
   // One error from the source, one from the `226` read.
@@ -320,7 +320,7 @@ async test "check_data_shut rejects a code other than 226 and 250" {
     check_data_shut(Session::new(bad.0))
     None
   } catch {
-    FtpError::ServerError(code~, msg~) => Some((code, msg))
+    @core.FtpError::ServerError(code~, msg~) => Some((code, msg))
     _ => None
   }
   assert_eq(raised, Some((451, "Local error in processing.")))
@@ -441,7 +441,7 @@ async test "append aggregates a refused 226" {
       append(client, "/log.txt", text_source("line\n"))
       -1
     } catch {
-      FtpError::ServerError(code~, ..) => code
+      @core.FtpError::ServerError(code~, ..) => code
       _ => -2
     }
   })
@@ -468,7 +468,7 @@ async test "stor aggregates a refused 226" {
       stor(client, "/up.txt", text_source("payload"))
       -1
     } catch {
-      FtpError::ServerError(code~, ..) => code
+      @core.FtpError::ServerError(code~, ..) => code
       _ => -2
     }
   })

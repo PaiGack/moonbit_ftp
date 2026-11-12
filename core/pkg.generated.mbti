@@ -1,0 +1,264 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "PaiGack/ftp/core"
+
+import {
+  "moonbitlang/core/debug",
+  "moonbitlang/x/time",
+}
+
+// Values
+pub fn apply_list_time(Entry, Int32, Int32, Int32, Bool, Int32, Int32, @time.ZonedDateTime) -> Unit raise FtpError
+
+pub let default_dial_timeout_ms : Int32
+
+pub let epoch : @time.ZonedDateTime
+
+pub fn find_date_start_pub(String, Int32) -> Int32?
+
+pub fn flatten_errors(Error) -> Array[Error]
+
+pub fn is_continuation(String) -> Bool
+
+pub fn is_positive_completion(Int32) -> Bool
+
+pub fn is_positive_intermediate(Int32) -> Bool
+
+pub fn join(String, String) -> String
+
+pub fn join_all(Array[String]) -> String
+
+pub fn join_errors(Array[Error]) -> Error?
+
+pub fn make_entry(String, EntryType, time? : @time.ZonedDateTime) -> Entry
+
+pub fn make_file(String, time? : @time.ZonedDateTime) -> Entry
+
+pub fn make_folder(String, time? : @time.ZonedDateTime) -> Entry
+
+pub fn make_link(String, String, time? : @time.ZonedDateTime) -> Entry
+
+pub let month_names : Array[String]
+
+pub fn new_datetime(Int32, Int32, Int32, Int32, Int32, @time.Zone) -> @time.ZonedDateTime raise FtpError
+
+pub fn parse_code(String) -> Int32?
+
+pub fn parse_dos_dir_line(String, @time.ZonedDateTime) -> Entry? raise FtpError
+
+pub fn parse_hostedftp_line(String, @time.ZonedDateTime) -> Entry? raise FtpError
+
+pub fn parse_list_date_field(String, Int32) -> ListDateField?
+
+pub fn parse_list_line(String, @time.ZonedDateTime) -> (Entry, ListFormat) raise FtpError
+
+pub fn parse_ls_line(String, @time.ZonedDateTime) -> Entry? raise FtpError
+
+pub fn parse_ls_time(String, Int32, @time.ZonedDateTime) -> (@time.ZonedDateTime, Int32)? raise FtpError
+
+pub fn parse_month(String) -> Int32?
+
+pub fn parse_next_rfc3659_line(Entry, String) -> Entry raise FtpError
+
+pub fn parse_rfc3659_line(String) -> Entry? raise FtpError
+
+pub fn parse_uint(String, Int32) -> UInt64 raise FtpError
+
+pub fn set_size(String) -> UInt64 raise FtpError
+
+pub let status_action_not_taken : Int32
+
+pub let status_auth_ok : Int32
+
+pub let status_bad_filename : Int32
+
+pub let status_cannot_open_data_connection : Int32
+
+pub let status_closing_control_connection : Int32
+
+pub let status_closing_data_connection : Int32
+
+pub let status_cmd_not_implemented_superfluous : Int32
+
+pub let status_cmd_ok : Int32
+
+pub let status_data_conn_already_in_use : Int32
+
+pub let status_data_connection_already_open : Int32
+
+pub let status_data_connection_open_no_transfer : Int32
+
+pub let status_dir_create : Int32
+
+pub let status_dir_status : Int32
+
+pub let status_enter_extended_passive_mode : Int32
+
+pub let status_enter_extended_port : Int32
+
+pub let status_enter_passive_mode : Int32
+
+pub let status_enter_port : Int32
+
+pub let status_entering_passive_mode_from_ip : Int32
+
+pub let status_exceeded_storage_allocation : Int32
+
+pub let status_file_action_aborted : Int32
+
+pub let status_file_action_aborted_local_error : Int32
+
+pub let status_file_action_not_taken : Int32
+
+pub let status_file_action_ok : Int32
+
+pub let status_file_action_pending_further_info : Int32
+
+pub let status_file_status : Int32
+
+pub let status_help_message : Int32
+
+pub let status_name_status : Int32
+
+pub let status_need_account : Int32
+
+pub let status_need_account_for_login : Int32
+
+pub let status_not_implemented : Int32
+
+pub let status_not_implemented_for_param : Int32
+
+pub let status_not_logged_in : Int32
+
+pub let status_page_type_unknown : Int32
+
+pub let status_request_denied : Int32
+
+pub let status_restart_marker_answer : Int32
+
+pub let status_restart_marker_not_understood : Int32
+
+pub let status_restart_marker_reply : Int32
+
+pub let status_service_ready_for_new_user : Int32
+
+pub let status_service_ready_soon : Int32
+
+pub let status_service_unavailable : Int32
+
+pub let status_session_opened_data_connection : Int32
+
+pub let status_syntax_error_unknown_cmd : Int32
+
+pub let status_syntax_error_unknown_params : Int32
+
+pub let status_system_status : Int32
+
+pub fn status_text(Int32) -> String
+
+pub let status_transfer_aborted : Int32
+
+pub let status_user_logged_in_proceed : Int32
+
+pub let status_username_ok : Int32
+
+pub let status_username_ok_need_password : Int32
+
+// Errors
+#derive(@debug.Debug)
+pub(all) suberror FtpError {
+  ServerError(code~ : Int32, msg~ : String)
+  InvalidCommand(arg~ : String)
+  UnsupportedListLine(line~ : String)
+  UnsupportedListDate(field~ : String)
+  ParseError(msg~ : String)
+  RequestTimeout
+}
+pub fn FtpError::to_repr(Self) -> @debug.Repr
+
+#derive(@debug.Debug)
+pub(all) suberror FtpErrors {
+  MultipleErrors(errors~ : Array[Error])
+}
+pub fn FtpErrors::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+#derive(@debug.Debug)
+pub struct Entry {
+  mut name : String
+  mut target : String
+  mut type_ : EntryType
+  mut size : UInt64
+  mut time : @time.ZonedDateTime
+}
+pub fn Entry::set_name(Self, String) -> Unit
+pub fn Entry::set_size(Self, UInt64) -> Unit
+pub fn Entry::set_target(Self, String) -> Unit
+pub fn Entry::set_time(Self, @time.ZonedDateTime) -> Unit
+pub fn Entry::set_type(Self, EntryType) -> Unit
+pub fn Entry::to_repr(Self) -> @debug.Repr
+
+#derive(Eq, @debug.Debug)
+pub(all) enum EntryType {
+  File
+  Folder
+  Link
+}
+pub fn EntryType::equal(Self, Self) -> Bool
+pub fn EntryType::not_equal(Self, Self) -> Bool
+pub fn EntryType::to_repr(Self) -> @debug.Repr
+pub fn EntryType::to_string(Self) -> String
+
+type ListDateField
+pub fn ListDateField::day(Self) -> Int32
+pub fn ListDateField::has_time(Self) -> Bool
+pub fn ListDateField::hour(Self) -> Int32
+pub fn ListDateField::minute(Self) -> Int32
+pub fn ListDateField::next(Self) -> Int32
+pub fn ListDateField::year(Self) -> Int32
+
+#derive(Eq, @debug.Debug)
+pub(all) enum ListFormat {
+  Rfc3659
+  UnixLs
+  DosDir
+  HostedFtp
+}
+pub fn ListFormat::equal(Self, Self) -> Bool
+pub fn ListFormat::not_equal(Self, Self) -> Bool
+pub fn ListFormat::to_repr(Self) -> @debug.Repr
+
+#derive(@debug.Debug)
+pub struct Response {
+  code : Int32
+  message : String
+}
+pub fn Response::code(Self) -> Int32
+pub fn Response::message(Self) -> String
+pub fn Response::new(Int32, String) -> Self
+pub fn Response::to_repr(Self) -> @debug.Repr
+
+pub struct Scanner {
+  src : String
+  mut offset : Int32
+}
+pub fn Scanner::at_end(Self) -> Bool
+pub fn Scanner::new(String) -> Self
+pub fn Scanner::next(Self) -> String
+pub fn Scanner::next_fields(Self, Int32) -> Array[String]
+pub fn Scanner::remaining(Self) -> String
+
+#derive(Eq, @debug.Debug)
+pub(all) enum TransferType {
+  Binary
+  ASCII
+}
+pub fn TransferType::argument(Self) -> String
+pub fn TransferType::equal(Self, Self) -> Bool
+pub fn TransferType::from_string(String) -> Self?
+pub fn TransferType::not_equal(Self, Self) -> Bool
+pub fn TransferType::to_repr(Self) -> @debug.Repr
+pub fn TransferType::to_string(Self) -> String
+
+// Type aliases
+
+// Traits

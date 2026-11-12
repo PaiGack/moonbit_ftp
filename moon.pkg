@@ -10,13 +10,13 @@
 // the per-file `// Layer:` markers; section 3 states the rule.
 
 import {
+  "PaiGack/ftp/core",
   "PaiGack/ftp/debug" @ftplog,
   "moonbitlang/async",
   "moonbitlang/async/io",
   "moonbitlang/async/socket",
   "moonbitlang/async/tls",
   "moonbitlang/x/time",
-  "moonbitlang/core/debug",
   "moonbitlang/core/env",
 }
 
@@ -33,12 +33,12 @@ import {
 // plus a custom `@io.Writer` stand in for the control channel, and a loopback
 // `@socket.TcpServer` stands in for the data channel.
 import {
+  "PaiGack/ftp/core",
   "PaiGack/ftp/debug" @ftplog,
   "moonbitlang/async",
   "moonbitlang/async/io",
   "moonbitlang/async/socket",
   "moonbitlang/x/time",
-  "moonbitlang/core/debug",
   "moonbitlang/core/env",
 } for "wbtest"
 
@@ -46,6 +46,7 @@ import {
 // package has to be reachable under that alias from the blackbox test target.
 import {
   "PaiGack/ftp",
+  "PaiGack/ftp/core",
   "moonbitlang/async",
   "moonbitlang/async/tls",
 } for "test"

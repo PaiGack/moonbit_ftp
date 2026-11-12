@@ -14,11 +14,11 @@ pub struct Walker {
   /// The client being walked; the walker is built on top of `client`.
   client : FTPClient
   /// The entry currently being visited.
-  mut cur : Entry?
+  mut cur : @core.Entry?
   /// Path of `cur`, always as produced by `pathutil.join`.
   mut cur_path : String
   /// Pending entries; the array tail is the stack top (LIFO).
-  mut stack : Array[(Entry, String)]
+  mut stack : Array[(@core.Entry, String)]
   /// Whether the current directory should still be expanded.
   mut descend : Bool
   /// The root path passed to `walk`, with a trailing slash.
@@ -44,13 +44,16 @@ pub fn walk(client : FTPClient, root : String) -> Walker {
 
 ///|
 /// The entries currently waiting on the stack, oldest first.
-pub fn Walker::entries(self : Walker) -> Array[(Entry, String)] {
+pub fn Walker::entries(self : Walker) -> Array[(@core.Entry, String)] {
   self.stack
 }
 
 ///|
 /// Replace the pending entry stack.
-pub fn Walker::set_stack(self : Walker, stack : Array[(Entry, String)]) -> Unit {
+pub fn Walker::set_stack(
+  self : Walker,
+  stack : Array[(@core.Entry, String)],
+) -> Unit {
   self.stack = stack
 }
 
@@ -62,13 +65,13 @@ pub fn Walker::pending(self : Walker) -> Int32 {
 
 ///|
 /// Push a child entry onto the walk stack.
-pub fn Walker::push(self : Walker, entry : Entry, path : String) -> Unit {
+pub fn Walker::push(self : Walker, entry : @core.Entry, path : String) -> Unit {
   self.set_stack(append_entry(self.entries(), (entry, path)))
 }
 
 ///|
 /// Drop and return the most recently pushed entry, if any.
-pub fn Walker::pop(self : Walker) -> (Entry, String)? {
+pub fn Walker::pop(self : Walker) -> (@core.Entry, String)? {
   guard self.pending() > 0 else { return None }
   let top = self.entries()[self.pending() - 1]
   self.set_stack(drop_last(self.entries()))
@@ -78,10 +81,10 @@ pub fn Walker::pop(self : Walker) -> (Entry, String)? {
 ///|
 /// Return a copy of `entries` with `item` appended.
 fn append_entry(
-  entries : Array[(Entry, String)],
-  item : (Entry, String),
-) -> Array[(Entry, String)] {
-  let grown : Array[(Entry, String)] = []
+  entries : Array[(@core.Entry, String)],
+  item : (@core.Entry, String),
+) -> Array[(@core.Entry, String)] {
+  let grown : Array[(@core.Entry, String)] = []
   for entry in entries {
     grown.push(entry)
   }
@@ -108,11 +111,13 @@ fn append_entry(
 /// ordinary tree into an error at the end.
 pub async fn Walker::next(self : Walker) -> Bool {
   if self.cur is None {
-    self.cur = Some(make_entry("", EntryType::Folder))
+    self.cur = Some(@core.make_entry("", @core.EntryType::Folder))
     self.cur_path = self.root
     self.descend = true
   }
-  if self.descend && self.cur is Some(cur) && cur.type_ is EntryType::Folder {
+  if self.descend &&
+    self.cur is Some(cur) &&
+    cur.type_ is @core.EntryType::Folder {
     let path = self.path()
     let entries = list(self.client, path) catch {
       err => {
@@ -124,7 +129,7 @@ pub async fn Walker::next(self : Walker) -> Bool {
       if entry.name == "." || entry.name == ".." {
         continue
       }
-      self.push(entry, join(path, entry.name))
+      self.push(entry, @core.join(path, entry.name))
     }
   }
   match self.pop() {
@@ -152,7 +157,7 @@ pub fn Walker::err(self : Walker) -> Error? {
 
 ///|
 /// The entry currently being visited.
-pub fn Walker::stat(self : Walker) -> Entry? {
+pub fn Walker::stat(self : Walker) -> @core.Entry? {
   self.cur
 }
 
@@ -169,8 +174,10 @@ pub fn Walker::path(self : Walker) -> String {
 ///|
 /// Return a copy of `entries` without its last element, which is how the walk
 /// stack is popped (LIFO on the array tail).
-fn drop_last(entries : Array[(Entry, String)]) -> Array[(Entry, String)] {
-  let kept : Array[(Entry, String)] = []
+fn drop_last(
+  entries : Array[(@core.Entry, String)],
+) -> Array[(@core.Entry, String)] {
+  let kept : Array[(@core.Entry, String)] = []
   for i = 0; i < entries.length() - 1; i = i + 1 {
     kept.push(entries[i])
   }

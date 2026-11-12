@@ -35,14 +35,14 @@ async test "Control::upgrade swaps the reader and writer in place" {
 }
 
 ///|
-/// `Response::new` is the value constructor the parsers hand back; its
+/// `@core.Response::new` is the value constructor the parsers hand back; its
 /// accessors must return the two fields verbatim.
-test "Response::new and its accessors agree" {
-  let response = Response::new(550, "No such file or directory")
+test "@core.Response::new and its accessors agree" {
+  let response = @core.Response::new(550, "No such file or directory")
   assert_eq(response.code(), 550)
   assert_eq(response.message(), "No such file or directory")
   // An empty message is legitimate: `200 ` carries no text.
-  let empty = Response::new(200, "")
+  let empty = @core.Response::new(200, "")
   assert_eq(empty.code(), 200)
   assert_eq(empty.message(), "")
 }
@@ -57,24 +57,24 @@ async test "a short terminating line is rejected" {
     ignore(read_response(control))
     None
   } catch {
-    FtpError::ParseError(msg~) => Some(msg)
+    @core.FtpError::ParseError(msg~) => Some(msg)
     _ => None
   }
   assert_eq(raised, Some("short response: 211"))
 }
 
 ///|
-/// `parse_code` needs three digits, so a two digit line and a letter are both
-/// rejected; `is_continuation` needs a `-` in the fourth byte.
-test "parse_code and is_continuation handle the boundaries" {
-  assert_eq(parse_code("220 Service ready"), Some(220))
-  assert_eq(parse_code("999"), Some(999))
-  assert_true(parse_code("22") is None)
-  assert_true(parse_code("") is None)
-  assert_true(parse_code("2x0 ok") is None)
-  assert_true(is_continuation("211-Features:"))
-  assert_false(is_continuation("211 Features:"))
-  assert_false(is_continuation("211"))
+/// `@core.parse_code` needs three digits, so a two digit line and a letter are both
+/// rejected; `@core.is_continuation` needs a `-` in the fourth byte.
+test "@core.parse_code and @core.is_continuation handle the boundaries" {
+  assert_eq(@core.parse_code("220 Service ready"), Some(220))
+  assert_eq(@core.parse_code("999"), Some(999))
+  assert_true(@core.parse_code("22") is None)
+  assert_true(@core.parse_code("") is None)
+  assert_true(@core.parse_code("2x0 ok") is None)
+  assert_true(@core.is_continuation("211-Features:"))
+  assert_false(@core.is_continuation("211 Features:"))
+  assert_false(@core.is_continuation("211"))
 }
 
 ///|
@@ -101,7 +101,7 @@ test "render_command refuses a CR or LF in an argument" {
     ignore(render_command("RETR {}", ["/a\r\nDELE /b"]))
     None
   } catch {
-    FtpError::InvalidCommand(_) => Some(true)
+    @core.FtpError::InvalidCommand(_) => Some(true)
     _ => None
   }
   assert_eq(raised, Some(true))
@@ -162,7 +162,7 @@ async test "read_response times out on a silent server" {
       ignore(read_response(control))
       "no error"
     } catch {
-      FtpError::RequestTimeout => "RequestTimeout"
+      @core.FtpError::RequestTimeout => "RequestTimeout"
       err => "other: \{err}"
     }
     result

@@ -99,7 +99,7 @@ async test "status mismatch raises ServerError carrying the original message" {
     ignore(@ftp.cmd_expect(control, "", [200]))
     None
   } catch {
-    @ftp.FtpError::ServerError(code~, msg~) => Some((code, msg))
+    @core.FtpError::ServerError(code~, msg~) => Some((code, msg))
     _ => None
   }
   assert_eq(raised, Some((550, "No such file or directory")))
@@ -111,7 +111,7 @@ async test "check_for_command_injection rejects CR and LF" {
     @ftp.check_for_command_injection("a\rb")
     None
   } catch {
-    @ftp.FtpError::InvalidCommand(_) => Some(true)
+    @core.FtpError::InvalidCommand(_) => Some(true)
     _ => None
   }
   assert_eq(raised_cr, Some(true))
@@ -119,7 +119,7 @@ async test "check_for_command_injection rejects CR and LF" {
     @ftp.check_for_command_injection("a\nb")
     None
   } catch {
-    @ftp.FtpError::InvalidCommand(_) => Some(true)
+    @core.FtpError::InvalidCommand(_) => Some(true)
     _ => None
   }
   assert_eq(raised_lf, Some(true))
@@ -134,7 +134,7 @@ async test "a code line with no separator is a short response" {
     ignore(@ftp.read_response(control))
     None
   } catch {
-    @ftp.FtpError::ParseError(msg~) => Some(msg)
+    @core.FtpError::ParseError(msg~) => Some(msg)
     _ => None
   }
   assert_eq(raised, Some("short response: 200"))
@@ -155,7 +155,7 @@ async test "a non-numeric first line is a parse error" {
     ignore(@ftp.read_response(control))
     None
   } catch {
-    @ftp.FtpError::ParseError(_) => Some(true)
+    @core.FtpError::ParseError(_) => Some(true)
     _ => None
   }
   assert_eq(raised, Some(true))
@@ -230,6 +230,6 @@ async test "MLST merges the fact lines of the middle of the reply" {
     lines[1].trim_start(),
     "Type=file;Size=1024;Modify=20220813133357; lo",
   )
-  let entry = @ftp.parse_rfc3659_line(lines[1].trim_start().to_owned())
+  let entry = @core.parse_rfc3659_line(lines[1].trim_start().to_owned())
   assert_true(entry is Some(_))
 }

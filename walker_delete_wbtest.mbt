@@ -10,7 +10,7 @@
 //
 // That is why the README example deletes what it uploaded **after** the walk
 // loop, not before. `list` is all-or-nothing — `list.mbt` reads the whole
-// payload and only then raises `join_errors` — so a live `DELE` that made a
+// payload and only then raises `@core.join_errors` — so a live `DELE` that made a
 // directory unreadable would surface as `next()` going `false` with `err()`
 // set, i.e. a silently truncated walk. These tests pin the ordering down so the
 // example cannot drift back.

@@ -44,7 +44,7 @@ async test "get_data_port honours disable_epsv from the first transfer" {
     true,
     false,
     false,
-    default_dial_timeout_ms,
+    @core.default_dial_timeout_ms,
     0,
     @tls.TrustedRoot::SystemRoot,
   )
@@ -65,7 +65,7 @@ async test "get_data_port trusts the PASV answer when asked" {
     true,
     true,
     false,
-    default_dial_timeout_ms,
+    @core.default_dial_timeout_ms,
     0,
     @tls.TrustedRoot::SystemRoot,
   )
@@ -83,7 +83,7 @@ async test "get_data_port refuses a bogus PASV answer even when trusting" {
     true,
     true,
     false,
-    default_dial_timeout_ms,
+    @core.default_dial_timeout_ms,
     0,
     @tls.TrustedRoot::SystemRoot,
   )
@@ -109,7 +109,7 @@ async test "get_data_port raises when both EPSV and PASV fail" {
     ignore(get_data_port(session))
     None
   } catch {
-    FtpError::ServerError(code~, ..) => Some(code)
+    @core.FtpError::ServerError(code~, ..) => Some(code)
     _ => None
   }
   assert_eq(raised, Some(500))
@@ -159,7 +159,7 @@ async test "open_data_conn defers the TLS handshake until start_tls" {
     false,
     false,
     true,
-    default_dial_timeout_ms,
+    @core.default_dial_timeout_ms,
     0,
     @tls.TrustedRoot::SystemRoot,
   )
@@ -252,7 +252,7 @@ async test "cmd_data_conn_from reports a refused transfer command" {
       ignore(cmd_data_conn_from(session, 0, "RETR {}", ["/gone.txt"]))
       "no error"
     } catch {
-      FtpError::ServerError(code~, msg~) => "\{code} \{msg}"
+      @core.FtpError::ServerError(code~, msg~) => "\{code} \{msg}"
       _ => "other"
     }
   })
@@ -267,18 +267,22 @@ async test "cmd_data_conn_from reports a refused transfer command" {
 /// `[125, 150]`, so any other code already turned into a `ParseError` above.
 ///
 /// The guard is therefore the assertion that the accepted set and the
-/// `is_positive_intermediate` class have not drifted apart — the regression
+/// `@core.is_positive_intermediate` class have not drifted apart — the regression
 /// that once made this reject *every* real transfer. Pinning the two constants
 /// against the predicate is what keeps it honest.
 test "the accepted transfer-start codes are positive intermediates" {
-  assert_true(is_positive_intermediate(status_data_conn_already_in_use))
-  assert_true(is_positive_intermediate(150))
-  assert_eq(status_data_conn_already_in_use, 125)
+  assert_true(
+    @core.is_positive_intermediate(@core.status_data_conn_already_in_use),
+  )
+  assert_true(@core.is_positive_intermediate(150))
+  assert_eq(@core.status_data_conn_already_in_use, 125)
   // The completion code that ends a transfer is deliberately *not* one, so a
   // `226` arriving here can never be mistaken for a start.
-  assert_false(is_positive_intermediate(status_closing_data_connection))
+  assert_false(
+    @core.is_positive_intermediate(@core.status_closing_data_connection),
+  )
   // And the mistake the guard exists to catch: a 2xx is not a start.
-  assert_false(is_positive_intermediate(226))
+  assert_false(@core.is_positive_intermediate(226))
 }
 
 ///|

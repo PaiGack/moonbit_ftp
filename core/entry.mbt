@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 // Ported from jlaffaye/ftp (ISC License), see LICENSE-THIRD-PARTY.
 
-// Layer: pure logic — no IO, no `moonbitlang/async` dependency.
+// Package: `PaiGack/ftp/core` — pure values and parsers, no IO.
 
 ///|
 /// The kind of a remote directory entry, mirroring upstream

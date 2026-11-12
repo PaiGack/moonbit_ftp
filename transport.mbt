@@ -20,7 +20,7 @@
 /// `227 Entering Passive Mode (127,0,0,1,196,6)`
 pub async fn pasv(session : Session) -> (String, Int32) {
   let response = cmd_expect(session.control(), "PASV", [
-    status_enter_passive_mode,
+    @core.status_enter_passive_mode,
   ])
   parse_pasv(response.message())
 }
@@ -28,32 +28,35 @@ pub async fn pasv(session : Session) -> (String, Int32) {
 ///|
 /// Parse the six comma separated numbers of a `PASV` reply into an IP and a
 /// port (`port = p1 * 256 + p2`). Fewer than six numbers is an error.
-pub fn parse_pasv(line : String) -> (String, Int32) raise FtpError {
+pub fn parse_pasv(line : String) -> (String, Int32) raise @core.FtpError {
   let open = match line.find("(") {
     Some(open) => open
-    None => raise FtpError::ParseError(msg="invalid PASV response: \{line}")
+    None =>
+      raise @core.FtpError::ParseError(msg="invalid PASV response: \{line}")
   }
   let close = match line.find(")") {
     Some(close) => close
-    None => raise FtpError::ParseError(msg="invalid PASV response: \{line}")
+    None =>
+      raise @core.FtpError::ParseError(msg="invalid PASV response: \{line}")
   }
   guard close > open + 1 else {
-    raise FtpError::ParseError(msg="invalid PASV response: \{line}")
+    raise @core.FtpError::ParseError(msg="invalid PASV response: \{line}")
   }
   let inner = line[open + 1:close].to_owned()
   let parts = inner.split(",").collect()
   guard parts.length() >= 6 else {
-    raise FtpError::ParseError(msg="invalid PASV response: \{line}")
+    raise @core.FtpError::ParseError(msg="invalid PASV response: \{line}")
   }
   let numbers : Array[Int32] = []
   for i = 0; i < 6; i = i + 1 {
     let text = parts[i].trim().to_owned()
     guard is_all_digits(text) else {
-      raise FtpError::ParseError(msg="invalid PASV response: \{line}")
+      raise @core.FtpError::ParseError(msg="invalid PASV response: \{line}")
     }
     let value = match parse_octet(text) {
       Some(value) => value
-      None => raise FtpError::ParseError(msg="invalid PASV response: \{line}")
+      None =>
+        raise @core.FtpError::ParseError(msg="invalid PASV response: \{line}")
     }
     numbers.push(value)
   }
@@ -155,7 +158,7 @@ fn ip_segments(ip : String) -> Array[Int32]? {
 /// `229 Entering Extended Passive Mode (|||6446|)`
 pub async fn epsv(session : Session) -> Int32 {
   let response = cmd_expect(session.control(), "EPSV", [
-    status_enter_extended_passive_mode,
+    @core.status_enter_extended_passive_mode,
   ])
   parse_epsv(response.message())
 }
@@ -166,27 +169,30 @@ pub async fn epsv(session : Session) -> Int32 {
 /// The body is expected to contain `|||` followed by the port and a closing
 /// `|`. A malformed reply raises `ParseError` instead of silently using port
 /// 0, which would otherwise hang the connect.
-pub fn parse_epsv(line : String) -> Int32 raise FtpError {
+pub fn parse_epsv(line : String) -> Int32 raise @core.FtpError {
   let marker = match line.find("|||") {
     Some(marker) => marker
-    None => raise FtpError::ParseError(msg="invalid EPSV response: \{line}")
+    None =>
+      raise @core.FtpError::ParseError(msg="invalid EPSV response: \{line}")
   }
   let start = marker + 3
   let tail = line[start:].to_owned()
   let end = match tail.find("|") {
     Some(end) => end
-    None => raise FtpError::ParseError(msg="invalid EPSV response: \{line}")
+    None =>
+      raise @core.FtpError::ParseError(msg="invalid EPSV response: \{line}")
   }
   guard end > 0 else {
-    raise FtpError::ParseError(msg="invalid EPSV response: \{line}")
+    raise @core.FtpError::ParseError(msg="invalid EPSV response: \{line}")
   }
   let digits = tail[0:end].to_owned()
   guard is_all_digits(digits) else {
-    raise FtpError::ParseError(msg="invalid EPSV response: \{line}")
+    raise @core.FtpError::ParseError(msg="invalid EPSV response: \{line}")
   }
   match parse_port(digits) {
     Some(port) => port
-    None => raise FtpError::ParseError(msg="invalid EPSV response: \{line}")
+    None =>
+      raise @core.FtpError::ParseError(msg="invalid EPSV response: \{line}")
   }
 }
 
@@ -368,7 +374,7 @@ pub async fn open_data_conn(session : Session) -> DataConn {
   let (ip, port) = get_data_port(session)
   let addr = @socket.Addr::parse("\{ip}:\{port}") catch {
     _ =>
-      raise FtpError::ParseError(
+      raise @core.FtpError::ParseError(
         msg="invalid data connection address: \{ip}:\{port}",
       )
   }
@@ -411,7 +417,7 @@ pub async fn cmd_data_conn_from(
     let _ = try {
       ignore(
         cmd_expect(session.control(), "PRET \{preview}", [
-          status_cmd_ok, status_file_action_pending_further_info,
+          @core.status_cmd_ok, @core.status_file_action_pending_further_info,
         ]),
       )
       true
@@ -424,7 +430,7 @@ pub async fn cmd_data_conn_from(
     let ok = try {
       ignore(
         cmd_format(session.control(), "REST {}", ["\{offset}"], [
-          status_file_action_pending_further_info,
+          @core.status_file_action_pending_further_info,
         ]),
       )
       true
@@ -433,7 +439,7 @@ pub async fn cmd_data_conn_from(
     }
     guard ok else {
       conn.close()
-      raise FtpError::ParseError(msg="REST command failed")
+      raise @core.FtpError::ParseError(msg="REST command failed")
     }
   }
   // The reason the command was rejected propagates untouched. It used to be
@@ -452,13 +458,13 @@ pub async fn cmd_data_conn_from(
   // same reason as in `MirrorWriter::write_once` (debug.mbt): a re-raise from
   // inside the handler is either `fragile_catch_all`, which is denied here, or
   // a miscompile when it uses the caught error after async work.
-  let (response, failure) : (Response, Error?) = try {
+  let (response, failure) : (@core.Response, Error?) = try {
     let r = cmd_format(session.control(), cmd, args, [
-      status_data_conn_already_in_use, 150,
+      @core.status_data_conn_already_in_use, 150,
     ])
     (r, None)
   } catch {
-    e => (Response::{ code: -1, message: "", }, Some(e))
+    e => (@core.Response::new(-1, ""), Some(e))
   }
   match failure {
     Some(e) => {
@@ -469,10 +475,13 @@ pub async fn cmd_data_conn_from(
   }
   // The reply that starts a transfer is a *positive intermediate* (`125` or
   // `150`), not a completion: `2xx` only arrives at the end, on `226`. Testing
-  // `is_positive_completion` here rejected every real transfer.
-  guard is_positive_intermediate(response.code()) else {
+  // `@core.is_positive_completion` here rejected every real transfer.
+  guard @core.is_positive_intermediate(response.code()) else {
     conn.close()
-    raise FtpError::ServerError(code=response.code(), msg=response.message())
+    raise @core.FtpError::ServerError(
+      code=response.code(),
+      msg=response.message(),
+    )
   }
   conn.start_tls(session)
   conn

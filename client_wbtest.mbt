@@ -22,7 +22,7 @@
 /// The documented `DialOptions` defaults, one assertion per field.
 test "DialOptions defaults match the documented values" {
   let options = DialOptions::default()
-  assert_eq(options.timeout_ms, default_dial_timeout_ms)
+  assert_eq(options.timeout_ms, @core.default_dial_timeout_ms)
   assert_eq(options.timeout_ms, 30000)
   assert_eq(options.shut_timeout_ms, 0)
   assert_false(options.tls)
@@ -123,7 +123,7 @@ test "Options defaults match DialOptions defaults" {
   assert_false(options.disable_epsv())
   assert_false(options.trust_pasv_ip())
   assert_false(options.tls())
-  assert_eq(options.timeout_ms(), default_dial_timeout_ms)
+  assert_eq(options.timeout_ms(), @core.default_dial_timeout_ms)
   assert_eq(options.shut_timeout_ms(), 0)
   assert_true(options.trust is @tls.TrustedRoot::SystemRoot)
 }
@@ -291,7 +291,7 @@ async test "set_file_time refuses when only MDTM reads are supported" {
     set_file_time(client, "/hello.txt", timestamp)
     None
   } catch {
-    FtpError::ServerError(code~, ..) => Some(code)
+    @core.FtpError::ServerError(code~, ..) => Some(code)
     _ => None
   }
   assert_eq(raised, Some(502))
@@ -315,7 +315,7 @@ async test "file_size rejects a non numeric payload" {
     ignore(file_size(client, "/big.bin"))
     None
   } catch {
-    FtpError::ParseError(_) => Some(true)
+    @core.FtpError::ParseError(_) => Some(true)
     _ => None
   }
   assert_eq(raised, Some(true))

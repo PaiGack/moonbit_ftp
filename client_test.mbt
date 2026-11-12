@@ -30,7 +30,7 @@ test "parse_mdtm rejects a short field" {
     ignore(@ftp.parse_mdtm("2022081313"))
     None
   } catch {
-    @ftp.FtpError::ParseError(msg~) => Some(msg)
+    @core.FtpError::ParseError(msg~) => Some(msg)
     _ => None
   }
   assert_true(raised is Some(_))
@@ -42,7 +42,7 @@ test "parse_mdtm rejects a non numeric field" {
     ignore(@ftp.parse_mdtm("2022081313335x"))
     None
   } catch {
-    @ftp.FtpError::ParseError(_) => Some(true)
+    @core.FtpError::ParseError(_) => Some(true)
     _ => None
   }
   assert_eq(raised, Some(true))
@@ -56,7 +56,7 @@ test "parse_mdtm rejects an impossible calendar date" {
     ignore(@ftp.parse_mdtm("20230230000000"))
     None
   } catch {
-    @ftp.FtpError::ParseError(_) => Some(true)
+    @core.FtpError::ParseError(_) => Some(true)
     _ => None
   }
   assert_eq(raised, Some(true))
@@ -110,7 +110,7 @@ test "parse_mdtm rejects a non digit inside the field" {
     ignore(@ftp.parse_mdtm("2024-102030405"))
     None
   } catch {
-    @ftp.FtpError::ParseError(_) => Some(true)
+    @core.FtpError::ParseError(_) => Some(true)
     _ => None
   }
   assert_eq(raised, Some(true))
