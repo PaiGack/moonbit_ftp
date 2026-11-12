@@ -23,8 +23,12 @@ docstring 里，**改动被测脚本时同步改自测**。
 | `ftps/cmd-ftps-selftest.py` | `cmd/ftps` | 真实二进制对 mock 跑通，含拒绝 `STOR` 的失败路径 |
 | `profiles/cmd-profiles-selftest.py` | `cmd/profiles` | 每个画像实际发出的命令（`LIST`/`MLSD`、`PASV`/`EPSV`、时间戳） |
 
-单独重跑：`python3 <自测脚本> <参数>`，参数见各自 docstring（多数只收仓库根）。除 `cmd-ftps-selftest.py` /
-`cmd-profiles-selftest.py` 会驱动已构建的原生二进制外，其余都不需要编译。
+单独重跑：`python3 <自测脚本> <参数>`，参数见各自 docstring。多数只收仓库根，
+**`ftps/probe-ftps-selftest.py` 例外**：它收的是被测脚本本身
+（`scripts/ftps/probe-ftps.sh`），传仓库根会被前置校验直接拒绝
+（以前会拖到调用 `gen-cert.sh` 时才以 127 失败，看起来像缺工具）。除
+`cmd-ftps-selftest.py` / `cmd-profiles-selftest.py` 会驱动已构建的原生二进制外，
+其余都不需要编译。
 
 ## 明文容器
 

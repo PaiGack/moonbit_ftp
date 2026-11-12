@@ -44,6 +44,19 @@ PROBE = sys.argv[1]
 CA = sys.argv[2] if len(sys.argv) > 2 else None
 TIMEOUT = "5"
 
+# Every sibling self-test takes the repository root; this one takes the *probe*
+# instead, because it drives that script rather than reading it. Passing `.`
+# is therefore the natural mistake, and without this check it surfaced as
+# `gen-cert.sh` exiting 127 two hundred lines later -- which reads like a
+# missing toolchain package, not like a wrong argument. Fail where the mistake
+# is made, and name the right value.
+if not Path(PROBE).is_file() or Path(PROBE).name != "probe-ftps.sh":
+    sys.exit(
+        "usage: probe-ftps-selftest.py PROBE [CA_FILE]\n"
+        f"       PROBE must be scripts/ftps/probe-ftps.sh, got {PROBE!r}\n"
+        "       (unlike the other self-tests, this one does not take the repo root)"
+    )
+
 
 def line(sock, buffer, deadline):
     """Read one CRLF-terminated command line, or None on timeout/EOF."""
