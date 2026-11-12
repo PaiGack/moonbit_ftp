@@ -176,6 +176,26 @@ test "Session skip_epsv and use_pret round trip" {
 }
 
 ///|
+/// `record_data_port` is how a transfer's `PASV` decision reaches the session.
+///
+/// It has to be a separate function from `set_skip_epsv` with this exact rule:
+/// `true` pins the session to `PASV` for the rest of its life, `false` must not
+/// *un*-pin it. The regression this covers is the latch being computed inside
+/// `@connection.cmd_data_conn_from` and then dropped on the floor, which made
+/// every transfer re-send an `EPSV` the server had already refused.
+test "record_data_port pins the session only when the transfer took PASV" {
+  let (control, _) = scripted_control("")
+  let session = Session::new(control)
+  session.record_data_port(false)
+  assert_false(session.skip_epsv())
+  session.record_data_port(true)
+  assert_true(session.skip_epsv())
+  // A later, EPSV-based transfer must not undo a latch that already happened.
+  session.record_data_port(false)
+  assert_true(session.skip_epsv())
+}
+
+///|
 /// The `FTPClient` capability accessors read the flags the setters wrote, and
 /// `has_feature` uppercases before looking up — that asymmetry with
 /// `parse_features` (which stores uppercase) is what makes `has_feature("mlst")`

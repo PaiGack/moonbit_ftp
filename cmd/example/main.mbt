@@ -40,7 +40,8 @@ async fn main {
   println("==> RETR /hello.txt")
   let response = @ftp.retr(client, "/hello.txt")
   let payload = response.read_all() catch { _ => Bytes::new(0) }
-  let payload = payload.to_string()
+  // `Bytes::to_string` is the debug repr `b"..."`; the demo prints the file.
+  let payload = @utf8.decode(payload)
   println("    payload: \{payload}")
 
   // Upload, rename, size-check, then delete.

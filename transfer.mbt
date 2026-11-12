@@ -186,13 +186,14 @@ pub async fn retr_from(
 ) -> DataResponse {
   client.lock()
   defer client.unlock()
-  let conn = @connection.cmd_data_conn_from(
+  let (conn, latched) = @connection.cmd_data_conn_from_ex(
     client.session.control(),
     offset,
     "RETR {}",
     [path],
     options=client.session.conn_options(),
   )
+  client.session.record_data_port(latched)
   {
     reader: conn.reader(),
     closed: false,
@@ -231,13 +232,14 @@ pub async fn stor_from(
 ) -> Unit {
   client.lock()
   defer client.unlock()
-  let conn = @connection.cmd_data_conn_from(
+  let (conn, latched) = @connection.cmd_data_conn_from_ex(
     client.session.control(),
     offset,
     "STOR {}",
     [path],
     options=client.session.conn_options(),
   )
+  client.session.record_data_port(latched)
   let errors : Array[Error] = []
   let written = stream(source, conn.writer()) catch {
     err => {
@@ -289,13 +291,14 @@ pub async fn append(
 ) -> Unit {
   client.lock()
   defer client.unlock()
-  let conn = @connection.cmd_data_conn_from(
+  let (conn, latched) = @connection.cmd_data_conn_from_ex(
     client.session.control(),
     0,
     "APPE {}",
     [path],
     options=client.session.conn_options(),
   )
+  client.session.record_data_port(latched)
   let errors : Array[Error] = []
   ignore(
     stream(source, conn.writer()) catch {

@@ -545,6 +545,33 @@ pub fn ConnOptions::new(
 }
 
 ///|
+/// Open the data connection for one transfer, and report whether `EPSV` has
+/// just been given up on.
+///
+/// The `Bool` is `get_data_port`'s "latched" flag: `true` when this call took
+/// the `PASV` path because `EPSV` failed (or was configured off), which is
+/// what the caller stores in `Session::set_skip_epsv`. It used to be dropped
+/// on the floor inside `cmd_data_conn_from`, so the "EPSV failed once, never
+/// try again" latch never engaged and every transfer re-sent `EPSV` to a
+/// server already known to refuse it.
+pub async fn cmd_data_conn_from_ex(
+  control : Control,
+  offset : Int64,
+  cmd : String,
+  args : Array[String],
+  options~ : ConnOptions,
+) -> (DataConn, Bool) {
+  let (conn, latched) = cmd_data_conn_from_raw(
+    control,
+    offset,
+    cmd,
+    args,
+    options~,
+  )
+  (conn, latched)
+}
+
+///|
 pub async fn cmd_data_conn_from(
   control : Control,
   offset : Int64,
@@ -552,6 +579,20 @@ pub async fn cmd_data_conn_from(
   args : Array[String],
   options~ : ConnOptions,
 ) -> DataConn {
+  let (conn, _) = cmd_data_conn_from_raw(control, offset, cmd, args, options~)
+  conn
+}
+
+///|
+/// The body shared by `cmd_data_conn_from` and `cmd_data_conn_from_ex`; see
+/// the former for the step list.
+async fn cmd_data_conn_from_raw(
+  control : Control,
+  offset : Int64,
+  cmd : String,
+  args : Array[String],
+  options~ : ConnOptions,
+) -> (DataConn, Bool) {
   let session = control
   if options.use_pret {
     // `PRET` announces the command *about to be sent*, so it must carry the
@@ -571,7 +612,7 @@ pub async fn cmd_data_conn_from(
       _ => false
     }
   }
-  let (conn, _) = open_data_conn(
+  let (conn, latched) = open_data_conn(
     session,
     skip_epsv=options.skip_epsv,
     disable_epsv=options.disable_epsv,
@@ -641,5 +682,5 @@ pub async fn cmd_data_conn_from(
     options.timeout_ms,
     options.tls,
   )
-  conn
+  (conn, latched)
 }

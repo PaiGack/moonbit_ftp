@@ -18,6 +18,8 @@ pub async fn cmd(Control, String) -> @core.Response
 
 pub async fn cmd_data_conn_from(Control, Int64, String, Array[String], options~ : ConnOptions) -> DataConn
 
+pub async fn cmd_data_conn_from_ex(Control, Int64, String, Array[String], options~ : ConnOptions) -> (DataConn, Bool)
+
 pub async fn cmd_expect(Control, String, Array[Int32]) -> @core.Response
 
 pub async fn cmd_format(Control, String, Array[String], Array[Int32]) -> @core.Response

@@ -189,6 +189,7 @@ pub fn Session::conn_options(Self, use_pret? : Bool) -> @connection.ConnOptions
 pub fn Session::control(Self) -> @connection.Control
 pub fn Session::new(@connection.Control, options? : Options) -> Self
 pub fn Session::options(Self) -> Options
+pub fn Session::record_data_port(Self, Bool) -> Unit
 pub fn Session::set_skip_epsv(Self, Bool) -> Unit
 pub fn Session::set_use_pret(Self, Bool) -> Unit
 pub fn Session::skip_epsv(Self) -> Bool

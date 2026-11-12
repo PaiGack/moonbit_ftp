@@ -592,6 +592,24 @@ pub fn Session::conn_options(
 }
 
 ///|
+/// Remember the data-channel decision the last transfer made.
+///
+/// `true` means the transfer took `PASV` (either because `disable_epsv` is
+/// set or because `EPSV` failed), so later transfers go straight there instead
+/// of re-sending a command the server already refused. That latch is upstream
+/// behaviour (see `@connection.get_data_port`); it used to be computed and then
+/// dropped, which made every transfer cost one extra refused `EPSV`.
+///
+/// The one case that must *not* repin the session is a caller that asked for
+/// `EPSV` explicitly (`disable_epsv` off) while the session is still
+/// unpinned: `false` leaves everything as it is.
+pub fn Session::record_data_port(self : Session, latched : Bool) -> Unit {
+  if latched {
+    self.skip_epsv = true
+  }
+}
+
+///|
 /// The control connection of this session.
 pub fn Session::control(self : Session) -> @connection.Control {
   self.control

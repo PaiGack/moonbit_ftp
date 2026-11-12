@@ -248,7 +248,10 @@ async fn smoke(
   let bytes = response.read_all() catch {
     e => fail("\{label}: reading the RETR payload failed: \{e}")
   }
-  let payload = bytes.to_string()
+  // `Bytes::to_string` is `Show`, i.e. the debug repr `b"hello world\x0a"`,
+  // not the file's content. Comparing against it can never hold, so this
+  // assertion used to fail on any server at all.
+  let payload = @utf8.decode(bytes)
   guard payload == "hello world\n" else {
     fail(
       "\{label}: RETR payload was \{format_repr(payload)}, expected hello.txt",
@@ -328,7 +331,7 @@ async fn smoke(
   let appended_bytes = appended_response.read_all() catch {
     e => fail("\{label}: reading the APPE payload failed: \{e}")
   }
-  let appended_text = appended_bytes.to_string()
+  let appended_text = @utf8.decode(appended_bytes)
   guard appended_text == "ftps\nmore\nand more\n" else {
     fail(
       "\{label}: APPE content was \{format_repr(appended_text)}, expected \{format_repr("ftps\nmore\nand more\n")}",

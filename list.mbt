@@ -10,13 +10,14 @@
 pub async fn name_list(client : FTPClient, path : String) -> Array[String] {
   client.lock()
   defer client.unlock()
-  let conn = @connection.cmd_data_conn_from(
+  let (conn, latched) = @connection.cmd_data_conn_from_ex(
     client.session.control(),
     0,
     "NLST {}",
     [path],
     options=client.session.conn_options(),
   )
+  client.session.record_data_port(latched)
   let errors : Array[Error] = []
   let names : Array[String] = []
   let payload = read_payload(conn, errors) catch {
@@ -61,13 +62,14 @@ pub async fn list(client : FTPClient, path : String) -> Array[@core.Entry] {
   } else {
     "LIST {}"
   }
-  let conn = @connection.cmd_data_conn_from(
+  let (conn, latched) = @connection.cmd_data_conn_from_ex(
     client.session.control(),
     0,
     command,
     [path],
     options=client.session.conn_options(),
   )
+  client.session.record_data_port(latched)
   let errors : Array[Error] = []
   let entries : Array[@core.Entry] = []
   let payload = read_payload(conn, errors) catch {
