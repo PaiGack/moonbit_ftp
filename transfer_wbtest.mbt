@@ -5,7 +5,7 @@
 // Package: `PaiGack/ftp` -- the public client API. Layers below it live in
 // `core/` (values), `connection/` (control + data channel) and `debug/` (traffic log).
 
-// Tests for the data transfer wrappers in `transfer.mbt`.
+// Tests for the data transfer// Tests for the data transfer wrappers in `transfer.mbt`.
 //
 // `retr` / `stor` / `append` are one command each, so what is pinned here is
 // the contract around them: the command (`RETR` / `STOR` / `APPE` plus the path
@@ -475,4 +475,53 @@ async test "stor aggregates a refused 226" {
   })
   assert_eq(code, 550)
   assert_eq(sink.lines, ["EPSV", "STOR /up.txt"])
+}
+
+///|
+/// A transfer owns the session until it is closed: the data socket is in use,
+/// so nothing else may put a command on the control channel and take the
+/// transfer's replies. `retr` returns before the transfer ends, and it used to
+/// release the lock on the way out -- a second command then ran *during* the
+/// download, on the same control channel, with both replies in flight.
+///
+/// Observable from outside: while the `DataResponse` is open nothing else
+/// reaches the wire, and the *next* transfer -- sent after the first one was
+/// closed -- gets its own replies instead of the tail of the first one's.
+async test "a transfer's replies stay with its own transfer" {
+  // A separate listener for the second transfer: the first one must still be
+  // serving the open download when the second `EPSV` is sent.
+  let listener = data_listener()
+  let port = listener.addr.port()
+  let second_listener = data_listener()
+  let second_port = second_listener.addr.port()
+  let script = epsv_reply(port) +
+    "150 Opening BINARY mode data connection.\r\n" +
+    "226 Transfer complete.\r\n" +
+    epsv_reply(second_port) +
+    "150 Opening BINARY mode data connection.\r\n226 Transfer complete.\r\n"
+  let (client, sink) = scripted_client(script)
+  @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      serve_payload(listener, "payload")
+      serve_payload(second_listener, "second")
+    })
+    let response = retr(client, "/a.txt") catch { e => fail("retr: \{e}") }
+    // The response is open: its data socket is in use and nothing else may
+    // talk on the control channel, so the only commands so far are the first
+    // transfer's.
+    assert_eq(sink.lines, ["EPSV", "RETR /a.txt"])
+    let bytes = response.read_all() catch { e => fail("read_all: \{e}") }
+    assert_eq(bytes.length(), 7)
+    // `read_all` closed the response and released the lock, so the next
+    // transfer runs on a channel whose previous reply was read.
+    let other = retr(client, "/b.txt") catch {
+      @core.FtpError::ServerError(code~, msg~) =>
+        fail("second retr answered \{code}: \{msg}")
+      err => fail("second retr failed: \{err.to_string()}")
+    }
+    let second_bytes = other.read_all() catch { e => fail("second read: \{e}") }
+    assert_eq(second_bytes.length(), 6)
+    assert_eq(sink.lines, ["EPSV", "RETR /a.txt", "EPSV", "RETR /b.txt"])
+    ()
+  })
 }

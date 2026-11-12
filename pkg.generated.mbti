@@ -84,10 +84,13 @@ pub struct DataResponse {
   reader : &@io.Reader
   mut closed : Bool
   session : Session
+  client : FTPClient
   shut_timeout_ms : Int32
 }
 pub async fn DataResponse::close(Self) -> Unit
 pub async fn DataResponse::read(Self, FixedArray[Byte], offset? : Int32, max_len? : Int32) -> Int32
+pub async fn DataResponse::read_all(Self) -> Bytes
+pub async fn DataResponse::read_to(Self, &@io.Writer) -> Unit
 
 pub struct DialOptions {
   mut timeout_ms : Int32
@@ -157,6 +160,7 @@ pub fn FTPClient::set_mfmt_supported(Self, Bool) -> Unit
 pub fn FTPClient::set_mlst_supported(Self, Bool) -> Unit
 pub fn FTPClient::state_options(Self) -> Options
 pub fn FTPClient::unlock(Self) -> Unit
+pub async fn FTPClient::with_lock(Self, async () -> Unit) -> Unit
 
 pub struct Options {
   disable_epsv : Bool

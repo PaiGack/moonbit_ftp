@@ -200,8 +200,8 @@ let c = try @ftp.dial("ftp.example.org:21", timeout_ms=5000) catch { ... }
 
 // Go: r, err := c.Retr("a.txt"); buf, _ := io.ReadAll(r); r.Close()
 let r = @ftp.retr(c, "a.txt")
-let buf = r.reader.read_all() catch { _ => b"" }
-r.close()
+// `read_to` / `read_all` 读完即关闭；手写读循环则必须 `close`
+let buf = r.read_all() catch { _ => b"" }
 
 // Go: entries, err := c.List(".")
 let entries = @ftp.list(c, ".")
@@ -396,6 +396,10 @@ sink 会被误报成 `RequestTimeout`。默认关闭，不装 sink 时路径上�
   只要服务器还在发就正常跑完）。取舍的理由：MoonBit 的 `@io.Reader` trait 上没有 deadline
   概念，把它加进来等于给每个 reader 装饰一层计时器，而 `AGENTS.md` 的 deadline 规则恰好要求
   计时只包住"空闲等待"那一段。需要整体超时的调用方用 `@async.with_timeout` 包住整个传输。
+- **`DataResponse` 的读取窗口由锁界定。** `retr` 返回前释放了客户端锁（传输比调用活得久），
+  所以 `read_all` / `read_to` 会重新拿锁把整段传输读完并 `close`，`close` 也拿一次锁读
+  `226`——否则别的操作会在传输进行中往同一个控制通道发命令，两边的回复互相串。手动
+  `read` 不拿锁，调用方在 `close` 之前不应发起其它操作。
 - **数据通道 TLS 握手是"调用即握手"，没有上游的惰性语义。** Go 的 `tls.Conn` 在首次读写时
   才握手，所以上游要在零字节上传后补一句 `Handshake()`；`@tls.Tls::client` 在**构造时**就
   握完，因此本仓库把握手放在 `cmd_data_conn_from` 收到 `150` 之后（RFC 4217 的正确时机），

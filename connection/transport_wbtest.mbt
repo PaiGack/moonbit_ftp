@@ -254,7 +254,7 @@ fn transfer_options(use_pret~ : Bool = false) -> ConnOptions {
   @connection.ConnOptions::new(
     use_pret~,
     timeout_ms=@core.default_dial_timeout_ms,
-    server_name="127.0.0.1",
+    server_name=Some("127.0.0.1"),
   )
 }
 

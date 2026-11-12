@@ -163,6 +163,8 @@ pub let status_username_ok : Int32
 
 pub let status_username_ok_need_password : Int32
 
+pub fn warn_plaintext_login(String) -> Unit
+
 // Errors
 #derive(@debug.Debug)
 pub(all) suberror FtpError {

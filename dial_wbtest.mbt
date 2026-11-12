@@ -387,9 +387,9 @@ async test "dial stores the peer address, not the local one" {
     }
   })
   assert_eq(client.session().control().host(), "127.0.0.2")
-  // The name the caller passed is what the certificate is checked against, so
-  // it survives separately from the peer address.
-  assert_eq(client.session().control().server_name(), "127.0.0.2")
+  // A plaintext dial has no certificate to check, so no name is recorded: the
+  // peer address is not silently reused as one.
+  assert_eq(client.session().control().server_name(), None)
 }
 
 ///|
@@ -400,22 +400,64 @@ async test "dial stores the peer address, not the local one" {
 /// `Addr`, i.e. it never resolves a name itself; a name reaches this client
 /// through the control connection it was handed.
 test "control keeps the TLS server name apart from the peer address" {
-  // The default is "the peer address is also the name", which is what every
-  // loopback fixture and every IP dialled with `tls` rely on.
   let reader = @io.MemoryReader(writer => writer.write(""))
   let sink = recording_sink()
+  // No fallback from the peer address: an unset name stays unset, so "nobody
+  // chose a name" cannot be confused with "the address is the name".
   let control = @connection.Control::new(reader, sink, "127.0.0.1")
   assert_eq(control.host(), "127.0.0.1")
-  assert_eq(control.server_name(), "127.0.0.1")
+  assert_eq(control.server_name(), None)
   let named = @connection.Control::new(
     reader,
     sink,
     "127.0.0.1",
-    server_name="ftp.example.com",
+    server_name=Some("ftp.example.com"),
   )
   assert_eq(named.host(), "127.0.0.1")
-  assert_eq(named.server_name(), "ftp.example.com")
+  assert_eq(named.server_name(), Some("ftp.example.com"))
   reader.close()
+}
+
+///|
+/// A blank name is rejected rather than treated as "not set": it is what a
+/// TLS client would otherwise receive as the verification target.
+test "Control::new rejects a blank server name" {
+  let reader = @io.MemoryReader(writer => writer.write(""))
+  let sink = recording_sink()
+  let blank = fn() -> @connection.Control raise @core.FtpError {
+    @connection.Control::new(reader, sink, "127.0.0.1", server_name=Some(" "))
+  }
+  let refused = try {
+    ignore(blank())
+    false
+  } catch {
+    @core.FtpError::ParseError(_) => true
+    _ => false
+  }
+  assert_true(refused)
+  reader.close()
+}
+
+///|
+/// A plaintext dial carries no name at all, while a TLS dial -- including one
+/// to an IP literal, where the address is the verification target -- carries
+/// one. The difference is what `DataConn::start_tls` checks before handshaking.
+async test "a plaintext dial has no server name, a TLS dial has one" {
+  let server = @socket.TcpServer::TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+  let port = server.addr.port()
+  let plain = @async.with_task_group(async fn(group) {
+    group.spawn_bg(no_wait=true, async fn() {
+      let (conn, _) = server.accept()
+      conn.write("220 Test server ready.\r\n")
+      ignore(conn.read_all() catch { _ => empty_data() })
+      conn.close()
+    })
+    dial("127.0.0.1:\{port}") catch {
+      _ => fail("dial")
+    }
+  })
+  assert_eq(plain.session().control().host(), "127.0.0.1")
+  assert_eq(plain.session().control().server_name(), None)
 }
 
 ///|
@@ -641,4 +683,46 @@ async test "dial with implicit tls reads the greeting over a TLS session" {
   })
   assert_eq(client.session().control().host(), "127.0.0.1")
   assert_true(client.state_options().tls())
+}
+
+///|
+/// A server that advertises `AUTH TLS` while the session runs in the clear has
+/// already received the password in plaintext; `login` says so on stderr (the
+/// password itself never appears) instead of failing a login the caller may
+/// have chosen. The opposite cases -- a TLS session, and a server that offers
+/// no TLS at all -- stay silent.
+///
+/// This pins that the *sequence* runs on all three paths. It cannot hear the
+/// line itself: stderr is the process's, not a value a test can capture, and
+/// either way of capturing it would change the production shape.
+async test "login runs the plaintext warning decision on every path" {
+  let tls_script = "331 Password.\r\n" +
+    "230 Logged in.\r\n" +
+    "211-Features:\r\n AUTH TLS\r\n PBSZ\r\n PROT\r\n211 End\r\n" +
+    "200 Switching to Binary mode.\r\n" +
+    "200 PBSZ=0\r\n200 Protection set to Private\r\n"
+  let (client, _) = scripted_client(tls_script)
+  login(client, "test", "secret") catch {
+    e => fail("login: \{e}")
+  }
+  // A TLS session on the same server is the case the warning is *for*, so it
+  // must not fire there.
+  let dial_options = DialOptions::default()
+  // The *folded* TLS flag (`tls || explicit_tls`) is what `login` reads for
+  // `PBSZ` / `PROT` and for the warning; explicit TLS alone is not enough.
+  dial_options.set_tls(true)
+  let (tls_client, _) = scripted_client(tls_script, dial_options~)
+  login(tls_client, "test", "secret") catch {
+    e => fail("login: \{e}")
+  }
+  // A plaintext-only server says nothing either way: silence, not a warning
+  // per login.
+  let plain_script = "331 Password.\r\n" +
+    "230 Logged in.\r\n" +
+    "211-Features:\r\n PASV\r\n211 End\r\n" +
+    "200 Switching to Binary mode.\r\n"
+  let (plain, _) = scripted_client(plain_script)
+  login(plain, "test", "secret") catch {
+    e => fail("login: \{e}")
+  }
 }

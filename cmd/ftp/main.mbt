@@ -119,12 +119,14 @@ fn parse_args(args : Array[String]) -> Result[CliArgs, String] {
       "--port" =>
         match next_value(args, i, arg) {
           Ok(value) =>
-            match parse_int(value) {
-              Some(port) => {
+            // A port is 1..=65535: zero and anything past it can never be
+            // dialled, and a wrapped value would silently pick another port.
+            match parse_int(value, limit=65535) {
+              Some(port) if port > 0 => {
                 parsed.port = Some(port)
                 i += 2
               }
-              None => return Err("invalid --port value")
+              _ => return Err("invalid --port value")
             }
           Err(message) => return Err(message)
         }
@@ -147,12 +149,15 @@ fn parse_args(args : Array[String]) -> Result[CliArgs, String] {
       "--timeout" =>
         match next_value(args, i, arg) {
           Ok(value) =>
+            // Zero is not "wait forever" here -- `DialOptions` and `Control`
+            // both turn it into the default deadline -- so it is a usage error
+            // rather than a request nobody can observe.
             match parse_int(value) {
-              Some(timeout) => {
+              Some(timeout) if timeout > 0 => {
                 parsed.timeout_ms = timeout
                 i += 2
               }
-              None => return Err("invalid --timeout value")
+              _ => return Err("invalid --timeout value")
             }
           Err(message) => return Err(message)
         }
@@ -235,9 +240,9 @@ fn fallback_env_port(primary : String, legacy : String) -> Int32? {
   for name in [primary, legacy] {
     match @env.get_env_var(name) {
       Some(value) =>
-        match parse_int(value) {
-          Some(number) => return Some(number)
-          None => ()
+        match parse_int(value, limit=65535) {
+          Some(number) if number > 0 => return Some(number)
+          _ => ()
         }
       None => ()
     }
@@ -260,12 +265,17 @@ fn next_value(
 
 ///|
 /// Parse a decimal integer, returning `None` on any non-digit byte.
-fn parse_int(text : String) -> Int32? {
+///
+/// The value is bounded by `limit` (65535 for ports, `Int32::max_value()` for
+/// timeouts): an unbounded loop wraps a long digit string around in `Int32`, so
+/// `--port 4294983695` used to come out as a small valid port.
+fn parse_int(text : String, limit~ : Int32 = 2147483647) -> Int32? {
   guard text != "" else { return None }
   let mut value = 0
   for i = 0; i < text.length(); i = i + 1 {
     let c = text.unsafe_get(i).to_int()
     guard c >= 48 && c <= 57 else { return None }
+    guard value <= (limit - (c - 48)) / 10 else { return None }
     value = value * 10 + (c - 48)
   }
   Some(value)
@@ -411,8 +421,10 @@ async fn cmd_get(client : @lib.FTPClient, positional : Array[String]) -> Unit {
   } else {
     @lib.retr(client, remote)
   }
-  file.write_reader(response.reader)
-  response.close()
+  // `read_to` streams and closes: the response holds the session lock, so a
+  // separate read loop followed by `close` is the same transfer with one more
+  // way to forget the `close`.
+  response.read_to(file)
   println("\{remote} -> \{dest} (\{remote_size} bytes)")
 }
 

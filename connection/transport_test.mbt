@@ -218,3 +218,28 @@ test "@connection.parse_port enforces the 16 bit range" {
   assert_true(@connection.parse_port("21a") is None)
   assert_true(@connection.parse_port("-1") is None)
 }
+
+///|
+/// The closing bracket must come *after* the opening one. Searching the whole
+/// line finds the `)` of a line that puts it first, and slicing backwards from
+/// it used to raise a trap instead of a `ParseError` -- and, worse, could have
+/// read the numbers from the wrong side of the bracket.
+test "@connection.parse_pasv brackets the list from the opening bracket on" {
+  // `(` is at index 5, `)` at 7: the numbers still come out right, and the
+  // stray bracket before `(` is ignored rather than sliced across.
+  let (ip, port) = @connection.parse_pasv("227 ) (1,2,3,4,5,6)")
+  assert_eq(ip, "1.2.3.4")
+  assert_eq(port, 1286)
+  // `(` at 5, `)` at 6: an empty list, a parse error rather than a slice.
+  assert_true(pasv_rejects("227 )()"))
+
+  // The well formed case still parses with text around it.
+  let (ip, port) = @connection.parse_pasv(
+    "227 Entering Passive Mode (10,0,0,1,4,1). (and more)",
+  )
+  assert_eq(ip, "10.0.0.1")
+  assert_eq(port, 1025)
+  // A `)` before `(` does not close the list: the numbers after `(` have no
+  // closing bracket of their own, so this is refused instead of sliced.
+  assert_true(pasv_rejects("227 ) (127,0,0,1,196,6"))
+}

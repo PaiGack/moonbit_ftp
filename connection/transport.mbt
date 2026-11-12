@@ -32,8 +32,12 @@ pub fn parse_pasv(line : String) -> (String, Int32) raise @core.FtpError {
     None =>
       raise @core.FtpError::ParseError(msg="invalid PASV response: \{line}")
   }
-  let close = match line.find(")") {
-    Some(close) => close
+  // The closing bracket has to be searched for *after* the opening one: a line
+  // that puts `)` first (`") (1,2,3,4,5,6"`) would otherwise slice backwards
+  // from `open + 1` to a `close` before it, which is a trap rather than a parse
+  // error, and the six numbers would come from the wrong place.
+  let close = match line[open + 1:].find(")") {
+    Some(offset) => open + 1 + offset
     None =>
       raise @core.FtpError::ParseError(msg="invalid PASV response: \{line}")
   }
@@ -296,9 +300,15 @@ pub fn DataConn::writer(self : DataConn) -> &@io.Writer {
 /// The call is idempotent (`self.tls is None` is the guard), because
 /// `stor_from` calls it again for a zero-byte upload -- the one case where
 /// nothing else would have driven the handshake. See that call site.
+///
+/// `server_name` is the name from the control connection, and `None` there is
+/// the normal case for a plaintext session. On a TLS session there is no safe
+/// default to fall back to -- verifying against the peer address when the
+/// caller meant a name is how a certificate check gets silently weakened -- so
+/// a missing name raises instead of handshaking.
 pub async fn DataConn::start_tls(
   self : DataConn,
-  server_name : String,
+  server_name : String?,
   trust : @tls.TrustedRoot,
   timeout_ms : Int32,
   tls : Bool,
@@ -312,10 +322,17 @@ pub async fn DataConn::start_tls(
   // peer is already mid-session, and the transfer would fail with a handshake
   // error instead of the "nothing to upload" success it is meant to produce.
   guard self.tls is None else { return }
+  let name = match server_name {
+    Some(name) => name
+    None =>
+      raise @core.FtpError::ParseError(
+        msg="TLS data connection without a server name",
+      )
+  }
   // A hang here would be indistinguishable from a stalled transfer, so the
   // handshake gets the same connect timeout as the socket itself.
   let session = @async.with_timeout(timeout_ms, async fn() {
-    @tls.Tls::client(self.socket, host=server_name, trust~)
+    @tls.Tls::client(self.socket, host=name, trust~)
   })
   self.tls = Some(session)
   self.reader = session
@@ -332,12 +349,25 @@ pub async fn DataConn::start_tls(
 /// async `Tls::shutdown`) leaves the server without its EOF, so it never
 /// writes the `226` and the very next control read blocks forever. In the
 /// clear the socket close *is* the EOF, so nothing extra is needed there.
-pub async fn DataConn::close(self : DataConn) -> Unit {
+///
+/// The bound on that shutdown is the caller's `shut_timeout_ms`, or the
+/// connection timeout when it is unset. It used to be a hard-coded 5s: an
+/// upload loop against a half-dead server then paid 5 seconds *per file* that
+/// no configuration could shorten, which is also a slow-rejection amplifier.
+pub async fn DataConn::close(
+  self : DataConn,
+  timeout_ms~ : Int32 = @core.default_dial_timeout_ms,
+) -> Unit {
+  let bound = if timeout_ms > 0 {
+    timeout_ms
+  } else {
+    @core.default_dial_timeout_ms
+  }
   match self.tls {
     Some(tls) =>
       // The shutdown can block on a peer that stopped reading; bound it so a
       // half-dead server turns into a failed transfer rather than a hang.
-      @async.with_timeout(5000, async fn() {
+      @async.with_timeout(bound, async fn() {
         tls.shutdown() catch {
           // A peer that already hung up has no one to say goodbye to.
           _ => ()
@@ -348,6 +378,17 @@ pub async fn DataConn::close(self : DataConn) -> Unit {
     None => ()
   }
   self.socket.close()
+}
+
+///|
+/// The deadline `DataConn::close` should bound its `close_notify` with, from
+/// the options of the transfer that opened this connection.
+pub fn ConnOptions::shut_bound(self : ConnOptions) -> Int32 {
+  if self.shut_timeout_ms > 0 {
+    self.shut_timeout_ms
+  } else {
+    self.timeout_ms
+  }
 }
 
 ///|
@@ -458,10 +499,14 @@ pub struct ConnOptions {
   trust_pasv_ip : Bool
   /// Connect timeout, and the deadline for the data-channel TLS handshake.
   timeout_ms : Int32
+  /// Bound on the closing `close_notify` of a TLS data connection, in
+  /// milliseconds; the same `0`/negative rule as `timeout_ms`.
+  shut_timeout_ms : Int32
   /// Wrap the data channel in TLS after the `150`.
   tls : Bool
-  /// Name to verify the data connection's certificate against.
-  server_name : String
+  /// Name to verify the data connection's certificate against, `None` when the
+  /// control connection has none (always the case in the clear).
+  server_name : String?
   /// Trust policy for the data connection's certificate.
   trust : @tls.TrustedRoot
 }
@@ -474,16 +519,25 @@ pub fn ConnOptions::new(
   disable_epsv~ : Bool = false,
   trust_pasv_ip~ : Bool = false,
   timeout_ms~ : Int32 = 0,
+  shut_timeout_ms~ : Int32 = 0,
   tls~ : Bool = false,
-  server_name~ : String = "",
+  server_name~ : String? = None,
   trust~ : @tls.TrustedRoot = @tls.TrustedRoot::SystemRoot,
 ) -> ConnOptions {
+  // No deadline is the SIGABRT shape (see `Control`), so the connect timeout
+  // defaults to the protocol default rather than to "wait forever".
+  let timeout_ms = if timeout_ms > 0 {
+    timeout_ms
+  } else {
+    @core.default_dial_timeout_ms
+  }
   {
     use_pret,
     skip_epsv,
     disable_epsv,
     trust_pasv_ip,
     timeout_ms,
+    shut_timeout_ms,
     tls,
     server_name,
     trust,
@@ -536,7 +590,7 @@ pub async fn cmd_data_conn_from(
       _ => false
     }
     guard ok else {
-      conn.close()
+      conn.close(timeout_ms=options.shut_bound())
       raise @core.FtpError::ParseError(msg="REST command failed")
     }
   }
@@ -566,7 +620,7 @@ pub async fn cmd_data_conn_from(
   }
   match failure {
     Some(e) => {
-      conn.close()
+      conn.close(timeout_ms=options.shut_bound())
       raise e
     }
     None => ()
@@ -575,7 +629,7 @@ pub async fn cmd_data_conn_from(
   // `150`), not a completion: `2xx` only arrives at the end, on `226`. Testing
   // `@core.is_positive_completion` here rejected every real transfer.
   guard @core.is_positive_intermediate(response.code()) else {
-    conn.close()
+    conn.close(timeout_ms=options.shut_bound())
     raise @core.FtpError::ServerError(
       code=response.code(),
       msg=response.message(),

@@ -45,11 +45,12 @@ test {
     }
 
     // 3. 下载文件
+    // `read_all` / `read_to` 边读边持锁、读完自动 `close`；手动 `read` 时
+    // 在 `close` 之前不要调用其它客户端操作。
     let resp = @ftp.retr(client, "/hello.txt")
     // 读到的内容要接住：`let bytes` 不消费会触发 unused warning
-    let bytes = resp.reader.read_all() catch { _ => b"" }
-    println(bytes.text() catch { _ => "<not utf8>" })
-    resp.close()
+    let payload = resp.read_all() catch { _ => Bytes::new(0) }
+    println("downloaded \{payload.length()} bytes")
 
     // 4. 上传文件（任意 &@io.Reader 均可）
     // `MemoryReader` 的后台生产者由调用方负责关：绑到变量再 defer close，
@@ -126,7 +127,7 @@ test {
 | `list(client, path)` | 列目录，返回 `Array[@core.Entry]`（MLSD / LIST 自动回退） |
 | `name_list(client, path)` | `NLST`，只拿名字，返回 `Array[String]` |
 | `get_entry(client, path)` | `MLST` 取单个条目的 facts |
-| `retr` / `retr_from(client, path, offset)` | 下载 / 断点续传下载，返回 `DataResponse`（`read` 后必须 `close`） |
+| `retr` / `retr_from(client, path, offset)` | 下载 / 断点续传下载，返回 `DataResponse`；用 `read_to` / `read_all` 一次读完后自动 `close`，手动 `read` 则必须 `close` |
 | `stor` / `append(client, path, reader)` | 上传 / 追加，`reader` 由调用方负责 `close` |
 | `file_size(client, path)` | `SIZE` |
 | `get_time(client, path)` / `set_file_time(client, path, time)` | `MDTM` 读 / 写时间戳 |

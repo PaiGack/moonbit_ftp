@@ -245,11 +245,10 @@ async fn smoke(
   let response = @ftp.retr(client, "/hello.txt") catch {
     e => fail("\{label}: RETR failed: \{@debug.Repr(e)}")
   }
-  let bytes = response.reader.read_all() catch {
+  let bytes = response.read_all() catch {
     e => fail("\{label}: reading the RETR payload failed: \{e}")
   }
-  response.close()
-  let payload = bytes.text() catch { _ => "" }
+  let payload = bytes.to_string()
   guard payload == "hello world\n" else {
     fail(
       "\{label}: RETR payload was \{format_repr(payload)}, expected hello.txt",
@@ -326,11 +325,10 @@ async fn smoke(
   let appended_response = @ftp.retr(client, scratch) catch {
     e => fail("\{label}: RETR after APPE failed: \{@debug.Repr(e)}")
   }
-  let appended_bytes = appended_response.reader.read_all() catch {
+  let appended_bytes = appended_response.read_all() catch {
     e => fail("\{label}: reading the APPE payload failed: \{e}")
   }
-  appended_response.close()
-  let appended_text = appended_bytes.text() catch { _ => "" }
+  let appended_text = appended_bytes.to_string()
   guard appended_text == "ftps\nmore\nand more\n" else {
     fail(
       "\{label}: APPE content was \{format_repr(appended_text)}, expected \{format_repr("ftps\nmore\nand more\n")}",

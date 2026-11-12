@@ -256,9 +256,8 @@ async fn run_profile(
   // --- RETR: the payload has to come back byte for byte -------------------
   println("==> RETR \{file}")
   let response = @ftp.retr(client, file)
-  let bytes = response.reader.read_all()
-  response.close()
-  let downloaded = bytes.text()
+  let bytes = response.read_all()
+  let downloaded = bytes.to_string()
   guard downloaded == payload else {
     raise @core.FtpError::ParseError(
       msg="RETR returned \{format_repr(downloaded)}, expected \{format_repr(payload)}",

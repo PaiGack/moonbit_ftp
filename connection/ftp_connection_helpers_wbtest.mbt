@@ -67,7 +67,7 @@ impl @io.Writer for RecordingSink with fn write_once(
 fn logged_control(
   reader : &@io.Reader,
   log : &@io.Writer?,
-) -> (@connection.Control, RecordingSink) {
+) -> (@connection.Control, RecordingSink) raise @core.FtpError {
   let sink = recording_sink()
   let writer : &@io.Writer = sink
   let control = @connection.Control::new(reader, writer, "127.0.0.1")
@@ -84,7 +84,9 @@ fn logged_control(
 /// A control channel that answers with `script`, plus the sink recording what
 /// was sent. The peer is `127.0.0.1`, the address the `PASV` SSRF guard
 /// compares against.
-fn scripted_control(script : String) -> (Control, RecordingSink) {
+fn scripted_control(
+  script : String,
+) -> (Control, RecordingSink) raise @core.FtpError {
   let reader = @io.MemoryReader(writer => writer.write(script))
   let reader_ref : &@io.Reader = reader
   logged_control(reader_ref, None)

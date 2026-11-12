@@ -111,7 +111,9 @@ test "@connection.render_command refuses a CR or LF in an argument" {
 /// A `@connection.Control` over an in-memory reader with a discarding writer, the
 /// white box twin of `control_over` in `control_test.mbt` (that one is a
 /// blackbox helper and is not visible from this target).
-fn scripted_control_no_over(text : String) -> @connection.Control {
+fn scripted_control_no_over(
+  text : String,
+) -> @connection.Control raise @core.FtpError {
   let reader : &@io.Reader = @io.MemoryReader(writer => writer.write(text))
   let writer : &@io.Writer = NullSink::{ }
   @connection.Control::new(reader, writer, "127.0.0.1")

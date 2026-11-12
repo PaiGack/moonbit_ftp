@@ -27,7 +27,7 @@
 /// A `@connection.Control` over an in-memory reader, so a test can feed the reply parser
 /// an exact byte sequence without a socket. The writer is a sink: the reply
 /// tests only ever read.
-fn control_over(text : String) -> @connection.Control {
+fn control_over(text : String) -> @connection.Control raise @core.FtpError {
   let reader : &@io.Reader = @io.MemoryReader(writer => writer.write(text))
   let writer : &@io.Writer = DummySink::{ }
   @connection.Control::new(reader, writer, "127.0.0.1")
@@ -89,10 +89,17 @@ async test "a line repeating the code without a dash is not a continuation" {
 }
 
 ///|
-async test "an empty expected list accepts any code" {
+async test "accept_any_status accepts any code" {
   let control = control_over("500 Unknown command\r\n")
-  // `expected: []` is the MoonBit spelling of upstream's `@connection.cmd(..., -1)`.
-  assert_eq(@connection.cmd_expect(control, "", []).code(), 500)
+  // Upstream spells this `cmd(..., -1)`; here it is a named list so a forgotten
+  // status list cannot mean the same thing by accident.
+  let response = @connection.cmd_expect(
+    control,
+    "NOOP",
+    @connection.accept_any_status(),
+  )
+  assert_eq(response.code(), 500)
+  assert_eq(response.message(), "Unknown command")
 }
 
 ///|

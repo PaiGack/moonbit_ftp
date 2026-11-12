@@ -29,3 +29,7 @@ testdata/ftp/tls/
 .ftp-ftps-files/
 
 .claude
+
+# `moon test --enable-coverage` leaves its counter file in the repo root; it is
+# a per-run artifact, not something to commit.
+bisect.coverage

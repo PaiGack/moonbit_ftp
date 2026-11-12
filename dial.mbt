@@ -82,7 +82,13 @@ pub async fn dial(
   // The two answers are not the same question. The data channel dials
   // `peer_ip`; the TLS client verifies the certificate against the name the
   // caller used, which is why `@connection.Control` keeps them apart.
-  let server_name = host
+  //
+  // The name is `Some` exactly when a certificate will be verified: a name
+  // given by the caller, or -- for an IP literal -- the address itself, because
+  // RFC 6125 name verification falls back to the SAN *iPAddress* entry there.
+  // That is a choice made here; a plaintext connection has no name at all, and
+  // `Control` no longer invents one from the peer address.
+  let server_name = if tls || explicit_tls { Some(host) } else { None }
   let tcp = @async.with_timeout(timeout_ms, async fn() {
     @socket.Tcp::connect(socket_addr)
   })
@@ -96,14 +102,23 @@ pub async fn dial(
   // TLS handshake as a malformed command line and answers `500`, and the
   // first `read_until` of the greeting blocks on bytes it can never parse.
   let control = if tls {
+    // `server_name` is `Some` on this branch by construction; the guard turns
+    // a future edit that breaks that into a message instead of an `unwrap`.
+    let name = match server_name {
+      Some(name) => name
+      None =>
+        raise @core.FtpError::ParseError(
+          msg="implicit TLS without a server name",
+        )
+    }
     let encrypted = @async.with_timeout(timeout_ms, async fn() {
-      @tls.Tls::client(tcp, host=server_name, trust~)
+      @tls.Tls::client(tcp, host=name, trust~)
     })
     @connection.Control::new(
       encrypted,
       encrypted,
       peer_ip,
-      server_name~,
+      server_name=Some(name),
       timeout_ms~,
     )
   } else {
@@ -242,12 +257,15 @@ async fn auth_tls(client : FTPClient, socket : @socket.Tcp) -> Unit {
   // a server that lied) would otherwise park this task forever -- the timeout
   // turns that into an ordinary failed dial.
   let deadline = client.options.timeout_ms
+  let name = match control.server_name() {
+    Some(name) => name
+    None =>
+      raise @core.FtpError::ParseError(
+        msg="AUTH TLS on a connection that has no server name",
+      )
+  }
   let tls = @async.with_timeout(deadline, async fn() {
-    @tls.Tls::client(
-      socket,
-      host=control.server_name(),
-      trust=client.options.trust,
-    )
+    @tls.Tls::client(socket, host=name, trust=client.options.trust)
   }) catch {
     e =>
       raise @core.FtpError::ServerError(
@@ -266,8 +284,13 @@ pub fn parse_decimal(text : String) -> Int32? {
   for i = 0; i < text.length(); i = i + 1 {
     let c = text.unsafe_get(i).to_int()
     guard c >= 48 && c <= 57 else { return None }
+    // A very long digit string overflows `Int32` silently: the wrapped value
+    // can land back in `1..=65535` (`4294967337` becomes 41), so an address a
+    // user mistyped would dial a port nobody asked for. Refuse instead.
+    guard value <= 65535 else { return None }
     value = value * 10 + (c - 48)
   }
+  guard value <= 65535 else { return None }
   Some(value)
 }
 
@@ -310,6 +333,21 @@ pub async fn login(
     }
   }
   feat(client)
+  // ... but `FEAT` does not cancel the warning: a server that offers `AUTH TLS`
+  // while the session runs in the clear has just told us the password already
+  // went over the wire in plaintext. There is no way to un-send it, so the only
+  // thing left to do is say so -- loudly enough that an operator reading the
+  // logs finds it, and on stderr so a CLI's data on stdout stays parseable. A
+  // server that does not advertise `AUTH TLS` says nothing either way, and
+  // stays silent: every plaintext-only server would otherwise warn on every
+  // login.
+  let server_offers_tls = client.has_feature("AUTH TLS") ||
+    client.has_feature("AUTH SSL")
+  if server_offers_tls &&
+    client.options.tls == false &&
+    client.options.explicit_tls == false {
+    @core.warn_plaintext_login(user)
+  }
   // `TYPE I` comes *before* `OPTS UTF8 ON`, which is upstream's order. The two
   // are independent (`TYPE` picks the data representation, `OPTS UTF8` the
   // filename encoding), so reversing them changes nothing a server can see --

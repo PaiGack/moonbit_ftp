@@ -39,11 +39,19 @@ pub struct Control {
   ///
   /// Separate from `host` on purpose: `dial("203.0.113.7:21", tls=true,
   /// trust=CustomPemFile(ca))` talks to an IP but the certificate was issued
-  /// for a name, and verification would fail on a mismatch that is not one. A
-  /// caller that resolved the name itself gets the name checked; a caller that
-  /// passed a name and a hostname-less `host` gets the same string both ways.
-  server_name : String
-  /// Deadline applied to every reply read, in milliseconds; `0` disables it.
+  /// for a name, and verification would fail on a mismatch that is not one.
+  ///
+  /// `None` means "no TLS was ever set up on this connection", and it is the
+  /// only way to say that. It used to be a `String` defaulting to `""`, which
+  /// `Control::new` silently turned into the peer *address* -- so a caller that
+  /// meant "the certificate is verified against the IP" and a caller that never
+  /// set a name were indistinguishable, and the second one quietly became the
+  /// first. Pass a `Some(name)` whenever an SNI / verification name exists:
+  /// `dial` does so for both TLS flavours, including an IP dial where the
+  /// address really is the name (that is a *decision*, spelled out at the
+  /// call site, not a fallback).
+  server_name : String?
+  /// A positive deadline applied to every reply read, in milliseconds.
   ///
   /// A read with no deadline is not merely missing a diagnostic: it is the
   /// shape the async runtime reports as a *deadlock*. `check_dead_lock` fires
@@ -57,6 +65,12 @@ pub struct Control {
   /// A deadline makes the wait bounded: the loop has a timer to expire, the
   /// deadlock check never runs, and a genuinely silent peer turns into a plain
   /// `@core.FtpError` the caller can read.
+  ///
+  /// It is never zero: `Control::new` substitutes the default for `0` (and
+  /// for a negative value) rather than letting "no timeout" be a valid
+  /// configuration. A public API whose default is the SIGABRT shape is not
+  /// secure by default, and a call site that forgets to pass `timeout_ms`
+  /// would hit exactly that against a real server.
   timeout_ms : Int32
   /// Traffic log sink, `None` when logging is off.
   ///
@@ -73,18 +87,36 @@ pub struct Control {
 
 ///|
 /// Wrap an already connected reader/writer pair.
+///
+/// Raises `ParseError` for a blank `server_name`; see the body.
 pub fn Control::new(
   reader : &@io.Reader,
   writer : &@io.Writer,
   host : String,
-  server_name~ : String = "",
+  server_name~ : String? = None,
   timeout_ms~ : Int32 = 0,
   debug~ : @debug.DebugLog? = None,
-) -> Control {
-  // An empty `server_name` means "the peer address is also the name", which is
-  // the case for every loopback fixture and for a caller that asked for an IP.
-  let name = if server_name == "" { host } else { server_name }
-  { reader, writer, host, server_name: name, timeout_ms, debug, }
+) -> Control raise @core.FtpError {
+  // There is no fallback from a name to the peer address. `None` means "none
+  // was set" and stays that way, so a caller can tell it apart from the address
+  // having been chosen deliberately. A blank `Some(name)` is a name that was
+  // *set* and carries nothing -- useless to verify a certificate against and
+  // even less useful as an SNI -- so it is refused instead of quietly becoming
+  // "no name" (and, under the old default, the address).
+  let name = match server_name {
+    Some(name) if is_blank(name) =>
+      raise @core.FtpError::ParseError(msg="blank TLS server name: \{host}")
+    other => other
+  }
+  // `0` and a negative value both mean "no deadline", which is the shape the
+  // runtime reports as a deadlock -- see the field's documentation. The public
+  // default is therefore the protocol default (30s), not `0`.
+  let deadline = if timeout_ms > 0 {
+    timeout_ms
+  } else {
+    @core.default_dial_timeout_ms
+  }
+  { reader, writer, host, server_name: name, timeout_ms: deadline, debug, }
 }
 
 ///|
@@ -109,8 +141,29 @@ pub fn Control::host(self : Control) -> String {
 }
 
 ///|
-/// The hostname the TLS certificate is verified against.
-pub fn Control::server_name(self : Control) -> String {
+/// Whether `text` is empty or only whitespace.
+///
+/// Spelled as a byte loop rather than `trim().length() == 0`: a view's length
+/// is measured in characters only up to its first multi-byte sequence, and a
+/// name is never supposed to contain one anyway.
+fn is_blank(text : String) -> Bool {
+  for i = 0; i < text.length(); i = i + 1 {
+    let c = text.unsafe_get(i)
+    guard c == ' ' || c == '\t' || c == '\r' || c == '\n' else { return false }
+  }
+  true
+}
+
+///|
+/// The deadline applied to every reply read, in milliseconds. Never zero.
+pub fn Control::timeout_ms(self : Control) -> Int32 {
+  self.timeout_ms
+}
+
+///|
+/// The hostname the TLS certificate is verified against, `None` when none was
+/// set (which is also "this connection was never upgraded to TLS").
+pub fn Control::server_name(self : Control) -> String? {
   self.server_name
 }
 
@@ -173,6 +226,10 @@ pub async fn Control::read_line(self : Control) -> String {
   // stall: a server that stayed silent is still reported as silent, and a
   // broken sink still cannot turn a reply into a `RequestTimeout` -- the point
   // of the deadline rule in AGENTS.md.
+  //
+  // The guard stays even though `Control::new` never stores a zero: the field
+  // is `mut` inside the package, so this is the one place that decides a zero
+  // means "unbounded" rather than "expire immediately".
   if self.timeout_ms > 0 {
     @async.with_timeout(self.timeout_ms, read) catch {
       @async.TimeoutError => raise @core.FtpError::RequestTimeout
@@ -195,21 +252,44 @@ pub async fn cmd(control : Control, command : String) -> @core.Response {
 /// Send `cmd` and require one of the `expected` status codes.
 ///
 /// An empty `expected` list accepts any code, which is how upstream spells
-/// `cmd(..., -1)` for the `expected == -1` case. A mismatch raises
+/// `cmd(..., -1)` for the `expected == -1` case -- but it is also what a caller
+/// gets from a forgotten status list, and then the check is silently off. The
+/// list is therefore required to be non-empty: a call site that really means
+/// "any code" passes `accept_any_status`, so the intent is written down rather
+/// than implied by an empty array. A mismatch raises
 /// `@core.FtpError::ServerError` carrying the original message.
 pub async fn cmd_expect(
   control : Control,
   command : String,
   expected : Array[Int32],
 ) -> @core.Response {
+  // A forgotten status list must not read as "any code": refuse it before the
+  // command goes out, so the bug shows up as an error naming the call and not
+  // as a session that happily accepted `500`.
+  guard expected.length() > 0 else {
+    raise @core.FtpError::ParseError(
+      msg="cmd_expect needs a status list; pass accept_any_status() to accept any code: \{command}",
+    )
+  }
   let response = cmd(control, command)
-  if expected.length() == 0 || expected.contains(response.code()) {
+  if expected.contains(-1) || expected.contains(response.code()) {
     return response
   }
   raise @core.FtpError::ServerError(
     code=response.code(),
     msg=response.message(),
   )
+}
+
+///|
+/// The explicit "any status code is acceptable" status list.
+///
+/// Upstream spells this `cmd(command, ..., -1)`; an empty list is refused (see
+/// `cmd_expect`), so "any code" has to be asked for by name. No server can send
+/// `-1`, which is what `cmd_expect` looks for; every real code is three digits
+/// and compares against `expected`.
+pub fn accept_any_status() -> Array[Int32] {
+  [-1]
 }
 
 ///|

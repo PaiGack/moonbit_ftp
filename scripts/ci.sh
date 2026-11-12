@@ -151,6 +151,21 @@ run moon info
 run moon test --target native --deny-warn --enable-coverage
 run moon coverage report -f summary
 
+# A floor, not a target. `moon test` can report a green suite while a test file
+# was not collected at all (the file still compiles), and the summary above only
+# *reports* the ratio -- so the suite could shrink without anything failing.
+# The bar is set below the current 1655/2300 so that ordinary work does not trip
+# it; when the ratio moves up, move the bar up in the same change.
+MIN_COVERED_LINES=1600
+covered_lines="$(moon coverage report -f summary | tail -1 | sed -E 's#^Total: ([0-9]+)/.*#\1#')"
+if ! [[ "$covered_lines" =~ ^[0-9]+$ ]]; then
+  echo "FAILED: could not read the covered line count: '$covered_lines'" >&2
+  status=1
+elif (( covered_lines < MIN_COVERED_LINES )); then
+  echo "FAILED: only $covered_lines covered lines, the floor is $MIN_COVERED_LINES" >&2
+  status=1
+fi
+
 run moon build --target native
 run moon build --target native --release
 

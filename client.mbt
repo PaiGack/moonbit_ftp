@@ -60,6 +60,31 @@ pub fn FTPClient::unlock(self : FTPClient) -> Unit {
 }
 
 ///|
+/// Run `op` while holding the client lock, which every public operation takes
+/// to serialize the session.
+///
+/// The lock is not re-entrant: calling it from inside a public operation that
+/// already holds it -- `retr`, `stor`, `list`, `retr_from`, `stor_from`, ... --
+/// deadlocks the single task that owns the session. Private helpers that run
+/// under an operation's lock (`stream`, `check_data_shut`, this function) must
+/// therefore not call back into the public API, and this one is the way a
+/// helper outside `client.mbt` can take the lock without racing the operations
+/// that already do. `transfer.mbt` uses it to wait for `DataResponse::close`.
+///
+/// Holds only "ownership of the session" tokens: the reply reads inside use the
+/// control channel's own deadline, and the data channel's I/O has no deadline at
+/// all (see `docs/porting.md` section on `SetDeadline`), so there is nothing
+/// with a timer inside for `defer` to complain about.
+pub async fn FTPClient::with_lock(
+  self : FTPClient,
+  op : async () -> Unit,
+) -> Unit {
+  self.lock()
+  defer self.unlock()
+  op()
+}
+
+///|
 /// Whether the server advertised `name` in its `FEAT` list.
 pub fn FTPClient::has_feature(self : FTPClient, name : String) -> Bool {
   self.features.contains(name.to_upper())
@@ -545,6 +570,10 @@ pub fn Session::new(
 /// This is the one place that knows both types: `@connection` takes a plain
 /// `ConnOptions` so it never has to import the client, and the client hands it
 /// over here rather than at every call site.
+///
+/// `server_name` is handed over as `Control` stores it (`None` for a plaintext
+/// session); `ConnOptions` resolves a missing name when it has to run a
+/// handshake, so this projection carries no policy of its own.
 pub fn Session::conn_options(
   self : Session,
   use_pret~ : Bool = self.use_pret(),
@@ -555,6 +584,7 @@ pub fn Session::conn_options(
     disable_epsv=self.options.disable_epsv(),
     trust_pasv_ip=self.options.trust_pasv_ip(),
     timeout_ms=self.options.timeout_ms(),
+    shut_timeout_ms=self.options.shut_timeout_ms(),
     tls=self.options.tls(),
     server_name=self.control.server_name(),
     trust=self.options.trust(),

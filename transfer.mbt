@@ -22,6 +22,17 @@ pub struct DataResponse {
   /// Set once `close()` ran, so a second call is a no-op.
   mut closed : Bool
   session : Session
+  /// The client whose lock this response still owns until `close()`.
+  ///
+  /// `retr` releases the lock before it returns, because a transfer outlives
+  /// the call, so the lock used to be free while the payload was still
+  /// arriving: any other operation -- a `cwd`, a second `retr` -- then ran
+  /// *during* the transfer, on the same control channel, and took the
+  /// transfer's replies. `close` takes the lock again for the closing `226`,
+  /// and `read_all` / `read_to` do the same around the reads they own, so the
+  /// session is owned for exactly the span of the transfer and not one reply
+  /// longer.
+  client : FTPClient
   /// Pushes the control connection deadline before the `226` read when the
   /// caller configured `shut_timeout_ms`.
   shut_timeout_ms : Int32
@@ -29,6 +40,14 @@ pub struct DataResponse {
 
 ///|
 /// Read up to `max_len` bytes of the transfer.
+///
+/// Does **not** take the session lock: it reads *through* a handle that can be
+/// held across a long transfer, and taking the lock here would let a second
+/// operation in between two reads and mix the two transfers' replies. The
+/// calls that run the transfer to completion (`read_all`, `read_to`) take the
+/// lock for their own duration, and `close` takes it for the wrap-up `226`;
+/// a caller that reads with `read` must not issue other operations until it
+/// closes.
 pub async fn DataResponse::read(
   self : DataResponse,
   dst : FixedArray[Byte],
@@ -46,18 +65,92 @@ pub async fn DataResponse::read(
 /// command. Errors from the two phases are aggregated.
 pub async fn DataResponse::close(self : DataResponse) -> Unit {
   guard !self.closed else { return }
+  // One attempt only: a `close()` that raised would leave the lock held and
+  // the session unusable for everything after it, and the `226` it failed to
+  // read is the same reply the next command would trip over anyway.
   self.closed = true
-  if self.shut_timeout_ms > 0 {
-    ignore(
-      @async.with_timeout(self.shut_timeout_ms, async fn() {
-        check_data_shut(self.session) catch {
-          _ => ()
-        }
-      }),
-    )
-  } else {
-    check_data_shut(self.session)
+  self.client.with_lock(async fn() {
+    if self.shut_timeout_ms > 0 {
+      ignore(
+        @async.with_timeout(self.shut_timeout_ms, async fn() {
+          check_data_shut(self.session) catch {
+            _ => ()
+          }
+        }),
+      )
+    } else {
+      check_data_shut(self.session) catch {
+        _ => ()
+      }
+    }
+  })
+}
+
+///|
+/// Stream the whole transfer into `sink` and close it -- one call, so the
+/// response (and the session lock it holds) cannot be left behind.
+///
+/// A read or write failure is still followed by `close`, which drains the
+/// data socket and reads the `226`; the original failure is what raises.
+pub async fn DataResponse::read_to(
+  self : DataResponse,
+  sink : &@io.Writer,
+) -> Unit {
+  let failure = try {
+    while true {
+      let mut chunk : Bytes? = None
+      self.client.with_lock(async fn() { chunk = self.reader.read_some() })
+      match chunk {
+        None => break
+        Some(bytes) => sink.write(bytes)
+      }
+    }
+    None
+  } catch {
+    err => Some(err)
   }
+  self.close()
+  match failure {
+    Some(err) => raise err
+    None => ()
+  }
+}
+
+///|
+/// Consume the transfer into memory and close it.
+pub async fn DataResponse::read_all(self : DataResponse) -> Bytes {
+  // `Bytes` is immutable, so the chunks are collected and joined once. Nothing
+  // here takes the session lock twice: `read_to` holds it per read and closes
+  // the response at the end.
+  let chunks : Array[Bytes] = []
+  let failure = try {
+    while true {
+      let mut chunk : Bytes? = None
+      self.client.with_lock(async fn() { chunk = self.reader.read_some() })
+      match chunk {
+        None => break
+        Some(bytes) => chunks.push(bytes)
+      }
+    }
+    None
+  } catch {
+    err => Some(err)
+  }
+  self.close()
+  match failure {
+    Some(err) => raise err
+    None => ()
+  }
+  let out = FixedArray::make(
+    chunks.fold(init=0, (n, c) => n + c.length()),
+    (0 : Byte),
+  )
+  let mut offset = 0
+  for chunk in chunks {
+    out.blit_from_bytes(offset, chunk, 0, chunk.length())
+    offset += chunk.length()
+  }
+  out.unsafe_reinterpret_as_bytes()
 }
 
 ///|
@@ -104,6 +197,7 @@ pub async fn retr_from(
     reader: conn.reader(),
     closed: false,
     session: client.session,
+    client,
     shut_timeout_ms: client.options.shut_timeout_ms,
   }
 }
@@ -176,7 +270,7 @@ pub async fn stor_from(
       err => errors.push(err)
     }
   }
-  conn.close()
+  conn.close(timeout_ms=client.options.shut_timeout_ms)
   check_data_shut(client.session) catch {
     err => errors.push(err)
   }
@@ -211,7 +305,7 @@ pub async fn append(
       }
     },
   )
-  conn.close()
+  conn.close(timeout_ms=client.options.shut_timeout_ms)
   check_data_shut(client.session) catch {
     err => errors.push(err)
   }
@@ -232,3 +326,7 @@ async fn stream(source : &@io.Reader, sink : &@io.Writer) -> Int32 {
   }
   total
 }
+
+///|
+
+///|

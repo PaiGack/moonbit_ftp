@@ -58,7 +58,9 @@ fn text_sink() -> TextSink {
 /// A control channel that answers with `script`, plus the sink recording what
 /// was sent. The peer is `127.0.0.1`, the address the `PASV` SSRF guard
 /// compares against.
-fn scripted_control(script : String) -> (@connection.Control, RecordingSink) {
+fn scripted_control(
+  script : String,
+) -> (@connection.Control, RecordingSink) raise @core.FtpError {
   let reader = @io.MemoryReader(writer => writer.write(script))
   let reader_ref : &@io.Reader = reader
   logged_control(reader_ref, None)
@@ -70,7 +72,7 @@ fn scripted_control(script : String) -> (@connection.Control, RecordingSink) {
 fn logged_control(
   reader : &@io.Reader,
   log : &@io.Writer?,
-) -> (@connection.Control, RecordingSink) {
+) -> (@connection.Control, RecordingSink) raise @core.FtpError {
   let sink = recording_sink()
   let writer : &@io.Writer = sink
   let control = @connection.Control::new(reader, writer, "127.0.0.1")
@@ -175,7 +177,7 @@ fn scripted_client(
   location~ : @time.Zone = @time.utc_zone,
   dial_options~ : DialOptions = DialOptions::default(),
   now_ms~ : () -> UInt64 = @env.now,
-) -> (FTPClient, RecordingSink) {
+) -> (FTPClient, RecordingSink) raise @core.FtpError {
   dial_options.set_now_ms(now_ms)
   let (control, sink) = scripted_control(script)
   let client : FTPClient = {

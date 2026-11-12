@@ -39,9 +39,8 @@ async fn main {
   // Download the fixture file and print its content.
   println("==> RETR /hello.txt")
   let response = @ftp.retr(client, "/hello.txt")
-  let bytes = response.reader.read_all() catch { _ => b"" }
-  response.close()
-  let payload = bytes.text() catch { _ => "" }
+  let payload = response.read_all() catch { _ => Bytes::new(0) }
+  let payload = payload.to_string()
   println("    payload: \{payload}")
 
   // Upload, rename, size-check, then delete.

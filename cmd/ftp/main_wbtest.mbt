@@ -204,6 +204,37 @@ test "parse_int only accepts plain decimal digits" {
   assert_eq(parse_int("2a"), None)
   assert_eq(parse_int("-1"), None)
   assert_eq(parse_int(" 1"), None)
+  // A long digit string wraps around in `Int32`; it must be refused, not
+  // wrapped into a small number that looks valid.
+  assert_eq(parse_int("4294983695"), None)
+  assert_eq(parse_int("99999999999999999999"), None)
+  assert_eq(parse_int("65535", limit=65535), Some(65535))
+  assert_eq(parse_int("65536", limit=65535), None)
+}
+
+///|
+/// `--port 0` and `--port 65536` can never be dialled, and `--timeout 0` would
+/// be silently replaced by the default deadline, so all three are usage errors.
+test "parse_args refuses unusable port and timeout values" {
+  for
+    args in [
+      ["ftp", "--port", "0", "ls"],
+      ["ftp", "--port", "65536", "ls"],
+      ["ftp", "--port", "4294983695", "ls"],
+      ["ftp", "--timeout", "0", "ls"],
+    ] {
+    match parse_args(args) {
+      Err(_) => ()
+      Ok(_) => fail("expected a usage error")
+    }
+  }
+  match parse_args(["ftp", "--port", "65535", "--timeout", "1", "ls"]) {
+    Ok(parsed) => {
+      assert_eq(parsed.port, Some(65535))
+      assert_eq(parsed.timeout_ms, 1)
+    }
+    Err(message) => fail("unexpected error: \{message}")
+  }
 }
 
 ///|
