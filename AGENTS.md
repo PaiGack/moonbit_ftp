@@ -17,408 +17,13 @@ You can browse and install extra skills here:
   so symbols are referenced by bare name (`Entry`, `parse_list_line`) instead of
   `@types.Entry` / `@parse.parse_list_line`.
 
-- `cmd/ftp/` and `cmd/example/` are separate packages: they are the CLI
-  executable and the real-FTP-server demonstration. Everything else is in the
-  root `PaiGack/ftp` package. Both `cmd/*/moon.pkg` declare `supported_targets
-  = "+native"` because the async runtime requires it.
+- `cmd/ftp/` (CLI)、`cmd/example/`（明文真实服务器演示）、`cmd/ftps/`（FTPS
+  端到端冒烟）和 `cmd/profiles/`（四个客户端能力画像）是独立包；其余代码都在根
+  `PaiGack/ftp` 包。`cmd/*/moon.pkg` 都声明 `supported_targets = "+native"`，
+  因为 async 运行时需要它。
 
 - Test files keep the usual naming: `*_test.mbt` (blackbox) and `*_wbtest.mbt`
   (whitebox). They live in the same root package as the code.
-
-- `scripts/ftps/` mirrors the `scripts/*.sh` lifecycle for the encrypted case:
-  `gen-cert.sh` (self-signed CA + leaf, regenerated every run and gitignored),
-  `probe-ftps.sh` (`AUTH TLS` readiness handshake, verified against the CA),
-  `probe-ftps-selftest.py` (runs that probe against a docker-free mock),
-  `ftp_mock.py` (the plaintext FTP mock those docker-free checks drive the real
-  binaries against), `cmd-ftps-selftest.py` (runs `cmd/ftps plain` against that
-  mock), `tls-fixture-selftest.py` (asserts the `testdata/ftp/tls` certificate
-  `moon test` needs was minted before it ran), `fixture-isolation-selftest.py`
-  (asserts the two containers do not share a writable fixture), `start-ftps.sh`
-  (the FTPS container on `127.0.0.1:2121`, endpoint written to
-  `.ftp-tls.env`) and `stop-ftps.sh` (dumps logs, removes the container, never
-  fails). The FTPS container is `bfren/ftps` (Alpine + vsftpd
-  3.0.5) configured with `force_local_data_ssl=YES`, which is what makes a
-  control-channel-only "upgrade" fail every transfer.
-
-- `scripts/profiles/` is the docker-free gate for `cmd/profiles`, the third of
-  the pre-container self-tests: `ftp_profile_mock.py` (a plaintext FTP mock with
-  a real filesystem, answering `NLST <dir>` the way the container does — full
-  paths, not bare names) and `cmd-profiles-selftest.py` (drives the real binary
-  against that mock and checks the command stream each profile actually chose:
-  `LIST` vs `MLSD`, `PASV` vs `EPSV`, whether a timestamp was written). Those
-  choices are invisible against the real server, which supports both, so the
-  mock is the only place they can be asserted; it runs in `scripts/ci.sh` before
-  any image is pulled, like the other two.
-
-- **The `testdata/ftp/tls` fixture must be generated before `moon test`, and
-  `tls-fixture-selftest.py` is what fails the gate when it was not.**
-  `transfer_wbtest.mbt`'s zero-byte TLS upload case is the only test that
-  speaks *server*-side TLS, and `@tls.Tls::server_from_pair` accepts a
-  certificate only as a file path — so the gitignored directory
-  `gen-cert.sh` writes into is a precondition of `moon test` itself, not of the
-  FTPS block. Without it the test fails as
-
-  ```
-  transfer_wbtest.mbt:386 FAILED: stor_from: Cancelled
-  ```
-
-  i.e. `@coroutine.Cancelled`, which is what the task group reports when its
-  server task raised: the group is marked failed, its other tasks are cancelled,
-  and the caller — the plain `stor_from` on the main path — collects that
-  cancellation instead of the real error. The missing file is never named, so
-  the behaviour the test exists to pin -- a zero byte upload must trigger the
-  handshake explicitly -- reads as a library bug. The gate regenerates the pair
-  into a scratch directory and loads it the way OpenSSL will, so a certificate
-  that is present but unusable fails here rather than as a TLS error inside the
-  test.
-
-- **`probe-ftps.sh` must be tested against a mock, not only via the container.**
-  It is a gate whose failure mode is "says unhealthy about a healthy server", so
-  its bugs make CI fail *on success* and surface as a downstream symptom: the
-  probe fails, `start-ftps.sh` fails, `.ftp-tls.env` is never written, and both
-  `cmd/ftps/run.sh` calls die on the missing file — which reads like a TLS bug
-  while the FTPS assertions never ran at all. Two such bugs have already shipped
-  once each, both invisible to `bash -n` and to any real-server run:
-  `openssl s_client` never exits by itself, so a *successful* login looked like
-  a timeout inside the retry loop; and `-quiet` writes server replies to stderr,
-  so the `grep '^230 '` on the captured stdout could never match. Hence
-  `timeout` around `s_client`, `2>&1` on the capture, and
-  `probe-ftps-selftest.py` in `scripts/ci.sh` before any Docker step.
-
-- **Each container gets its own copy of `testdata/ftp/fixture`; never mount the
-  checked-in directory into both.** The FTP home has to be writable (the smoke
-  tests upload into it) and the two images treat it differently: `bfren/ftps`
-  runs `11-user.nu` "Ensuring user test owns /files" and `chown`s whatever is
-  mounted at `/files`, while `jmoyer/vsftpd` mounts the same tree as its own
-  user's home. Pointing both starters at `testdata/ftp/fixture` therefore makes
-  whichever server starts second unable to write, and vsftpd says so with
-  `553 Could not create file.` -- in `cmd/ftps/run.sh plain`, i.e. a failure
-  that reads like a plaintext-transport regression and has nothing to do with
-  TLS. It also dirties the working tree as a side effect. `scripts/start-ftp.sh`
-  and `scripts/ftps/start-ftps.sh` each `cp -R` the fixture into their own
-  gitignored `.ftp-plain-root/` / `.ftp-ftps-files/`, `chmod -R a+rwX` it, and
-  their `stop-*.sh` counterparts `rm -rf` it, so a run cannot inherit a
-  root-owned leftover from the one before it. Do not "simplify" this back to a
-  single shared mount.
-
-- **The mounted leaf certificate must be named `/ssl/vsftpd.pem`, and `/ssl`
-  must stay read-only.** `bfren/ftps` hardcodes `FTPS_VSFTPD_CERT=/ssl/vsftpd.pem`
-  (`10-env.nu`), skips generating a certificate only when that exact path exists
-  (`13-vsftpd-ssl.nu`), and points both `rsa_cert_file` and
-  `rsa_private_key_file` at it (`vsftpd.conf.esh`). A correctly shaped PEM under
-  any other name is invisible, the image self-signs over the mount instead, and
-  with `/ssl:ro` that write fails during `init` — `bf-init` runs
-  `try { bf x $script } catch { exit 1 }`, so the container dies before vsftpd
-  ever listens. The whole symptom is then a probe that retries `Connection
-  refused` for the full timeout. `start-ftps.sh` runs its liveness check before
-  the readiness probe for that reason, and omits `--rm` so a dead container's
-  init log stays readable instead of answering `No such container`.
-
-- `cmd/example` is the real-FTP-server smoke program: it starts a single
-  `jmoyer/vsftpd` container via `scripts/start-ftp.sh`, exercises dial / login
-  / list / retr / stor / rename / mkdir / walk / quit against the fixture in
-  `testdata/ftp/fixture/`, and prints each step to stdout. `cmd/example/run.sh`
-  is its entry point (a plain `moon run` wrapper) and takes no arguments, so CI
-  can call it directly; `cmd/ftp/run.sh` runs the CLI against the same
-  container as a plain argv-forwarding wrapper, and with no arguments the CLI
-  prints its own usage. A failure is a hard failure — never soften it into a
-  skip.
-
-- **A wrapper must default the endpoint in the environment, never build
-  `--flag <value>` pairs from it.** `cmd/ftp/run.sh` used to source the `.env`
-  its own `[ ! -f .env ] && cp .env.example .env` had just written, then emit
-  `--host "$FTP_HOST"`. A flag's value is a *separate argv entry*, so the two
-  ways that can go wrong are both silent about their cause: an unset variable
-  leaves `--host` to take the next argument with it, and a bare expansion that
-  survives becomes a positional argument the CLI reports as a usage error on
-  input nobody typed. There is no `.env` now. `scripts/ftp-wrapper-selftest.py`
-  (Docker-free, in `scripts/ci.sh`) asserts that the `.env` files are gone and
-  that `cmd/ftp/run.sh` emits **no** connection flag at all: the endpoint comes
-  through the environment, so any `--host`/`--port`/`--user`/`--pass`/
-  `--timeout` in the wrapper is a second reader of the same variables.
-
-  "Inherited, not built" is only half the rule, and taking it literally once
-  cost a CI step. `cmd/ftp/run.sh` inherited-only while nothing between
-  `start-ftp.sh` and it exported a connection setting, so the CLI fell through
-  to its built-in `anonymous` default:
-
-  ```
-  ===== cmd/ftp/run.sh =====
-  error: login failed: PaiGack/ftp.FtpError.ServerError
-  ```
-
-  — while `cmd/example` and `cmd/profiles`, which default `test`/`test`
-  themselves, passed against the same container. So the wrapper now **sets and
-  exports** the same `FTP_TEST_*` defaults `cmd/profiles/run.sh` does, and the
-  binary reads those names (`fallback_env_or` / `fallback_env_port`, with the
-  unprefixed `FTP_*` kept as a second fallback for existing profiles). One
-  spelling for the whole repo — `cmd/example` and `cmd/profiles` read the same
-  four — is what makes the class impossible: a variable nobody exports cannot
-  be silently missing from only one client. The gate checks both halves of the
-  pair (the wrapper's four `export ...="${VAR:-literal}"` lines against
-  `scripts/start-ftp.sh`'s credentials and fixed port, and the binary's
-  variable names against the wrapper's), because a rename on either side is
-  that same `anonymous` login again. `cmd/example/run.sh` still needs no
-  configuration at all — `cmd/example/main.mbt` already defaults every variable
-  it reads, so its `.env` could only restate them.
-
-  That assertion direction is itself load bearing, and it was once backwards.
-  The gate used to require every emitted flag to be a `${VAR:-literal}`
-  expansion — i.e. it *demanded* the flag building this section forbids, so a
-  correctly simplified wrapper would have failed it. Nothing caught the
-  disagreement because the wrapper and `AGENTS.md` had drifted together: the
-  wrapper really was still emitting `--host "$FTP_HOST"` while this paragraph
-  already said it did not. When you change one, change the other and the gate
-  in the same commit.
-
-  Note this is *not* the explanation for the `ReaderClosed` /
-  `Connection reset by peer` / `Connection refused` triple seen in
-  `cnb-cgc-1k4qajlu6`. A later run, `cnb-hka-1k4qa65hk`, shows `cmd/ftp/run.sh`
-  completing normally (`file 12 hello.txt`), which rules the `.env` race out for
-  that signature. Those three are the plaintext container dying mid-run — one
-  symptom per client, differing only in which syscall caught it.
-
-- `cmd/ftps` is the **FTPS end-to-end smoke test**, the encrypted counterpart of
-  `cmd/example`. It takes a transport argument: `explicit` (default, `AUTH TLS`
-  on a plaintext control channel, the RFC 4217 shape) or `plain` (no TLS, for
-  the regression guard against the plaintext container). One binary, both
-  transports, so "the fix works over TLS and does not break the clear" is a
-  single verifiable claim. Its server comes from `scripts/ftps/start-ftps.sh`;
-  the certificate is a self-signed CA generated per run by
-  `scripts/ftps/gen-cert.sh`, mounted into the container and injected into the
-  client with `trust=@tls.TrustedRoot::CustomPemFile(...)` so verification
-  stays **on** — never disable it to make the test pass.
-
-- **A `@io.MemoryReader` passed inline has no owner, and that is a deadlock.**
-  The reader spawns a background producer task; the only way to stop it is
-  `MemoryReader::close`. Build one as a temporary at a call site (`f(MemoryReader(...))`)
-  and nothing ever closes it, so the event loop can end with that task still
-  alive. The symptom is not a leak report but a deadlock panic from
-  `@moonbitlang/async`, naming the line of the argument and nothing else:
-
-  ```
-  Dead lock detected. Tasks spawned at the following locations are still alive:
-  ["cmd/ftps/main.mbt:202:30-202:70@PaiGack/ftp"]
-  ```
-
-  It only fires when the consumer *stops early* — a transfer the server rejects,
-  a raised error before the pipe drains — so it hides on the happy path and in
-  every unit test. `cmd/ftps` hit it: its `STOR` call built the reader inline, so
-  a refused `STOR` panicked instead of reporting the error, and the whole FTPS
-  block of `scripts/ci.sh` looked like a TLS bug. Bind the reader to a name and
-  `defer reader.close()`, as `cmd/ftps` now does.
-
-- **`scripts/ftps/cmd-ftps-selftest.py` runs `cmd/ftps` without Docker**, which
-  is where that deadlock is caught. `scripts/ftps/ftp_mock.py` is a plaintext
-  FTP mock on ephemeral ports; the self-test drives the real binary against it
-  twice, once with every transfer served and once with `STOR` refused. The
-  refused case is the regression guard: on the buggy code it reproduces the
-  exact CI deadlock, and it runs in `scripts/ci.sh` *before* any image is
-  pulled. The same rule as `probe-ftps.sh` applies — if `cmd/ftps` breaks, the
-  gate should say so, not the container log.
-
-- **The two containers must not share the fixture directory.** `bfren/ftps`'s
-  `11-user.nu` runs `bf ch --owner "test:test" --recurse $files` over `/files`
-  at init, with `FTPS_VSFTPD_UID` defaulting to 1000. `/files` is a bind mount,
-  so that recursive chown rewrites the *host* tree — and `scripts/start-ftp.sh`
-  mounts the same `testdata/ftp/fixture` directory as its FTP root, where the
-  virtual user maps to the image's `ftp` (uid 100). Once the FTPS container has
-  started, the plaintext container can no longer write there and its `STOR` is
-  refused with `550`. That is why `cmd/ftps/run.sh plain` fails *after*
-  `start-ftps.sh` has run while `cmd/example` — which runs before it — passes on
-  the same container. `start-ftps.sh` therefore mounts a per-run **copy** under
-  `.ftp-ftps-files/` (gitignored, rebuilt every run, removed by
-  `stop-ftps.sh`), and `scripts/start-ftp.sh` takes its own under
-  `.ftp-plain-root/` — so the two chowns can only ever touch their own
-  throwaway trees. `fixture-isolation-selftest.py` asserts that invariant with
-  no Docker, since no single-container test can see it.
-
-- **`scripts/start-ftp.sh` must pass every variable the image's entrypoint
-  interpolates, and `vsftpd-env-selftest.py` is what checks it without
-  Docker.** `jmoyer/vsftpd`'s entrypoint appends one directive per environment
-  variable to `vsftpd.conf` and interpolates the value straight in; vsftpd
-  exits 2 (`missing value in config file for: <name>`) when one is empty, and
-  that message goes to fd 0, which inside a container is not the log stream.
-  So a forgotten variable produces a server that answers the readiness probe
-  and is then gone, and four unrelated client steps fail with
-  `Connection refused` — the run that motivated the self-test. The ten names
-  are the entrypoint's list, written out in the self-test rather than inferred
-  from `start-ftp.sh`, because the point is that the two have to agree.
-
-- **The plaintext container can be gone by the time `plain` runs, and the
-  client only says so about the port.** `cmd/ftps/run.sh plain` is the last
-  step that needs `scripts/start-ftp.sh`'s container, and it is a whole FTPS
-  block — an image pull, a generated CA, a second handshake, one more
-  `docker run` — away from the probe that declared it healthy. On CNB's DinD
-  the `jmoyer/vsftpd` container has twice been dead by then, and all the client
-  reports is
-
-  ```
-  ==> plain: dial 127.0.0.1:21
-  OSError("@socket.Tcp::connect(): Connection refused")
-  ```
-
-  which names the port rather than the container, and reads like a plaintext
-  regression even though `cmd/example`, `cmd/ftp` and `cmd/profiles` had just
-  passed against the same endpoint. `scripts/ensure-ftp.sh` therefore re-checks
-  the container immediately before that leg — running *and* answering a login +
-  passive `LIST`, since a published port is not a serving vsftpd — and
-  restarts it with `start-ftp.sh` when it is not, failing with the container log
-  only when the restart does not help. `ensure-ftp-selftest.py` drives that
-  script through a stub `docker`, because the three outcomes (leave a healthy
-  server alone, restart a dead one, give up loudly) are indistinguishable
-  against a real container that is usually simply up. Do not replace this with
-  a bare `docker ps`: that is exactly the check that calls a published-but-not-
-  serving port healthy.
-
-- **That re-check belongs after the *first* client, not only before `plain`.**
-  It originally sat in front of `cmd/ftps/run.sh plain` alone, on the reasoning
-  that `plain` is the last step needing the container. The run it was written
-  for (`cnb-cgc-1k4qajlu6`) says otherwise: `cmd/example` passed, and then
-  `cmd/ftp` died with `connect failed: ReaderClosed`, `cmd/profiles` with
-  `Connection reset by peer`, the FTPS smoke test passed against its *own*
-  container, and `plain` with `Connection refused` — one dead container
-  reported four times, once per client, in four different vocabularies, because
-  only the last of them was preceded by a check. `cmd/example` finishing is the
-  earliest evidence that the endpoint works *and* the last moment a restart can
-  still save the three steps behind it, so the call sits between
-  `cmd/example/run.sh` and `cmd/ftp/run.sh`. A second call sits in front of the
-  `cmd/profiles` invocations, because `cmd/example` and `cmd/ftp` died in two
-  adjacent lines of a run once: one guard between them proved the server was up
-  for exactly one of the two. `ensure-ftp-selftest.py` asserts both positions
-  against `scripts/ci.sh` — every plaintext client's statement is preceded by a
-  guard, not merely somewhere earlier in the file — because an extra call is
-  merely redundant while a missing one is invisible.
-
-- **A guard in front of a client cannot cover a window *inside* it, and
-  `cmd/profiles` opens four sessions.** The rule above — "the statement
-  immediately preceding the client is the guard" — silently assumed one session
-  per invocation. `cmd/profiles` runs `full` / `no-mlst` / `no-time` /
-  `no-epsv` on four sequential connections, so a container that dies between
-  the third and the fourth is past the guard that just declared it healthy. In
-  `cnb-ake-1k4qn4ukc` that is exactly what happened: the guard before the step
-  passed, three profiles completed, and the fourth `dial` — which never read a
-  greeting, since with `disable_epsv` nothing passive is negotiated before the
-  greeting anyway — reported
-
-  ```
-  Failure(cmd/profiles/main.mbt:61:12-61:57@PaiGack/ftp FAILED: profile no-epsv: ReaderClosed)
-  ```
-
-  i.e. a dead server wearing a profile's name. The `ensure-ftp.sh` in front of
-  `cmd/ftps/run.sh plain` then found the container gone and its restart fixed
-  that step, which is how the fault was pinned on the server rather than on
-  `disable_epsv`. So `cmd/profiles` now takes an optional profile name
-  (no argument still runs all four) and `scripts/ci.sh` invokes it once per
-  profile, each behind its own `ensure-ftp.sh`; `ensure-ftp-selftest.py` checks
-  those names against `profiles()` in `cmd/profiles/main.mbt`, so adding a
-  profile there without a guarded invocation in `ci.sh` fails the gate.
-  `scripts/profiles/cmd-profiles-selftest.py` covers the named mode — one
-  session, one profile reported — so the split cannot quietly stop exercising
-  the other three.
-
-- **A dead container is a *bare* `ReaderClosed`, and the guard cannot cover
-  the window inside a client.** Every guard above is a re-check before a step,
-  which leaves the window that opens while the client is running. `cnb-gur-
-  1k4sor3b1` walked straight into it: `cmd/example`, `cmd/ftp` and all four
-  profiles passed, the FTPS smoke test passed against its *own* container, and
-  then `cmd/ftps/run.sh plain` — whose guard had just pronounced the plaintext
-  container healthy — printed
-
-  ```
-  ==> plain: dial 127.0.0.1:21
-  ReaderClosed
-  ```
-
-  Nothing in that names the server, the port, or the fact that the connection
-  was accepted and then closed. `dial` reads the `220` greeting first, so a
-  container that has exited looks exactly like this: the DinD port proxy keeps
-  answering the published port, `connect()` succeeds, and the first read gets
-  EOF. Read as a client bug it sends you into `control.mbt`'s `read_line`; read
-  as what it is — a dead server — it is one `ensure-ftp.sh` away from fixed.
-  So `cmd/ftps` dials **twice** before concluding anything: a single closed
-  greeting can be a container still starting, while the same thing twice is
-  nothing serving on that port, and the second failure names the endpoint and
-  says the container behind it is gone. `cmd-ftps-selftest.py` drives that with
-  a listener that accepts and immediately closes, asserting both the message and
-  that the retry happened — the retry is what keeps a slow-starting server from
-  being called dead.
-
-- **A guard in front of a client cannot cover a window *inside* it either, and
-  the fix is a conditional retry, not another guard.** The per-profile guards
-  above close the gap *between* sessions; they say nothing about a container
-  that dies *during* one. In `cnb-cne-1k4sv7m6r` the guard in front of
-  `cmd/profiles/run.sh no-epsv` passed, and 425 ms later the profile reported
-  `ReaderClosed`; the same run then lost `plain`'s data connection with
-  `Connection refused`. One dead container, two clients, two vocabularies, and
-  the guards were already behind both of them. No number of guards fixes this —
-  the death is inside the step. So every plaintext client runs through
-  `run_guarded`, which re-runs the step once **when it fails *and*
-  `ensure-ftp.sh` cannot find the server answering**. That conjunction is the
-  whole design: the re-check is what makes the retry safe. A failure caused by
-  anything else — a bad assertion, a `550` the server actively answered — leaves
-  the container up, the guard passes, and the failure is reported as the real
-  failure it is rather than being hidden behind a second identical attempt.
-  `ensure-ftp-selftest.py` drives the wrapper extracted from `ci.sh` with a stub
-  client and a stub `ensure-ftp.sh`, and asserts all four outcomes separately:
-  healthy (one attempt, no restart), dies-and-recovers (restart, one retry that
-  passes), fails-with-server-up (**no** retry), dies-and-stays-dead (one retry,
-  then a real failure). Mutating the conditional away — always retry, never
-  retry, retry twice — each fail that gate.
-
-- **FTPS is the one capability whose failure mode is "the first read hangs"**,
-  which no unit test and no plaintext server can reach. All four of the TLS
-  bugs found so far lived in the seams: `AUTH TLS` sent without upgrading the
-  socket, `PBSZ` / `PROT P` skipped for explicit TLS, implicit TLS never
-  wrapping the control connection, and a TLS data connection closed without a
-  `close_notify`. Before touching `dial.mbt` / `transport.mbt` /
-  `control.mbt`, keep `cmd/ftps` passing.
-
-- **The readiness probe judges the transcript, never `openssl`'s exit code.**
-  vsftpd closes the control socket after `QUIT` without a TLS `close_notify`,
-  so `openssl s_client` exits 1 with `ssl3_read_n:unexpected eof while reading`
-  *after* a successful `230 Login successful.`. `probe-ftps.sh` therefore
-  captures with `|| true` and passes only on a `230` seen in the output; keying
-  off the exit status made the gate reject a healthy server and retry until the
-  timeout, printing the *successful* handshake as the "last error". A probe that
-  fails must print the whole transcript — truncating it to the last line is what
-  turned that into a wild goose chase.
-
-- **The data-channel TLS handshake belongs *after* the transfer command.** The
-  server does not read the data socket until it has answered `150`, so a client
-  that handshakes earlier writes a `ClientHello` into a socket nobody is
-  reading and real servers answer `425 Unable to build data connection` (a
-  lenient stub lets it slide, which is how this stayed green while broken).
-  `DataConn::start_tls` is called from `cmd_data_conn_from` after the `150` for
-  exactly this reason, and `DataConn::close` sends the TLS `close_notify` before
-  closing the socket. Both are load bearing.
-
-- **A reply read must have a deadline, or the async runtime calls the wait a
-  deadlock.** `EventLoop::check_dead_lock` fires as soon as the loop has no
-  ready task and no pending timer, and a suspended socket read counts as "no
-  ready task" — so an unbounded `Control::read_line` on a server that is merely
-  slow (a real ftpd answers `150` only *after* it accepted the data
-  connection) aborts the process with `Dead lock detected`, naming whichever
-  *unrelated* task happened to be parked. That is how a plain `STOR` came to be
-  blamed on the `@io.MemoryReader` two files away in `cmd/ftps/main.mbt`.
-  `Control` therefore carries a `timeout_ms` and `read_line` raises
-  `FtpError::RequestTimeout`; keep the deadline on, and keep `timeout_ms` out
-  of the `FtpError` collapse in `cmd_data_conn_from` — a swallowed error turns
-  a silent server into the same "transfer command failed" as a `550`.
-
-- **A `MemoryReader` passed to `stor` / `append` must be closed by the caller.**
-  `stor` only drains the source once the server accepted the transfer, so a
-  refused or unanswered command leaves the producer parked on a pipe nobody
-  reads. The parked task then trips the deadlock check at process exit, which
-  is the same misleading abort as above. `cmd/ftps` closes its reader in a
-  `defer`; tests use `failing_source()` or call `.close()`.
-
-- `scripts/ci.sh` is the single CI entry point: the whole check / test / build /
-  real-server-demo / FTPS-demo / cleanup sequence. `.cnb.yml` and
-  `.github/workflows/ci.yml` each have exactly one job whose only real step is
-  `bash scripts/ci.sh`, so the two pipelines cannot drift apart. Do not inline
-  `moon` commands, credentials or `docker run` into either pipeline, and do not
-  add a per-provider copy of a script.
 
 - The root `moon.pkg` has one plain import block (shared by the pure logic
   files, the IO files and the in-package tests, because MoonBit 0.1.20260920 has
@@ -429,6 +34,44 @@ You can browse and install extra skills here:
 
 - In the toplevel directory, there is a `moon.mod` file listing module
   metadata.
+
+## 脚本与可执行包
+
+目录级细节写在各自的 `AGENTS.md` 里，改对应目录时一起读：
+
+| 目录 | 内容 |
+| --- | --- |
+| `scripts/` | CI 入口、明文容器、无需 Docker 的自测、fixture 隔离 |
+| `scripts/ftps/` | FTPS 容器、证书、握手探测与它们的自测 |
+| `scripts/profiles/` | `cmd/profiles` 的无 Docker 自测 |
+| `cmd/` | 四个可执行包与包装脚本 |
+| `docs/` | `porting.md` 的包布局、文档代码块约定 |
+
+`scripts/ci.sh` 是唯一 CI 入口：`.cnb.yml` 与 `.github/workflows/ci.yml` 各自只有
+一个 job，唯一实质步骤是 `bash scripts/ci.sh` —— 不要在流水线里内联 `moon` 命令、
+凭据或 `docker run`，也不要给某个平台单独写一份脚本。每个容易被误读的环节都有
+一个在镜像拉取之前运行的自测；改动被测脚本时同步改自测。
+
+## MoonBit 中的 async 规则
+
+- **`@io.MemoryReader` 必须有主并在用完后 `close`。** 它有一个后台生产者任务，只有
+  `close` 能停掉它；作为临时值内联传入（`f(MemoryReader(...))`）没人关，消费者提前
+  停止时事件循环会以 `Dead lock detected` 结束，只点名参数所在行。绑定到变量并
+  `defer reader.close()`。`stor` / `append` 同样要求调用方负责关闭 source。
+
+- **控制通道的读必须有超时。** `Control` 携带 `timeout_ms`，`read_line` 超时抛
+  `FtpError::RequestTimeout`；没有超时，等待一个慢服务器的读会被事件循环判为死锁。
+  不要在 `cmd_data_conn_from` 里把这个错误吞掉。
+
+- **数据通道的 TLS 握手必须在传输命令之后**（服务器在回 `150` 前不读数据 socket），
+  由 `cmd_data_conn_from` 在收到 `150` 后调用 `DataConn::start_tls`；
+  `DataConn::close` 先发 TLS `close_notify` 再关 socket。
+
+- **FTPS 的问题单测和明文服务器都覆盖不到**。历史上的 TLS bug 全在接缝处：
+  `AUTH TLS` 后没升级 socket、显式 TLS 跳过 `PBSZ` / `PROT P`、
+  隐式 TLS 没包住控制连接、数据连接未发 `close_notify`。改动
+  `dial.mbt` / `transport.mbt` / `control.mbt` 前后都要保持 `cmd/ftps` 通过，
+  且**不得关闭证书校验**来让它通过。
 
 ## Coding convention
 
@@ -441,47 +84,19 @@ You can browse and install extra skills here:
 
 ## Tooling
 
-- A `moonbit` fenced block in a `.mbt.md` is only syntax-highlighted by default.
-  Writing ```moonbit check is what puts it on the `moon check` path, and
-  `moonbit nocheck` is the escape hatch for a snippet that must *not* compile.
-  `README.mbt.md`'s quick-start block therefore carries `check` and is a live
-  regression test for the documented API: break `@ftp.dial`'s signature and
-  `moon check --target native --deny-warn` fails naming the README line. A
-  checked block lives in the root package, so it may not declare `main`
-  (`Unexpected main function in the non-main package`) — wrap it in `test { }`
-  and name the function something else. `docs/porting.md` keeps plain
-  `moonbit` fences on purpose: those are Go-to-MoonBit readings, not claims
-  about this repo's own API.
+- `moon fmt` 格式化代码，也会格式化 `.mbt.md` 里被检查的代码块；
+  `moon fmt --check` 要求 README 片段符合规范。
 
-- `moon fmt` is used to format your code properly, and it also formats the
-  checked blocks inside `.mbt.md` — `moon fmt --check` fails on a README whose
-  snippet is not in canonical form.
+- `.mbt.md` 里的代码块默认只高亮：写 ```moonbit check 才会进 `moon check`，
+  `moonbit nocheck` 是例外。`README.mbt.md` 的快速开始带 `check`，是文档 API 的回归
+  测试；它位于根包，不能声明 `main`（用 `test { }` 包起来）。`docs/porting.md`
+  的普通围栏是有意为之。
 
 - `moon ide` provides project navigation helpers like `peek-def`, `outline`, and
   `find-references`. See $moonbit-agent-guide for details.
 
-- `moon info` is used to update the generated interface of the package, each
-  package has a generated interface file `.mbti`, it is a brief formal
-  description of the package. If nothing in `.mbti` changes, this means your
-  change does not bring the visible changes to the external package users, it is
-  typically a safe refactoring.
-
-- In the last step, run `moon info && moon fmt` to update the interface and
-  format the code. Check the diffs of `.mbti` file to see if the changes are
-  expected.
-
-- **`pkg.generated.mbti` spells `Int` whichever way the toolchain prints it, so
-  it is never proof of anything.** Core declares `#alias(Int32) pub type Int`
-  (`~/.moon/lib/core/builtin/pkg.generated.mbti`); a compiler may print the
-  alias or resolve it, and this repo's file was last written by one that
-  printed `Int`. A runner whose compiler resolves it makes `moon info`
-  rewrite 97 lines to `Int32` -- `dial`'s `timeout_ms? : Int` among them --
-  with no source change behind it. `scripts/ci.sh` therefore runs
-  `git diff --exit-code` *before* `moon info`: that gate is about edits nobody
-  committed, and regenerating first made it fail on a clean tree. Treat a
-  pure-`Int`/`Int32` diff in that file as toolchain noise, not as a signal
-  about the change under review; check it by hand only when it names a symbol
-  you actually touched.
+- `moon info` regenerates the package interface `.mbti`. 最后一步跑
+  `moon info && moon fmt`，检查 `.mbti` 的差异是否预期。
 
 - Run `moon test` to check tests pass. MoonBit supports snapshot testing; when
   changes affect outputs, run `moon test --update` to refresh snapshots.
@@ -493,3 +108,7 @@ You can browse and install extra skills here:
   scientific computations), prefer assertion tests. You can use
   `moon coverage analyze > uncovered.log` to see which parts of your code are
   not covered by tests.
+
+- Rerun the Docker-free self-tests you touched directly, e.g.
+  `python3 scripts/ftp-wrapper-selftest.py .`; they take a repo root argument and
+  need no server.
